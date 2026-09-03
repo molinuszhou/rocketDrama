@@ -1,0 +1,36 @@
+# Android / Gradle
+.gradle/
+**/build/
+*.apk
+*.aab
+local.properties
+app/google-services.json
+*.jks
+*.keystore
+*.lic
+
+# Python / application runtime
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+dist/
+.env
+*.db
+*.sqlite*
+
+# User-owned media and runtime state
+media/
+runtime/
+content/owned_catalog.local-media.json
+backups/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Kotlin incremental compiler state
+**/.kotlin/

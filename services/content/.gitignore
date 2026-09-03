@@ -1,0 +1,27 @@
+# 本地运行配置与敏感值
+.env
+.env.*
+!.env.example
+
+# 仅用于开发联调的授权媒体文件
+media/**
+!media/.gitkeep
+
+# Python 缓存与测试产物
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 虚拟环境和构建产物
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+
+# 动态奖励运行数据：包含用户权益账本和实际运营规则，禁止提交。
+runtime/**
+!runtime/.gitkeep
+!runtime/reward_rules.example.json

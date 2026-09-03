@@ -1,0 +1,19 @@
+# 本地构建配置与第三方凭据
+local.properties
+*.keystore
+*.jks
+
+# 合作方受控配置文件
+app/google-services.json
+app/src/main/assets/license/*.lic
+app/src/main/assets/license/*.lic.*
+
+# 构建和 IDE 产物
+.gradle/
+.idea/
+**/build/
+*.iml
+
+# Android Studio / 系统文件
+local.properties
+.DS_Store

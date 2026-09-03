@@ -1,0 +1,37 @@
+# 复制所需项到 local.properties 或受控 CI Secret；不要提交实际值。
+
+# 自有短剧内容服务。
+# Android 模拟器：http://10.0.2.2:8000
+# 真机局域网：http://<电脑局域网IP>:8000
+LOCAL_CONTENT_API_BASE_URL=http://10.0.2.2:8000
+
+# 动态奖励服务；可与内容服务共用同一 FastAPI 地址。
+REWARDS_API_BASE_URL=http://10.0.2.2:8000
+
+# 当前测试包：Pangle Waterfall 直连。真实值仅写入 local.properties/CI Secret。
+PANGLE_APP_ID=
+PANGLE_REWARDED_SLOT_ID=
+PANGLE_INTERSTITIAL_SLOT_ID=
+PANGLE_APP_OPEN_SLOT_ID=
+
+# TopOn 聚合广告未来预留。拿到完整 App ID + App Key 后才可启用；当前版本不读取这些字段。
+TOPON_APP_ID=
+TOPON_APP_KEY=
+TOPON_REWARDED_PLACEMENT_ID=
+TOPON_INTERSTITIAL_PLACEMENT_ID=
+TOPON_SPLASH_PLACEMENT_ID=
+ADMOB_APP_ID=
+
+# AppsFlyer 归因预留；当前测试包不主动初始化归因 SDK。
+APPSFLYER_DEV_KEY=
+
+# 外部短剧 SDK 未来重新启用时的预留项；当前版本不读取、不打包，也不包含 License 文件。
+DRAMAVERSE_APP_ID=
+DRAMAVERSE_SECURITY_KEY=
+BYTEPLUS_VOD_APP_ID=
+BYTEPLUS_VOD_LICENSE_ASSET=
+
+# 受控文件（必须被 .gitignore 排除）：
+# 1) app/google-services.json
+# 2) app/src/main/assets/license/*.lic（当前版本目录应为空）
+# 3) local.properties
