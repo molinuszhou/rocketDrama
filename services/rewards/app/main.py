@@ -9,9 +9,11 @@ from app.schemas import (
     ApiEnvelope,
     BootstrapRequest,
     CheckinRequest,
+    GemsExchangeRequest,
     HealthResponse,
     InterstitialShownRequest,
     RewardedCompleteRequest,
+    WelcomeBonusRequest,
     WatchEventRequest,
     WithdrawalPreflightRequest,
 )
@@ -82,6 +84,16 @@ def watch_event(payload: WatchEventRequest) -> dict:
 @app.post("/v2/checkins", response_model=ApiEnvelope)
 def checkin(payload: CheckinRequest) -> dict:
     return {"code": 0, "data": service.checkin(payload.user_id)}
+
+
+@app.post("/v2/welcome/claim", response_model=ApiEnvelope)
+def claim_welcome_bonus(payload: WelcomeBonusRequest) -> dict:
+    return {"code": 0, "data": service.claim_welcome_bonus(payload.user_id)}
+
+
+@app.post("/v2/wallet/exchange", response_model=ApiEnvelope)
+def exchange_gems(payload: GemsExchangeRequest) -> dict:
+    return {"code": 0, "data": service.exchange_gems(payload.user_id, payload.gems, payload.reference_id)}
 
 
 @app.post("/v2/interstitials/shown", response_model=ApiEnvelope)

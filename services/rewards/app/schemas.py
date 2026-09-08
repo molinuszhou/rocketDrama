@@ -12,6 +12,7 @@ RewardedPlacement = Literal[
     "rv_double_reward",
     "rv_chest_task",
     "rv_signin_double",
+    "rv_release_boost",
 ]
 InterstitialPlacement = Literal["int_timer", "int_pause"]
 
@@ -41,6 +42,16 @@ class WatchEventRequest(BaseModel):
 
 class CheckinRequest(BaseModel):
     user_id: str = Field(min_length=1, max_length=128)
+
+
+class WelcomeBonusRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=128)
+
+
+class GemsExchangeRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=128)
+    gems: int = Field(ge=1, le=10_000_000_000)
+    reference_id: str = Field(min_length=8, max_length=160)
 
 
 class InterstitialShownRequest(BaseModel):

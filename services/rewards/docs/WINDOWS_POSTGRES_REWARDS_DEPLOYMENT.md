@@ -1,9 +1,9 @@
 # DramaFlow 独立 PostgreSQL 积分服务：Windows 部署与联调手册
 
-**文档版本：v1.0.0**
+**文档版本：v3.0.0**
 **适用环境：Windows 10/11、Docker Desktop、Android 真机或模拟器**
 
-本服务负责广告事件、宝石账本、现金钱包换算、签到、每日宝箱、集间广告、十轮领奖、皇冠成就和插屏频控。它与自有短剧内容服务是**两个独立进程、两个独立端口、两套数据边界**：内容服务只负责目录、分集、短时播放 URL 与媒体文件；本服务只负责奖励与权益结算。
+本服务负责广告事件、宝石账本、新人欢迎奖励、三层钱包兑换与释放、签到、每日宝箱、追剧领奖、皇冠成就和插屏频控。它与自有短剧内容服务是**两个独立进程、两个独立端口、两套数据边界**：内容服务只负责目录、分集、短时播放 URL 与媒体文件；本服务只负责奖励与权益结算。
 
 > 不要把积分服务地址写成短剧内容服务的 `:8000`。默认情况下，内容服务使用 **8000**，独立 PostgreSQL 积分服务使用 **8100**。
 
@@ -58,7 +58,14 @@ docker compose ps
 docker compose logs -f rewards-api
 ```
 
-初次启动会拉取 PostgreSQL 镜像、构建 API 镜像并创建名为 `rewards_postgres_data` 的 Docker 持久卷。PostgreSQL 官方镜像会在**首次初始化空数据目录**时执行挂载到 `/docker-entrypoint-initdb.d` 的 SQL 脚本；已有数据卷不会重复运行初始化脚本。[3]
+初次启动会拉取 PostgreSQL 镜像、构建 API 镜像并创建名为 `rewards_postgres_data` 的 Docker 持久卷。PostgreSQL 官方镜像会在**首次初始化空数据目录**时按顺序执行 `001_init.sql` 和 `002_monetization_v3.sql`；已有数据卷不会重复运行初始化脚本。[3]
+
+> **从 v1.0.0 升级的必做步骤：** 已经创建过数据库卷时，请在部署目录执行一次下面的迁移，然后重启 API。不要使用 `docker compose down -v` 来“升级”，那会删除真实账本。
+>
+> ```powershell
+> Get-Content .\sql\002_monetization_v3.sql | docker compose exec -T postgres psql -U $env:POSTGRES_USER -d $env:POSTGRES_DB
+> docker compose restart rewards-api
+> ```
 
 当日志显示 API 已监听端口后，按 `Ctrl+C` 退出日志跟随模式；这不会停止后台服务。随后进行健康检查：
 
@@ -116,7 +123,7 @@ http://192.168.1.25:8100
 
 不要填入内容服务地址 `:8000`。模拟器在同一开发电脑上运行时，默认地址是 `http://10.0.2.2:8100`；真机必须填写电脑的实际局域网 IPv4 地址。
 
-配置成功后，进入 **奖励** 页面应能看到宝石余额、现金钱包、签到进度、每日宝箱、十轮领奖和皇冠之路。开发测试中，完整观看 Pangle 激励广告后，Android 会提交开发广告证明；数据库服务以幂等广告事件 ID 结算，重复回调不会重复加宝石。
+配置成功后，进入 **奖励** 页面应能看到新人欢迎奖励、宝石余额、待释放余额、可用余额、现金释放进度、签到进度、每日宝箱、追剧领奖和皇冠之路；悬浮攒币转轮会显示在首页和播放页。开发测试中，完整观看 Pangle 激励广告后，Android 会提交开发广告证明；数据库服务以幂等广告事件 ID 结算，重复回调不会重复加宝石。
 
 | 验收路径 | 预期结果 |
 |---|---|
@@ -174,7 +181,7 @@ docker compose start rewards-api
 | App 显示“积分服务尚未连接” | 在 App 的“我的”中确认填写了 `http://电脑IPv4:8100`，而非 `:8000`。 |
 | 手机浏览器访问 `:8100/health` 失败 | Docker Desktop 是否运行、`docker compose ps` 是否健康、Windows 防火墙是否放行 Private 网络、手机和电脑是否同网。 |
 | 端口 8100 被占用 | 修改 `.env` 的 `REWARDS_PORT`，例如 `18100`，执行 `docker compose up -d`，并在 App 填写同一新端口。 |
-| PostgreSQL 初始化规则未更新 | SQL 初始化脚本只在空数据卷首次启动时执行。测试环境可在确认不保留数据后执行 `docker compose down -v` 再启动。 |
+| PostgreSQL 初始化规则未更新 | 新数据卷会自动执行 `001` 与 `002`。已有数据卷需要手动执行 `002_monetization_v3.sql`，然后重启 `rewards-api`；测试环境仅在确认不保留账本时才使用 `docker compose down -v`。 |
 | 广告看完后没有宝石 | 确认 API 地址为 `:8100`、日志没有数据库错误、开发阶段 `ALLOW_DEBUG_AD_PROOF=true`。正式环境必须使用服务端广告验签。 |
 | 宝石/现金钱包与预期不一致 | 查看 `docker compose logs -f rewards-api`；以 PostgreSQL 账本与 API 返回为准，不以客户端缓存为准。 |
 

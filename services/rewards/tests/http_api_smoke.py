@@ -35,7 +35,20 @@ def event_id(prefix: str) -> str:
 
 
 def run() -> None:
-    post("/v2/bootstrap", {"user_id": USER_ID})
+    _, initial = post("/v2/bootstrap", {"user_id": USER_ID})
+    assert initial["data"]["welcome"]["available"] is True
+    assert initial["data"]["checkin"]["today_streak"] == 1
+
+    _, welcome = post("/v2/welcome/claim", {"user_id": USER_ID})
+    assert welcome["data"]["result"]["action"] == "WELCOME_BONUS"
+    assert welcome["data"]["snapshot"]["welcome"]["claimed"] is True
+
+    _, exchange = post(
+        "/v2/wallet/exchange",
+        {"user_id": USER_ID, "gems": 10000, "reference_id": event_id("exchange")},
+    )
+    assert exchange["data"]["result"]["action"] == "GEMS_EXCHANGE"
+    assert float(exchange["data"]["snapshot"]["wallet"]["wallet_locked"]) > 0
 
     # 前三集为免费体验，服务端拒绝将其计为集间通行激励广告。
     _, free_rejection = post(
@@ -77,7 +90,7 @@ def run() -> None:
     )
     assert watched["data"]["result"]["round_completed"] is True
     assert watched["data"]["snapshot"]["today"]["completed_rounds"] == 1
-    print("HTTP API smoke test passed; free-episode protection and episode-pass settlement verified")
+    print("HTTP API v3 smoke test passed; welcome, exchange, free-episode protection and episode-pass settlement verified")
 
 
 if __name__ == "__main__":
