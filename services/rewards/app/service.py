@@ -714,24 +714,16 @@ class RewardsService:
         if placement_id == "rv_episode_reward_boost":
             if not target_id:
                 raise ServiceError(1213, "本集翻倍缺少 episode_id", 422)
-            claim = self._one(
-                connection,
-                """
-                SELECT id, base_reward_gems FROM episode_reward_claims
-                WHERE user_id = %s AND episode_id = %s AND state = 'PENDING' FOR UPDATE
-                """,
-                (user_id, target_id),
-            )
-            if not claim:
-                raise ServiceError(1214, "本集暂无待领取宝石，无法开启翻倍", 409)
+            # 翻倍是分集级预授权：可在播放中、完播奖励尚未生成前观看广告。
+            # 完播后创建待领取奖励时读取此记录，单集最多仅按 2 倍结算一次。
             boosted = self._one(
                 connection,
                 "SELECT 1 AS exists FROM episode_reward_boosts WHERE user_id = %s AND episode_id = %s",
                 (user_id, target_id),
             )
             if boosted:
-                raise ServiceError(1215, "本集翻倍已开启，每集仅可翻倍一次", 409)
-            return {"action": "EPISODE_REWARD_BOOST", "episode_id": target_id, "gems_added": int(claim["base_reward_gems"])}
+                raise ServiceError(1215, "本集奖励已开启翻倍，完成观看后将自动按双倍结算", 409)
+            return {"action": "EPISODE_REWARD_BOOST", "episode_id": target_id, "gems_added": 0}
 
         if placement_id == "rv_random_chest_open":
             chest = self._one(
@@ -802,18 +794,17 @@ class RewardsService:
                 "SELECT cash_wallet_micros, last_wallet_release_date FROM users WHERE user_id = %s FOR UPDATE",
                 (user_id,),
             )
-            if user["last_wallet_release_date"] != business_date:
-                raise ServiceError(1450, "今日基础转入尚未生效，请稍后再试", 409)
-            if int(counters["release_boost_count"]) >= int(policy["release_boost_daily_limit"]):
+            release_boost_limit = int(policy["release_boost_daily_limit"])
+            if release_boost_limit > 0 and int(counters["release_boost_count"]) >= release_boost_limit:
                 raise ServiceError(1451, "今日广告加速次数已达上限", 429)
-            if int(user["cash_wallet_micros"]) <= 0:
-                raise ServiceError(1452, "当前没有可加速转入的钱包余额", 409)
+            # 广告入口始终可打开。存在钱包余额时，按当日基础转入的比例额外转入；
+            # 新用户或余额为零时仍正常完成广告动作，只是不产生虚构金额。
+            release_cap = int(self._wallet_policy(connection, user_id)["daily_release_micros"])
             base_today = self._today_base_release_micros(connection, user_id, business_date)
-            if base_today <= 0:
-                raise ServiceError(1453, "今日没有基础可提现转入额度，暂不能广告加速", 409)
+            base_for_acceleration = base_today or min(int(user["cash_wallet_micros"]), release_cap)
             amount = min(
                 int(user["cash_wallet_micros"]),
-                max(1, math.floor(base_today * float(policy["release_boost_percent"]))),
+                max(0, math.floor(base_for_acceleration * float(policy["release_boost_percent"]))),
             )
             return {
                 "action": "RELEASE_BOOST",
@@ -890,7 +881,11 @@ class RewardsService:
         elif action == "EPISODE_REWARD_BOOST":
             self._execute(
                 connection,
-                "INSERT INTO episode_reward_boosts (user_id, episode_id, ad_event_id) VALUES (%s, %s, %s)",
+                """
+                INSERT INTO episode_reward_boosts (user_id, episode_id, ad_event_id)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (user_id, episode_id) DO NOTHING
+                """,
                 (user_id, payload["episode_id"], ad_event_id),
             )
         elif action == "EPISODE_REWARD_DOUBLE":
@@ -970,8 +965,20 @@ class RewardsService:
             "SELECT state, base_reward_gems FROM episode_reward_claims WHERE user_id = %s AND episode_id = %s",
             (user_id, episode_id),
         )
+        boosted = self._one(
+            connection,
+            "SELECT 1 AS enabled FROM episode_reward_boosts WHERE user_id = %s AND episode_id = %s",
+            (user_id, episode_id),
+        ) is not None
         return (
-            {"episode_id": episode_id, "gems": int(claim["base_reward_gems"]), "multiplier": multiplier, "state": claim["state"]}
+            {
+                "episode_id": episode_id,
+                "gems": int(claim["base_reward_gems"]) * (2 if boosted else 1),
+                "base_gems": int(claim["base_reward_gems"]),
+                "multiplier": multiplier,
+                "boosted": boosted,
+                "state": claim["state"],
+            }
             if claim and claim["state"] == "PENDING" else None
         )
 
@@ -1134,6 +1141,11 @@ class RewardsService:
             """,
             (user_id,),
         )
+        preboosted_episode_rows = self._all(
+            connection,
+            "SELECT episode_id FROM episode_reward_boosts WHERE user_id = %s ORDER BY boosted_at DESC",
+            (user_id,),
+        )
         chest_rows = self._all(
             connection,
             """
@@ -1188,7 +1200,8 @@ class RewardsService:
                     "boost_percent": float(policy["release_boost_percent"]),
                     "expected_tomorrow_transfer": self._money(expected_tomorrow_transfer),
                     "expected_boost_transfer": self._money(expected_boost_transfer),
-                    "boost_available": expected_boost_transfer > 0 and int(counters["release_boost_count"]) < int(policy["release_boost_daily_limit"]),
+                    # 前端始终提供广告加速入口；金额是否转入由真实钱包余额与账本决定。
+                    "boost_available": int(policy["release_boost_daily_limit"]) <= 0 or int(counters["release_boost_count"]) < int(policy["release_boost_daily_limit"]),
                     "estimated_days_remaining": estimated_days,
                     "pending_days": user["pending_release_days"],
                 },
@@ -1242,6 +1255,7 @@ class RewardsService:
             },
             "pending_claims": [],
             "episode_reward_claims": episode_reward_claims,
+            "episode_reward_preboosted_ids": [item["episode_id"] for item in preboosted_episode_rows],
             "achievements": achievements,
             "crown_progress": self._crown_progress(connection, user_id),
             "episode_unlock": {

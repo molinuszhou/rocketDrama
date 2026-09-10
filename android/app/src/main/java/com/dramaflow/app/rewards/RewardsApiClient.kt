@@ -143,7 +143,7 @@ class RewardsApiClient(
         val pauseAdHourlyLimit: Int = 0,
         val rewardClaimEnabled: Boolean = false,
         val midEpisodeEnabled: Boolean = false,
-        val midEpisodeTriggerSeconds: Int = 5,
+        val midEpisodeTriggerSeconds: Int = 30,
         val midEpisodeHourlyLimit: Int = 0,
         val seekEnabled: Boolean = false,
         val seekHourlyLimit: Int = 0,
@@ -167,6 +167,7 @@ class RewardsApiClient(
         val wallet: Wallet,
         val tasks: List<RewardTask>,
         val pendingEpisodeRewards: List<EpisodeReward>,
+        val preboostedEpisodeIds: Set<String> = emptySet(),
         val tenRoundSize: Int,
         val episodesToNextTenRound: Int,
         val nextTenRoundPreviewCoins: Int,
@@ -194,7 +195,7 @@ class RewardsApiClient(
         val geoTier: String,
     ) {
         val rewardsEnabled: Boolean get() = true
-        val ruleVersion: String get() = "postgresql-v7"
+        val ruleVersion: String get() = "postgresql-v8"
     }
 
     data class WatchReward(
@@ -375,6 +376,7 @@ class RewardsApiClient(
             ),
             tasks = taskList,
             pendingEpisodeRewards = pendingEpisodeRewards,
+            preboostedEpisodeIds = parseStringSet(json.optJSONArray("episode_reward_preboosted_ids")),
             tenRoundSize = today.optInt("ten_round_size", 10).coerceAtLeast(1),
             episodesToNextTenRound = today.optInt("episodes_to_next_ten_round", 10).coerceAtLeast(0),
             nextTenRoundPreviewCoins = today.optLong("next_ten_round_preview_gems").coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
@@ -412,7 +414,7 @@ class RewardsApiClient(
                 interstitial.optInt("pause_ad_hourly_limit", 0),
                 interstitial.optBoolean("reward_claim_enabled", false),
                 interstitial.optBoolean("mid_episode_enabled", false),
-                interstitial.optInt("mid_episode_trigger_seconds", 5),
+                interstitial.optInt("mid_episode_trigger_seconds", 30),
                 interstitial.optInt("mid_episode_hourly_limit", 0),
                 interstitial.optBoolean("seek_enabled", false),
                 interstitial.optInt("seek_hourly_limit", 0),
@@ -424,6 +426,12 @@ class RewardsApiClient(
             withdrawal = Withdrawal(withdrawal.optBoolean("enabled"), withdrawal.optBoolean("eligible"), withdrawal.optString("reason"), withdrawal.optString("threshold", "0.00")),
             achievements = achievements, crownProgress = crowns, rvCountToday = today.optInt("rv_count"), rvDailyLimit = today.optInt("rv_daily_limit", 20), lifecycleDay = user.optInt("lifecycle_day"), geoTier = user.optString("geo_tier", "t3"),
         )
+    }
+
+    private fun parseStringSet(array: JSONArray?): Set<String> = buildSet {
+        for (index in 0 until (array?.length() ?: 0)) {
+            array?.optString(index)?.takeIf { it.isNotBlank() }?.let(::add)
+        }
     }
 
     private fun parseTiers(array: JSONArray?): List<Int> = buildList {

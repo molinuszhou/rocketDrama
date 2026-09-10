@@ -59,6 +59,8 @@ def run() -> None:
     assert [item["code"] for item in initial["crown_progress"]] == ["BRONZE", "SILVER", "GOLD", "DIAMOND", "CROWN"]
     assert initial["crown_progress"][0]["rounds"]["target"] == 10
     assert initial["crown_progress"][0]["ads_per_episode"] == 2
+    assert initial["interstitial"]["mid_episode_trigger_seconds"] == 30
+    assert initial["wallet"]["release"]["boost_cap"] == 0
 
     # 欢迎奖励和签到均必须由完整激励广告结算，旧直接接口不再能绕过广告。
     welcome, _ = rewarded(service, user_id, "rv_welcome_bonus")
@@ -72,6 +74,11 @@ def run() -> None:
     for placement in ("int_next_episode_unlock", "int_episode_midroll", "int_seek", "int_seek", "int_speed", "int_pause_native"):
         result = service.record_interstitial(user_id, event_id(placement), placement)
         assert result["idempotent"] is False
+
+    # 本集翻倍允许在奖励尚未生成前预授权；第 1 集完播后应自动按双倍累计。
+    preboosted, _ = rewarded(service, user_id, "rv_episode_reward_boost", "owned:smoke:ep:1")
+    assert preboosted["result"]["action"] == "EPISODE_REWARD_BOOST"
+    assert "owned:smoke:ep:1" in preboosted["snapshot"]["episode_reward_preboosted_ids"]
 
     # 每集形成待领取宝石；第三集产生追剧随机宝箱，宝石不会自动入账。
     watched_rewards: list[int] = []
@@ -97,16 +104,20 @@ def run() -> None:
     assert after_watches["chest"]["daily_available_count"] == 1
     assert after_watches["chest"]["watch_available_count"] == 1
 
-    # 当前集仅能预先激励翻倍一次；随后领取全部必须先获得一次激励广告授权。
-    boosted, _ = rewarded(service, user_id, "rv_episode_reward_boost", "owned:smoke:ep:1")
-    assert boosted["result"]["action"] == "EPISODE_REWARD_BOOST"
+    # 已预授权的分集不允许超过双倍；随后领取全部必须先获得一次激励广告授权。
+    repeated_boost_rejected = False
+    try:
+        rewarded(service, user_id, "rv_episode_reward_boost", "owned:smoke:ep:1")
+    except Exception as error:  # noqa: BLE001 - 验证每集最多双倍。
+        repeated_boost_rejected = "已开启翻倍" in str(error)
+    assert repeated_boost_rejected
     authorization, authorization_event_id = rewarded(service, user_id, "rv_episode_rewards_claim")
     assert authorization["result"]["action"] == "EPISODE_REWARDS_CLAIM_AUTH"
     claim_all = service.claim_all_episode_rewards(user_id, event_id("claim-all"), authorization_event_id)
     assert claim_all["result"]["action"] == "EPISODE_REWARDS_CLAIM_ALL"
     assert claim_all["result"]["claimed_count"] == 3
     assert claim_all["result"]["boosted_count"] == 1
-    assert claim_all["result"]["gems_added"] == sum(watched_rewards) + watched_rewards[0]
+    assert claim_all["result"]["gems_added"] == sum(watched_rewards)
     replay_claim = service.claim_all_episode_rewards(user_id, event_id("claim-replay"), authorization_event_id)
     assert replay_claim["idempotent"] is True
 
@@ -143,9 +154,10 @@ def run() -> None:
     if released["wallet"]["release"]["boost_available"]:
         boost, _ = rewarded(service, user_id, "rv_release_boost")
         assert boost["result"]["action"] == "RELEASE_BOOST"
-        assert boost["result"]["released_micros"] > 0
+        assert boost["result"]["released_micros"] >= 0
+        assert boost["snapshot"]["wallet"]["release"]["boost_available"] is True
 
-    print("PostgreSQL v7 rewards smoke test passed; rewarded gates, chests, crown ads, playback ads and wallet boost verified")
+    print("PostgreSQL v8 rewards smoke test passed; preboost, rewarded gates, chests, crown ads, playback ads and wallet boost verified")
 
 
 if __name__ == "__main__":

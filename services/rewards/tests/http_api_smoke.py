@@ -57,6 +57,8 @@ def run() -> None:
     assert snapshot["interstitial"]["mid_episode_enabled"] is True
     assert snapshot["interstitial"]["seek_enabled"] is True
     assert snapshot["interstitial"]["speed_enabled"] is True
+    assert snapshot["interstitial"]["mid_episode_trigger_seconds"] == 30
+    assert snapshot["wallet"]["release"]["boost_cap"] == 0
 
     # 欢迎奖励和签到均通过激励广告落账，不能直接绕过。
     _, welcome, _ = rewarded("rv_welcome_bonus")
@@ -79,6 +81,11 @@ def run() -> None:
     _, unlocked, _ = rewarded("rv_episode_pass", "episode-4", 4)
     assert unlocked["data"]["result"]["action"] == "EPISODE_PASS"
 
+    # 用户可在第 1 集完播前预先开启双倍；完播后待领取宝石即按两倍显示。
+    _, boosted, _ = rewarded("rv_episode_reward_boost", "episode-1")
+    assert boosted["data"]["result"]["action"] == "EPISODE_REWARD_BOOST"
+    assert "episode-1" in boosted["data"]["snapshot"]["episode_reward_preboosted_ids"]
+
     base_rewards: list[int] = []
     for episode_index in range(1, 4):
         _, watched = post(
@@ -89,8 +96,12 @@ def run() -> None:
         assert reward["gems"] > 0
         base_rewards.append(reward["gems"])
 
-    _, boosted, _ = rewarded("rv_episode_reward_boost", "episode-1")
-    assert boosted["data"]["result"]["action"] == "EPISODE_REWARD_BOOST"
+    _, repeated_boost = post(
+        "/v2/ads/rewarded/complete",
+        {"user_id": USER_ID, "ad_event_id": event_id("repeat-boost"), "placement_id": "rv_episode_reward_boost", "target_id": "episode-1", "proof": "TEST_PANGLE_REWARD"},
+        expected_status=409,
+    )
+    assert repeated_boost["code"] == 1215
     _, authorization, auth_event_id = rewarded("rv_episode_rewards_claim")
     assert authorization["data"]["result"]["action"] == "EPISODE_REWARDS_CLAIM_AUTH"
     _, claimed = post("/v2/episode-rewards/claim-all", {"user_id": USER_ID, "reference_id": event_id("claim-all"), "ad_event_id": auth_event_id})
@@ -125,7 +136,7 @@ def run() -> None:
                 "speed_interstitial_hourly_limit": 0,
                 "crown_rewarded_ads_per_episode": 2,
                 "release_boost_percent": 0.2,
-                "release_boost_daily_limit": 3,
+                "release_boost_daily_limit": 0,
             },
             admin=True,
         )
@@ -135,7 +146,7 @@ def run() -> None:
         _, crown = request("PUT", "/v2/admin/crown-multiplier", {"code": "BRONZE", "episode_reward_multiplier": 1.20}, admin=True)
         assert crown["data"]["crown_multipliers"][0]["episode_reward_multiplier"] == 1.2
 
-    print("HTTP API v7 smoke test passed; rewarded gates, playback ads, chests, crown ads and operating policy verified")
+    print("HTTP API v8 smoke test passed; preboost, rewarded gates, playback ads, chests, crown ads and operating policy verified")
 
 
 if __name__ == "__main__":

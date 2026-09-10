@@ -91,11 +91,13 @@ class LocalDramaApiClient {
         onSuccess: () -> Unit,
         onFailure: (String) -> Unit,
     ) {
+        // content-api 的 UnlockMethod 采用 AD_REWARD；兼容旧调用方传入的 AD_REWARDED。
+        val normalisedMethod = if (unlockMethod == "AD_REWARDED") "AD_REWARD" else unlockMethod
         val payload = JSONObject()
             .put("region", region)
-            .put("method", unlockMethod)
+            .put("method", normalisedMethod)
             .put("user_id", userId)
-            .put("proof", if (unlockMethod == "AD_INTERSTITIAL") "TEST_INTERSTITIAL_PROOF" else "TEST_REWARD_PROOF")
+            .put("proof", if (normalisedMethod == "AD_INTERSTITIAL") "TEST_INTERSTITIAL_PROOF" else "TEST_REWARD_PROOF")
         val request = Request.Builder()
             .url(endpoint(baseUrl, "/v1/episodes/${encodePathSegment(episodeId)}/unlock"))
             .post(payload.toString().toRequestBody(JSON))
