@@ -1,0 +1,17 @@
+# Docker 镜像只需要 pyproject.toml 和 app/；片单、媒体和运行数据通过 Compose 卷挂载。
+media/
+runtime/
+content/
+tests/
+docs/
+build/
+*.egg-info/
+.venv/
+__pycache__/
+*.py[cod]
+.env
+.env.*
+!*.env.example
+Dockerfile
+Dockerfile.*
+docker-compose.yml

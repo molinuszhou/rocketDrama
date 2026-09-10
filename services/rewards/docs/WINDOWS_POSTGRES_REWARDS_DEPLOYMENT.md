@@ -1,11 +1,13 @@
 # DramaFlow 独立 PostgreSQL 积分服务：Windows 部署与联调手册
 
-**文档版本：v3.0.0**
+**文档版本：v3.0.1**
 **适用环境：Windows 10/11、Docker Desktop、Android 真机或模拟器**
 
 本服务负责广告事件、宝石账本、新人欢迎奖励、三层钱包兑换与释放、签到、每日宝箱、追剧领奖、皇冠成就和插屏频控。它与自有短剧内容服务是**两个独立进程、两个独立端口、两套数据边界**：内容服务只负责目录、分集、短时播放 URL 与媒体文件；本服务只负责奖励与权益结算。
 
 > 不要把积分服务地址写成短剧内容服务的 `:8000`。默认情况下，内容服务使用 **8000**，独立 PostgreSQL 积分服务使用 **8100**。
+>
+> **推荐：从仓库根目录统一启动。** 根目录 `docker-compose.yml` 会同时启动内容服务、PostgreSQL 与本服务。请优先执行根目录 `README.md` 中的 `docker compose up -d --build`，不需要分别启动内容服务。本手册保留数据库规则、奖励验收、备份和故障排查说明。
 
 ## 1. 部署前准备
 
@@ -21,10 +23,10 @@
 
 ## 2. 解压与配置环境变量
 
-将交付的 `DramaFlow-PostgreSQL-Rewards-Service.zip` 解压到例如 `C:\DramaFlow\dramaflow_rewards_service`。用 PowerShell 进入目录并复制配置模板：
+使用统一 Compose 时，请将仓库解压到例如 `C:\DramaFlow\JoyeDrama`，并在**仓库根目录**复制配置模板：
 
 ```powershell
-cd C:\DramaFlow\dramaflow_rewards_service
+cd C:\DramaFlow\JoyeDrama
 Copy-Item .env.example .env
 notepad .env
 ```

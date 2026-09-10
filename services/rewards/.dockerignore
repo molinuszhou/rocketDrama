@@ -1,0 +1,14 @@
+# Docker 镜像只需要 pyproject.toml、app/ 和运行所需代码；PostgreSQL 数据通过命名卷保存。
+tests/
+docs/
+build/
+*.egg-info/
+.venv/
+__pycache__/
+*.py[cod]
+.env
+.env.*
+!*.env.example
+Dockerfile
+Dockerfile.*
+docker-compose.yml

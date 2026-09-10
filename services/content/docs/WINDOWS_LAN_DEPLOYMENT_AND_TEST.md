@@ -1,10 +1,12 @@
 # DramaFlow Windows 局域网内容服务与 Android 联调手册
 
-**文档版本：1.1.0**
+**文档版本：1.2.0**
 **适用范围：Windows 10/11 开发电脑、Android Debug 测试包和已获授权的自有 MP4 测试素材**
 **不适用范围：公网分发、商店正式上架、生产 VOD**
 
 > **安装修订（服务端 v0.1.1）：** 已限制 setuptools 只发现 `app` 服务包，因此在已存在 `content`、`media`、`runtime` 目录的 Windows 解压目录中，`python -m pip install .` 可以正常运行，不再出现 “Multiple top-level packages discovered” 错误。
+
+> **推荐：统一 Docker 启动。** 从仓库根目录运行 `docker compose up -d --build` 会同时启动内容服务（8000）、PostgreSQL 和积分服务（8100），无需再单独打开 PowerShell 运行 `uvicorn`。请优先阅读根目录 `README.md` 的“Windows 一键启动测试环境”。本手册其余 Python 步骤仅用于不安装 Docker Desktop 时的内容服务单独调试。
 
 ## 1. 目标与前置条件
 
@@ -23,7 +25,7 @@
 
 Python 的 `venv` 可以创建相互隔离的轻量虚拟环境，避免系统 Python 与项目依赖冲突。[1]
 
-## 2. 解压与创建 Python 环境
+## 2. 备用方案：不使用 Docker 时创建 Python 环境
 
 以下所有命令均在 **PowerShell** 中执行。先进入内容服务目录：
 
@@ -133,7 +135,7 @@ OWNED_CATALOG_PATH=C:/DramaFlow/dramaflow_content_server/content/owned_catalog.l
 
 `.env`、`media`、`runtime` 下的账本文件和实际片单不应上传到 Git、网盘公开链接或源码压缩包。
 
-## 5. 启动服务与本机验证
+## 5. 备用方案：手动启动服务与本机验证
 
 在已激活的虚拟环境中，载入 `.env` 并启动服务：
 

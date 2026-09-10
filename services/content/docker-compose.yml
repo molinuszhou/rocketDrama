@@ -15,14 +15,9 @@ services:
       # 仅本地开发和局域网真机联调时启用；生产环境必须保持 false。
       LOCAL_MEDIA_ENABLED: ${LOCAL_MEDIA_ENABLED:-false}
       LOCAL_MEDIA_ROOT: /app/media
-      # 动态奖励规则和权益账本必须持久化；ADMIN_CONFIG_TOKEN 仅保留在宿主环境变量或未提交 .env 文件中。
-      REWARD_RULES_PATH: /app/runtime/reward_rules.json
-      REWARD_LEDGER_PATH: /app/runtime/reward_ledger.sqlite3
-      ADMIN_CONFIG_TOKEN: ${ADMIN_CONFIG_TOKEN:-}
     volumes:
       - ./content:/app/content:ro
       - ./media:/app/media:ro
-      - ./runtime:/app/runtime
     ports:
       - "8000:8000"
     restart: unless-stopped
