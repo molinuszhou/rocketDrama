@@ -54,6 +54,7 @@ def load_owned_catalog(path: str) -> tuple[FreeDramaRecord, ...]:
     payload = OwnedCatalogInput.model_validate(json.loads(catalog_file.read_text(encoding="utf-8")))
     records: list[FreeDramaRecord] = []
     for item in payload.dramas:
+        sorted_episodes = sorted(item.episodes, key=lambda entry: entry.index)
         episodes = tuple(
             Episode(
                 id=episode.id,
@@ -67,14 +68,15 @@ def load_owned_catalog(path: str) -> tuple[FreeDramaRecord, ...]:
                 media_asset_id=episode.videoAssetId,
                 media_provider=episode.videoProvider,
             )
-            for episode in sorted(item.episodes, key=lambda entry: entry.index)
+            for episode in sorted_episodes
         )
+        card_cover_url = next((episode.posterUrl.strip() for episode in sorted_episodes if episode.posterUrl.strip()), item.coverUrl)
         card = DramaCard(
             id=item.id,
             source=ContentSource.FREE_DRAMA,
             title=item.title,
             summary=item.summary,
-            cover_url=item.coverUrl,
+            cover_url=card_cover_url,
             genre=item.genres,
             language=item.language,
             origin_regions=item.originRegions,
