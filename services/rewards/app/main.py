@@ -11,12 +11,15 @@ from app.schemas import (
     ApiEnvelope,
     BootstrapRequest,
     CheckinRequest,
+    ClaimAllEpisodeRewardsRequest,
+    CrownMultiplierUpdateRequest,
     DampingUpdateRequest,
     EpisodeRewardClaimRequest,
     GemsExchangeRequest,
     HealthResponse,
     InterstitialShownRequest,
     RewardedCompleteRequest,
+    RewardPolicyUpdateRequest,
     TenRoundClaimRequest,
     WelcomeBonusRequest,
     WatchEventRequest,
@@ -102,8 +105,14 @@ def claim_episode_reward(payload: EpisodeRewardClaimRequest) -> dict:
     return {"code": 0, "data": service.claim_episode_reward(payload.user_id, payload.episode_id, payload.reference_id)}
 
 
+@app.post("/v2/episode-rewards/claim-all", response_model=ApiEnvelope)
+def claim_all_episode_rewards(payload: ClaimAllEpisodeRewardsRequest) -> dict:
+    return {"code": 0, "data": service.claim_all_episode_rewards(payload.user_id, payload.reference_id)}
+
+
 @app.post("/v2/ten-round-rewards/claim", response_model=ApiEnvelope)
 def claim_ten_round_reward(payload: TenRoundClaimRequest) -> dict:
+    # 旧客户端兼容端点；v6 不再创建新的十集加奖。
     return {"code": 0, "data": service.claim_ten_round_bonus(payload.user_id, payload.cycle_number, payload.reference_id)}
 
 
@@ -115,6 +124,16 @@ def admin_reward_policy(authorization: str | None = Header(default=None)) -> dic
 @app.put("/v2/admin/policy/damping", response_model=ApiEnvelope)
 def update_damping(payload: DampingUpdateRequest, authorization: str | None = Header(default=None)) -> dict:
     return {"code": 0, "data": service.update_damping(authorization, payload.decay_alpha)}
+
+
+@app.put("/v2/admin/policy/operating", response_model=ApiEnvelope)
+def update_operating_policy(payload: RewardPolicyUpdateRequest, authorization: str | None = Header(default=None)) -> dict:
+    return {"code": 0, "data": service.update_operating_policy(authorization, payload.model_dump())}
+
+
+@app.put("/v2/admin/crown-multiplier", response_model=ApiEnvelope)
+def update_crown_multiplier(payload: CrownMultiplierUpdateRequest, authorization: str | None = Header(default=None)) -> dict:
+    return {"code": 0, "data": service.update_crown_multiplier(authorization, payload.code, payload.episode_reward_multiplier)}
 
 
 @app.get("/admin", response_class=HTMLResponse, include_in_schema=False)

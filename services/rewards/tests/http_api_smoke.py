@@ -2,58 +2,62 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 import urllib.error
 import urllib.request
 import uuid
 
 BASE_URL = os.environ.get("REWARDS_TEST_BASE_URL", "http://127.0.0.1:8110").rstrip("/")
-USER_ID = f"http-v4-smoke-{uuid.uuid4()}"
+ADMIN_TOKEN = os.environ.get("REWARDS_TEST_ADMIN_TOKEN", "")
+USER_ID = f"http-v6-smoke-{uuid.uuid4()}"
+
+
+def request(method: str, path: str, payload: dict | None = None, expected_status: int = 200, admin: bool = False) -> tuple[int, dict]:
+    headers = {"Content-Type": "application/json"}
+    if admin:
+        headers["Authorization"] = f"Bearer {ADMIN_TOKEN}"
+    body = json.dumps(payload).encode("utf-8") if payload is not None else None
+    req = urllib.request.Request(BASE_URL + path, data=body, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=10) as response:
+            status = response.status
+            parsed = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        status = error.code
+        parsed = json.loads(error.read().decode("utf-8"))
+    assert status == expected_status, (path, status, parsed)
+    return status, parsed
 
 
 def post(path: str, payload: dict, expected_status: int = 200) -> tuple[int, dict]:
-    request = urllib.request.Request(
-        BASE_URL + path,
-        data=json.dumps(payload).encode("utf-8"),
-        method="POST",
-        headers={"Content-Type": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=10) as response:
-            status = response.status
-            body = json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as error:
-        status = error.code
-        body = json.loads(error.read().decode("utf-8"))
-    assert status == expected_status, (path, status, body)
-    return status, body
+    return request("POST", path, payload, expected_status)
 
 
 def event_id(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4()}"
 
 
+def rewarded(placement: str, target_id: str | None = None) -> tuple[int, dict]:
+    payload = {"user_id": USER_ID, "ad_event_id": event_id(placement), "placement_id": placement, "proof": "TEST_PANGLE_REWARD"}
+    if target_id is not None:
+        payload["target_id"] = target_id
+    return post("/v2/ads/rewarded/complete", payload)
+
+
 def run() -> None:
     _, initial = post("/v2/bootstrap", {"user_id": USER_ID})
-    assert initial["data"]["welcome"]["available"] is True
-    assert initial["data"]["checkin"]["today_streak"] == 1
-    assert initial["data"]["episode_unlock"]["free_episodes_count"] == 3
-    assert initial["data"]["episode_unlock"]["placement_id"] == "int_next_episode_unlock"
-    assert initial["data"]["interstitial"]["pause_ad_enabled"] is True
+    snapshot = initial["data"]
+    assert snapshot["welcome"]["available"] is True
+    assert snapshot["episode_unlock"]["free_episodes_count"] == 3
+    assert snapshot["episode_unlock"]["extra_episode_unlock_enabled"] is False
+    assert snapshot["chest"]["available_count"] == 1
+    assert snapshot["interstitial"]["mid_episode_enabled"] is True
+    assert snapshot["interstitial"]["seek_enabled"] is True
 
-    # 下一集插屏解锁与暂停原生广告的频控事件采用独立 placement。
-    _, next_interstitial = post(
-        "/v2/interstitials/shown",
-        {"user_id": USER_ID, "event_id": event_id("next-interstitial"), "placement_id": "int_next_episode_unlock"},
-    )
-    assert next_interstitial["data"]["idempotent"] is False
-    _, pause_native = post(
-        "/v2/interstitials/shown",
-        {"user_id": USER_ID, "event_id": event_id("pause-native"), "placement_id": "int_pause_native"},
-    )
-    assert pause_native["data"]["idempotent"] is False
+    for placement in ("int_next_episode_unlock", "int_episode_midroll", "int_seek", "int_reward_claim", "int_pause_native"):
+        _, shown = post("/v2/interstitials/shown", {"user_id": USER_ID, "event_id": event_id(placement), "placement_id": placement})
+        assert shown["data"]["idempotent"] is False
 
-    # 前 3 集免费；服务端拒绝把免费集广告误记为内容解锁。
+    # 前 3 集免费；服务端拒绝将免费集广告写成内容通行权益。
     _, free_rejection = post(
         "/v2/ads/rewarded/complete",
         {"user_id": USER_ID, "ad_event_id": event_id("free"), "placement_id": "rv_episode_pass", "target_id": "episode-3", "episode_index": 3, "proof": "TEST_PANGLE_REWARD"},
@@ -61,46 +65,48 @@ def run() -> None:
     )
     assert free_rejection["code"] == 1100
 
-    # 第 4 集广告只提供内容通行权益；看完后才形成待领取宝石。
-    _, passed = post(
-        "/v2/ads/rewarded/complete",
-        {"user_id": USER_ID, "ad_event_id": event_id("pass"), "placement_id": "rv_episode_pass", "target_id": "episode-4", "episode_index": 4, "proof": "TEST_PANGLE_REWARD"},
-    )
-    assert passed["data"]["result"]["action"] == "EPISODE_PASS"
-
-    for episode_index in range(1, 11):
+    base_rewards: list[int] = []
+    for episode_index in range(1, 4):
         _, watched = post(
             "/v2/watch-events",
             {"user_id": USER_ID, "event_id": event_id("watch"), "drama_id": "http-demo-drama", "episode_id": f"episode-{episode_index}", "watched_seconds": 60},
         )
-        assert watched["data"]["result"]["gems_added"] == 0
-        assert watched["data"]["result"]["episode_reward"]["gems"] > 0
+        reward = watched["data"]["result"]["episode_reward"]
+        assert reward["gems"] > 0
+        base_rewards.append(reward["gems"])
 
-    snapshot = watched["data"]["snapshot"]
-    assert len(snapshot["episode_reward_claims"]) == 10
-    assert snapshot["ring"]["claimable"] is True
-    assert snapshot["ring"]["reward_gems"] > 0
-    assert len(snapshot["pending_claims"]) == 1
+    _, boosted = rewarded("rv_episode_reward_boost", "episode-1")
+    assert boosted["data"]["result"]["action"] == "EPISODE_REWARD_BOOST"
+    assert boosted["data"]["snapshot"]["ring"]["reward_gems"] == sum(base_rewards) + base_rewards[0]
 
-    _, claimed_episode = post(
-        "/v2/episode-rewards/claim",
-        {"user_id": USER_ID, "episode_id": "episode-1", "reference_id": event_id("episode-claim")},
-    )
-    assert claimed_episode["data"]["result"]["action"] == "EPISODE_REWARD_CLAIM"
-    base_gems = claimed_episode["data"]["result"]["gems_added"]
+    _, claimed = post("/v2/episode-rewards/claim-all", {"user_id": USER_ID, "reference_id": event_id("claim-all")})
+    assert claimed["data"]["result"]["action"] == "EPISODE_REWARDS_CLAIM_ALL"
+    assert claimed["data"]["result"]["claimed_count"] == 3
+    assert claimed["data"]["result"]["boosted_count"] == 1
 
-    _, doubled_episode = post(
+    available = claimed["data"]["snapshot"]["chest"]["available_count"]
+    assert available == 2
+    for _ in range(available):
+        _, opened = rewarded("rv_random_chest_open")
+        amount = opened["data"]["result"]["gems_added"]
+        assert snapshot["chest"]["min_gems"] <= amount <= snapshot["chest"]["max_gems"]
+    _, empty_chest = rewarded("rv_random_chest_open") if False else post(
         "/v2/ads/rewarded/complete",
-        {"user_id": USER_ID, "ad_event_id": event_id("episode-double"), "placement_id": "rv_episode_reward_double", "target_id": "episode-1", "proof": "TEST_PANGLE_REWARD"},
+        {"user_id": USER_ID, "ad_event_id": event_id("empty-chest"), "placement_id": "rv_random_chest_open", "proof": "TEST_PANGLE_REWARD"},
+        expected_status=409,
     )
-    assert doubled_episode["data"]["result"]["gems_added"] == base_gems
+    assert empty_chest["code"] == 1303
 
-    _, claimed_ten_round = post(
-        "/v2/ten-round-rewards/claim",
-        {"user_id": USER_ID, "cycle_number": 1, "reference_id": event_id("ten-round-claim")},
-    )
-    assert claimed_ten_round["data"]["result"]["action"] == "TEN_ROUND_CLAIM"
-    print("HTTP API v4 smoke test passed; unlock, per-episode claim/double and cumulative ten-round reward verified")
+    if ADMIN_TOKEN:
+        _, policy = request("GET", "/v2/admin/policy", admin=True)
+        assert len(policy["data"]["crown_multipliers"]) == 5
+        _, updated = request("PUT", "/v2/admin/policy/operating", {"random_chest_min_gems": 400, "random_chest_max_gems": 900}, admin=True)
+        assert updated["data"]["random_chest_min_gems"] == 400
+        assert updated["data"]["random_chest_max_gems"] == 900
+        _, crown = request("PUT", "/v2/admin/crown-multiplier", {"code": "BRONZE", "episode_reward_multiplier": 1.20}, admin=True)
+        assert crown["data"]["crown_multipliers"][0]["episode_reward_multiplier"] == 1.2
+
+    print("HTTP API v6 smoke test passed; random chests, claim-all, pre-claim boost and new ad placements verified")
 
 
 if __name__ == "__main__":

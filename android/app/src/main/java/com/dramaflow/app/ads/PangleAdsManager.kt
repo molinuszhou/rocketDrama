@@ -54,6 +54,12 @@ class PangleAdsManager(
         key = "episode_unlock_interstitial_last_show",
         minIntervalMillis = 0L
     ),
+    // 剧中和拖拽均是产品明确的动作广告位，不能被普通自然断点的冷却误拦截。
+    private val playbackActionInterstitialPolicy: FullscreenAdPolicy = FullscreenAdPolicy(
+        applicationContext,
+        key = "playback_action_interstitial_last_show",
+        minIntervalMillis = 0L
+    ),
     // 每次冷启动均尝试请求开屏广告；实际展示仍由 Pangle 填充、其服务端策略和设备网络决定。
     // 避免在客户端额外设置六小时频控，导致测试或正常冷启动没有请求机会。
     private val appOpenPolicy: FullscreenAdPolicy = FullscreenAdPolicy(
@@ -156,6 +162,10 @@ class PangleAdsManager(
      */
     fun showInterstitialForEpisodeUnlock(activity: Activity, onResult: (FullscreenResult) -> Unit) =
         showInterstitial(activity, episodeUnlockInterstitialPolicy, onResult)
+
+    /** 适用于剧中和进度拖拽等明确的播放动作；每次动作均可请求，服务器仍负责最终限额。 */
+    fun showInterstitialForPlaybackAction(activity: Activity, onResult: (FullscreenResult) -> Unit) =
+        showInterstitial(activity, playbackActionInterstitialPolicy, onResult)
 
     private fun showInterstitial(
         activity: Activity,

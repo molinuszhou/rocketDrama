@@ -29,6 +29,7 @@ class RewardsApiClient(
         val episodeId: String,
         val rewardCoins: Int,
         val status: String,
+        val boosted: Boolean = false,
     )
 
     data class RewardTask(
@@ -51,6 +52,9 @@ class RewardsApiClient(
         val boostAmount: String,
         val estimatedDaysRemaining: Int,
         val pendingDays: Int,
+        val expectedTomorrowTransfer: String = "0.00",
+        val expectedBoostTransfer: String = "0.00",
+        val boostAvailable: Boolean = false,
     )
 
     data class Wallet(
@@ -96,6 +100,7 @@ class RewardsApiClient(
         val signins: CrownMetric,
         val rewardedAds: CrownMetric,
         val progress: Float,
+        val episodeRewardMultiplier: Float = 1f,
     )
 
     data class UnlockRule(
@@ -113,6 +118,13 @@ class RewardsApiClient(
         val claimed: Boolean,
         val requiresCheckin: Boolean,
         val rewardCoins: Int,
+        val availableCount: Int = 0,
+        val dailyAvailableCount: Int = 0,
+        val watchAvailableCount: Int = 0,
+        val minCoins: Int = 0,
+        val maxCoins: Int = 0,
+        val episodesPerChest: Int = 3,
+        val episodesToNextChest: Int = 0,
     )
 
     data class InterstitialPolicy(
@@ -124,6 +136,12 @@ class RewardsApiClient(
         val pauseAdMinPlaySeconds: Int = 90,
         val pauseAdCooldownSeconds: Int = 300,
         val pauseAdHourlyLimit: Int = 0,
+        val rewardClaimEnabled: Boolean = false,
+        val midEpisodeEnabled: Boolean = false,
+        val midEpisodeTriggerSeconds: Int = 5,
+        val midEpisodeHourlyLimit: Int = 0,
+        val seekEnabled: Boolean = false,
+        val seekHourlyLimit: Int = 0,
         val lastRvAt: String?,
         val lastInterstitialAt: String?,
     )
@@ -145,6 +163,8 @@ class RewardsApiClient(
         val tenRoundSize: Int,
         val episodesToNextTenRound: Int,
         val nextTenRoundPreviewCoins: Int,
+        val episodesPerRandomChest: Int = 3,
+        val episodesToNextRandomChest: Int = 0,
         val ring: Ring,
         val welcome: WelcomeReward,
         val unlock: UnlockRule,
@@ -167,13 +187,14 @@ class RewardsApiClient(
         val geoTier: String,
     ) {
         val rewardsEnabled: Boolean get() = true
-        val ruleVersion: String get() = "postgresql-v4"
+        val ruleVersion: String get() = "postgresql-v6"
     }
 
     data class WatchReward(
         val snapshot: Snapshot,
         val episodeRewardCoins: Int,
         val tenRoundRewardCoins: Int,
+        val randomChestsCreated: Int = 0,
     )
 
     data class RewardAction(
@@ -209,6 +230,7 @@ class RewardsApiClient(
                 snapshot = parseSnapshot(data.getJSONObject("snapshot")),
                 episodeRewardCoins = episodeReward?.optLong("gems")?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt() ?: 0,
                 tenRoundRewardCoins = tenRound?.optLong("gems")?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt() ?: 0,
+                randomChestsCreated = result.optJSONArray("random_chests_created")?.optJSONObject(0)?.optInt("created_count", 0) ?: 0,
             ))
         }, onFailure,
     )
@@ -216,6 +238,15 @@ class RewardsApiClient(
     fun claimEpisodeReward(userId: String, episodeId: String, onSuccess: (RewardAction) -> Unit, onFailure: (String) -> Unit) = post(
         "/v2/episode-rewards/claim",
         JSONObject().put("user_id", userId).put("episode_id", episodeId).put("reference_id", "episode-claim-${UUID.randomUUID()}"),
+        { data ->
+            val result = data.optJSONObject("result") ?: JSONObject()
+            onSuccess(RewardAction(data.optBoolean("idempotent"), result.optString("action"), result.optLong("gems_added"), parseSnapshot(data.getJSONObject("snapshot"))))
+        }, onFailure,
+    )
+
+    fun claimAllEpisodeRewards(userId: String, onSuccess: (RewardAction) -> Unit, onFailure: (String) -> Unit) = post(
+        "/v2/episode-rewards/claim-all",
+        JSONObject().put("user_id", userId).put("reference_id", "episode-claim-all-${UUID.randomUUID()}"),
         { data ->
             val result = data.optJSONObject("result") ?: JSONObject()
             onSuccess(RewardAction(data.optBoolean("idempotent"), result.optString("action"), result.optLong("gems_added"), parseSnapshot(data.getJSONObject("snapshot"))))
@@ -325,20 +356,24 @@ class RewardsApiClient(
                 signedInToday = signedToday, checkinStreak = checkin.optInt("completed_streak"),
                 release = WalletRelease(release.optBoolean("released_today"), release.optString("daily_release", "0.00"),
                     release.optInt("boost_used"), release.optInt("boost_cap", 3), release.optString("boost_amount", "0.00"),
-                    release.optInt("estimated_days_remaining"), release.optInt("pending_days")),
+                    release.optInt("estimated_days_remaining"), release.optInt("pending_days"),
+                    release.optString("expected_tomorrow_transfer", "0.00"), release.optString("expected_boost_transfer", "0.00"),
+                    release.optBoolean("boost_available")),
             ),
             tasks = taskList,
             pendingEpisodeRewards = pendingEpisodeRewards,
             tenRoundSize = today.optInt("ten_round_size", 10).coerceAtLeast(1),
             episodesToNextTenRound = today.optInt("episodes_to_next_ten_round", 10).coerceAtLeast(0),
             nextTenRoundPreviewCoins = today.optLong("next_ten_round_preview_gems").coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+            episodesPerRandomChest = today.optInt("episodes_per_random_chest", 3).coerceAtLeast(1),
+            episodesToNextRandomChest = today.optInt("episodes_to_next_random_chest", 0).coerceAtLeast(0),
             ring = (json.optJSONObject("ring") ?: JSONObject()).let { Ring(it.optBoolean("enabled", true), it.optInt("progress"), it.optInt("target", 1).coerceAtLeast(1), it.optBoolean("claimable"), it.optLong("reward_gems").coerceAtMost(Int.MAX_VALUE.toLong()).toInt(), it.optString("label", "攒币")) },
             welcome = (json.optJSONObject("welcome") ?: JSONObject()).let { WelcomeReward(it.optBoolean("available"), it.optBoolean("claimed"), it.optLong("gems")) },
             unlock = UnlockRule(
                 unlock.optInt("free_episodes_count", 3),
                 today.optInt("rv_daily_limit", 20),
                 "广告解锁",
-                "下一集开始前播放插屏广告；可主动观看激励广告多解锁一集",
+                "免费集数用完后，由你确认观看广告解锁下一集",
                 unlock.optBoolean("next_episode_interstitial_enabled", false),
                 unlock.optBoolean("extra_episode_unlock_enabled", false),
                 unlock.optInt("valid_watch_seconds", 60),
@@ -346,7 +381,12 @@ class RewardsApiClient(
             checkinSignedToday = signedToday, checkinStreak = checkin.optInt("completed_streak"), checkinTodayIndex = todayIndex,
             checkinNextRewardCoins = checkin.optLong("today_base_gems").coerceAtMost(Int.MAX_VALUE.toLong()).toInt(), checkinRewardTiers = tiers,
             checkinAdDoubleEnabled = signedToday && checkin.optLong("today_double_gems") == 0L,
-            walletEligibilityCopy = withdrawal.optString("reason"), chest = Chest(chest.optBoolean("claimable"), chest.optBoolean("claimed"), chest.optBoolean("requires_checkin", true), chest.optLong("reward_gems").coerceAtMost(Int.MAX_VALUE.toLong()).toInt()),
+            walletEligibilityCopy = withdrawal.optString("reason"), chest = Chest(
+                chest.optBoolean("claimable"), chest.optBoolean("claimed"), chest.optBoolean("requires_checkin", false), chest.optLong("reward_gems").coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                chest.optInt("available_count"), chest.optInt("daily_available_count"), chest.optInt("watch_available_count"),
+                chest.optLong("min_gems").coerceAtMost(Int.MAX_VALUE.toLong()).toInt(), chest.optLong("max_gems").coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                chest.optInt("episodes_per_chest", 3).coerceAtLeast(1), chest.optInt("episodes_to_next_chest", 0).coerceAtLeast(0),
+            ),
             interstitial = InterstitialPolicy(
                 interstitial.optInt("cooldown_seconds", 90),
                 interstitial.optInt("hourly_limit", 3),
@@ -356,6 +396,12 @@ class RewardsApiClient(
                 interstitial.optInt("pause_ad_min_play_seconds", 90),
                 interstitial.optInt("pause_ad_cooldown_seconds", 300),
                 interstitial.optInt("pause_ad_hourly_limit", 0),
+                interstitial.optBoolean("reward_claim_enabled", false),
+                interstitial.optBoolean("mid_episode_enabled", false),
+                interstitial.optInt("mid_episode_trigger_seconds", 5),
+                interstitial.optInt("mid_episode_hourly_limit", 0),
+                interstitial.optBoolean("seek_enabled", false),
+                interstitial.optInt("seek_hourly_limit", 0),
                 nullableString(interstitial, "last_rv_at"),
                 nullableString(interstitial, "last_interstitial_at"),
             ),
@@ -372,7 +418,7 @@ class RewardsApiClient(
         for (index in 0 until (array?.length() ?: 0)) {
             val item = array!!.getJSONObject(index)
             if (item.optString("state", "PENDING") == "PENDING") {
-                add(EpisodeReward(item.optString("episode_id"), item.optLong("base_reward_gems").coerceAtMost(Int.MAX_VALUE.toLong()).toInt(), "PENDING"))
+                add(EpisodeReward(item.optString("episode_id"), item.optLong("base_reward_gems").coerceAtMost(Int.MAX_VALUE.toLong()).toInt(), "PENDING", item.optBoolean("boosted")))
             }
         }
     }
@@ -394,7 +440,7 @@ class RewardsApiClient(
         for (index in 0 until (array?.length() ?: 0)) {
             val item = array!!.getJSONObject(index)
             fun metric(key: String): CrownMetric { val value = item.optJSONObject(key) ?: JSONObject(); return CrownMetric(value.optInt("current"), value.optInt("target")) }
-            add(CrownProgress(item.optString("code"), item.optString("title"), item.optInt("level_rank", index + 1), item.optBoolean("earned"), item.optLong("gems"), item.optString("entitlement"), item.optInt("window_hours"), metric("rounds"), metric("signins"), metric("rewarded_ads"), item.optDouble("progress").toFloat()))
+            add(CrownProgress(item.optString("code"), item.optString("title"), item.optInt("level_rank", index + 1), item.optBoolean("earned"), item.optLong("gems"), item.optString("entitlement"), item.optInt("window_hours"), metric("rounds"), metric("signins"), metric("rewarded_ads"), item.optDouble("progress").toFloat(), item.optDouble("episode_reward_multiplier", 1.0).toFloat()))
         }
     }
 

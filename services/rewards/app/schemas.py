@@ -14,8 +14,18 @@ RewardedPlacement = Literal[
     "rv_chest_task",
     "rv_signin_double",
     "rv_release_boost",
+    "rv_random_chest_open",
+    "rv_episode_reward_boost",
 ]
-InterstitialPlacement = Literal["int_timer", "int_pause", "int_next_episode_unlock", "int_pause_native"]
+InterstitialPlacement = Literal[
+    "int_timer",
+    "int_pause",
+    "int_next_episode_unlock",
+    "int_pause_native",
+    "int_reward_claim",
+    "int_episode_midroll",
+    "int_seek",
+]
 
 
 class BootstrapRequest(BaseModel):
@@ -57,6 +67,30 @@ class EpisodeRewardClaimRequest(BaseModel):
 
 class DampingUpdateRequest(BaseModel):
     decay_alpha: float = Field(ge=0.0, le=5.0)
+
+
+class ClaimAllEpisodeRewardsRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=128)
+    reference_id: str = Field(min_length=8, max_length=160)
+
+
+class RewardPolicyUpdateRequest(BaseModel):
+    random_chest_min_gems: int | None = Field(default=None, ge=0, le=10_000_000)
+    random_chest_max_gems: int | None = Field(default=None, ge=0, le=10_000_000)
+    daily_random_chest_count: int | None = Field(default=None, ge=0, le=10)
+    episodes_per_random_chest: int | None = Field(default=None, ge=1, le=100)
+    reward_claim_interstitial_enabled: bool | None = None
+    mid_episode_interstitial_enabled: bool | None = None
+    mid_episode_interstitial_trigger_seconds: int | None = Field(default=None, ge=0, le=3600)
+    mid_episode_interstitial_hourly_limit: int | None = Field(default=None, ge=0, le=120)
+    seek_interstitial_enabled: bool | None = None
+    seek_interstitial_hourly_limit: int | None = Field(default=None, ge=0, le=120)
+    next_episode_interstitial_enabled: bool | None = None
+
+
+class CrownMultiplierUpdateRequest(BaseModel):
+    code: Literal["BRONZE", "SILVER", "GOLD", "DIAMOND", "CROWN"]
+    episode_reward_multiplier: float = Field(ge=1.0, le=10.0)
 
 
 class TenRoundClaimRequest(BaseModel):

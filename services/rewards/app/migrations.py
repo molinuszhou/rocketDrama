@@ -15,10 +15,24 @@ def apply_runtime_migrations(settings: Settings) -> None:
     """
     sql_directory = Path(__file__).resolve().parent.parent / "sql"
     migration_paths = (
-        sql_directory / "003_rewards_v4.sql",
-        sql_directory / "004_ad_flow_v5.sql",
+        ("003_rewards_v4", sql_directory / "003_rewards_v4.sql"),
+        ("004_ad_flow_v5", sql_directory / "004_ad_flow_v5.sql"),
+        ("005_random_chest_and_reward_v6", sql_directory / "005_random_chest_and_reward_v6.sql"),
     )
     with psycopg.connect(settings.database_url, autocommit=True) as connection:
         with connection.cursor() as cursor:
-            for sql_path in migration_paths:
+            # 每份增量 SQL 都包含早期兼容性 ALTER；已标记完成后不得重放，
+            # 否则旧版本的广告位 CHECK 约束会短暂收窄并拒绝新版本事件数据。
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS schema_migrations (
+                    version TEXT PRIMARY KEY,
+                    applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+                """
+            )
+            for version, sql_path in migration_paths:
+                cursor.execute("SELECT 1 FROM schema_migrations WHERE version = %s", (version,))
+                if cursor.fetchone() is not None:
+                    continue
                 cursor.execute(sql_path.read_text(encoding="utf-8"))

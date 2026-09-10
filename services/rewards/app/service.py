@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hmac
 import math
+import secrets
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Iterator
@@ -44,6 +45,7 @@ class RewardsService:
             self._ensure_user(connection, user_id)
             # 不依赖客户端定时器：用户回到应用时，服务端按 UTC+8 业务日补算已披露的钱包释放额度。
             self._apply_wallet_release_on_active_day(connection, user_id)
+            self._ensure_random_chests(connection, user_id, self._business_date(), self._policy(connection))
             return self._snapshot(connection, user_id)
 
     def complete_rewarded_ad(
@@ -164,16 +166,14 @@ class RewardsService:
                 connection, "SELECT COUNT(*) AS count FROM watch_events WHERE user_id = %s", (user_id,)
             )["count"])
             episode_reward = self._create_episode_reward_claim(connection, user_id, business_date, episode_id, policy)
-            ten_round_claim = self._create_ten_round_claim_if_due(
-                connection, user_id, business_date, policy, lifetime_episode_count
-            )
+            chests_created = self._ensure_random_chests(connection, user_id, business_date, policy, lifetime_episode_count)
             achievements = self._award_achievements_if_due(connection, user_id, policy)
             result = {
                 "gems_added": 0,
                 "episode_count": counters["episode_count"],
                 "lifetime_episode_count": lifetime_episode_count,
                 "episode_reward": episode_reward,
-                "ten_round_claim": ten_round_claim,
+                "random_chests_created": chests_created,
                 "achievements_awarded": achievements,
             }
             return {"idempotent": False, "result": result, "snapshot": self._snapshot(connection, user_id)}
@@ -220,6 +220,7 @@ class RewardsService:
                 reference_type="checkin",
                 reference_id=f"{user_id}:{business_date.isoformat()}",
             )
+            self._ensure_random_chests(connection, user_id, business_date, policy)
             achievements = self._award_achievements_if_due(connection, user_id, policy)
             return {
                 "idempotent": False,
@@ -272,19 +273,75 @@ class RewardsService:
                 raise ServiceError(1210, "该集尚未完成有效观看，暂无可领取宝石", 409)
             if claim["state"] != "PENDING":
                 return {"idempotent": True, "result": {"action": "EPISODE_REWARD_CLAIM", "gems_added": 0}, "snapshot": self._snapshot(connection, user_id)}
+            boosted = self._one(
+                connection,
+                "SELECT 1 AS enabled FROM episode_reward_boosts WHERE user_id = %s AND episode_id = %s",
+                (user_id, episode_id),
+            ) is not None
+            gems = int(claim["base_reward_gems"]) * (2 if boosted else 1)
             policy = self._policy(connection)
             self._credit_gems(
-                connection, user_id, int(claim["base_reward_gems"]), policy,
+                connection, user_id, gems, policy,
                 "EPISODE_REWARD_CLAIM", "episode_reward_claim", reference_id,
             )
             self._execute(
                 connection,
-                "UPDATE episode_reward_claims SET state = 'CLAIMED', claim_reference_id = %s, claimed_at = NOW() WHERE id = %s",
-                (reference_id, claim["id"]),
+                "UPDATE episode_reward_claims SET state = %s, claim_reference_id = %s, claimed_at = NOW() WHERE id = %s",
+                ("DOUBLED" if boosted else "CLAIMED", reference_id, claim["id"]),
             )
             return {
                 "idempotent": False,
-                "result": {"action": "EPISODE_REWARD_CLAIM", "gems_added": int(claim["base_reward_gems"]), "can_double": True},
+                "result": {"action": "EPISODE_REWARD_CLAIM", "gems_added": gems, "boosted": boosted, "can_double": False},
+                "snapshot": self._snapshot(connection, user_id),
+            }
+
+    def claim_all_episode_rewards(self, user_id: str, reference_id: str) -> dict[str, Any]:
+        with self._transaction() as connection:
+            self._ensure_user(connection, user_id)
+            claims = self._all(
+                connection,
+                """
+                SELECT id, episode_id, base_reward_gems FROM episode_reward_claims
+                WHERE user_id = %s AND state = 'PENDING'
+                ORDER BY id FOR UPDATE
+                """,
+                (user_id,),
+            )
+            if not claims:
+                return {
+                    "idempotent": True,
+                    "result": {"action": "EPISODE_REWARDS_CLAIM_ALL", "gems_added": 0, "claimed_count": 0},
+                    "snapshot": self._snapshot(connection, user_id),
+                }
+            policy = self._policy(connection)
+            total = 0
+            boosted_count = 0
+            for claim in claims:
+                boosted = self._one(
+                    connection,
+                    "SELECT 1 AS enabled FROM episode_reward_boosts WHERE user_id = %s AND episode_id = %s",
+                    (user_id, claim["episode_id"]),
+                ) is not None
+                gems = int(claim["base_reward_gems"]) * (2 if boosted else 1)
+                claim_reference = f"{reference_id}:{claim['id']}"
+                self._credit_gems(
+                    connection, user_id, gems, policy,
+                    "EPISODE_REWARD_CLAIM", "episode_reward_claim_all", claim_reference,
+                )
+                self._execute(
+                    connection,
+                    """
+                    UPDATE episode_reward_claims
+                    SET state = %s, claim_reference_id = %s, claimed_at = NOW()
+                    WHERE id = %s
+                    """,
+                    ("DOUBLED" if boosted else "CLAIMED", claim_reference, claim["id"]),
+                )
+                total += gems
+                boosted_count += 1 if boosted else 0
+            return {
+                "idempotent": False,
+                "result": {"action": "EPISODE_REWARDS_CLAIM_ALL", "gems_added": total, "claimed_count": len(claims), "boosted_count": boosted_count},
                 "snapshot": self._snapshot(connection, user_id),
             }
 
@@ -323,7 +380,7 @@ class RewardsService:
         self._verify_admin_token(authorization)
         with self._transaction() as connection:
             policy = self._policy(connection)
-            return self._admin_policy_payload(policy)
+            return self._admin_policy_with_crowns(connection, policy)
 
     def update_damping(self, authorization: str | None, decay_alpha: float) -> dict[str, Any]:
         self._verify_admin_token(authorization)
@@ -342,7 +399,54 @@ class RewardsService:
                 ("dashboard", old_value, new_value),
             )
             updated = self._policy(connection)
-            return self._admin_policy_payload(updated)
+            return self._admin_policy_with_crowns(connection, updated)
+
+    def update_operating_policy(self, authorization: str | None, updates: dict[str, Any]) -> dict[str, Any]:
+        self._verify_admin_token(authorization)
+        allowed = {
+            "random_chest_min_gems", "random_chest_max_gems", "daily_random_chest_count", "episodes_per_random_chest",
+            "reward_claim_interstitial_enabled", "mid_episode_interstitial_enabled", "mid_episode_interstitial_trigger_seconds",
+            "mid_episode_interstitial_hourly_limit", "seek_interstitial_enabled", "seek_interstitial_hourly_limit",
+            "next_episode_interstitial_enabled",
+        }
+        changed = {key: value for key, value in updates.items() if key in allowed and value is not None}
+        if not changed:
+            raise ServiceError(1903, "未提供可更新的运营规则", 422)
+        with self._transaction() as connection:
+            policy = self._policy(connection)
+            chest_min = int(changed.get("random_chest_min_gems", policy["random_chest_min_gems"]))
+            chest_max = int(changed.get("random_chest_max_gems", policy["random_chest_max_gems"]))
+            if chest_min > chest_max:
+                raise ServiceError(1904, "随机宝箱最小宝石不能大于最大宝石", 422)
+            assignments = ", ".join(f"{key} = %s" for key in changed)
+            values = tuple(changed.values()) + (1,)
+            self._execute(connection, f"UPDATE reward_policy SET {assignments}, updated_at = NOW() WHERE id = %s", values)
+            for key, new_value in changed.items():
+                self._execute(
+                    connection,
+                    "INSERT INTO reward_policy_admin_audit (actor, field_name, old_value, new_value) VALUES (%s, %s, %s, %s)",
+                    ("dashboard", key, str(policy[key]), str(new_value)),
+                )
+            return self._admin_policy_with_crowns(connection, self._policy(connection))
+
+    def update_crown_multiplier(self, authorization: str | None, code: str, multiplier: float) -> dict[str, Any]:
+        self._verify_admin_token(authorization)
+        with self._transaction() as connection:
+            row = self._one(connection, "SELECT episode_reward_multiplier FROM achievement_policy WHERE code = %s FOR UPDATE", (code,))
+            if not row:
+                raise ServiceError(1905, "皇冠等级不存在", 404)
+            old_value = str(row["episode_reward_multiplier"])
+            self._execute(
+                connection,
+                "UPDATE achievement_policy SET episode_reward_multiplier = %s WHERE code = %s",
+                (f"{multiplier:.2f}", code),
+            )
+            self._execute(
+                connection,
+                "INSERT INTO reward_policy_admin_audit (actor, field_name, old_value, new_value) VALUES (%s, %s, %s, %s)",
+                ("dashboard", f"crown.{code}.episode_reward_multiplier", old_value, f"{multiplier:.2f}"),
+            )
+            return self._admin_policy_with_crowns(connection, self._policy(connection))
 
     def exchange_gems(self, user_id: str, gems: int, reference_id: str) -> dict[str, Any]:
         with self._transaction() as connection:
@@ -403,51 +507,42 @@ class RewardsService:
             counters = self._daily_counter(connection, user_id, business_date, lock=True)
             now = self._now()
 
-            if placement_id == "int_next_episode_unlock":
-                if not bool(policy["next_episode_interstitial_enabled"]):
-                    raise ServiceError(2004, "下一集插屏解锁当前未启用", 409)
-                hourly = self._one(
+            def placement_count(placement: str) -> int:
+                return int(self._one(
                     connection,
                     """SELECT COUNT(*) AS count FROM interstitial_events
-                    WHERE user_id = %s AND placement_id = 'int_next_episode_unlock'
-                    AND shown_at >= NOW() - INTERVAL '1 hour'""",
-                    (user_id,),
-                )["count"]
-                if hourly >= int(policy["next_episode_interstitial_hourly_limit"]):
-                    raise ServiceError(2005, "本小时下一集插屏解锁已达上限", 429)
-                last = self._one(
-                    connection,
-                    """SELECT shown_at FROM interstitial_events
-                    WHERE user_id = %s AND placement_id = 'int_next_episode_unlock'
-                    ORDER BY shown_at DESC LIMIT 1""",
-                    (user_id,),
-                )
-                if last and now - last["shown_at"] < timedelta(seconds=int(policy["next_episode_interstitial_cooldown_seconds"])):
-                    raise ServiceError(2006, "下一集插屏解锁冷却期未结束", 409)
+                    WHERE user_id = %s AND placement_id = %s AND shown_at >= NOW() - INTERVAL '1 hour'""",
+                    (user_id, placement),
+                )["count"])
+
+            if placement_id == "int_next_episode_unlock":
+                if not bool(policy["next_episode_interstitial_enabled"]):
+                    raise ServiceError(2004, "下一集广告解锁当前未启用", 409)
+                if placement_count(placement_id) >= int(policy["next_episode_interstitial_hourly_limit"]):
+                    raise ServiceError(2005, "本小时下一集广告解锁已达上限", 429)
             elif placement_id == "int_pause_native":
                 if not bool(policy["pause_ad_enabled"]):
                     raise ServiceError(2007, "暂停广告当前未启用", 409)
-                if int(counters["pause_interstitial_count"]) >= int(policy["pause_interstitial_hourly_limit"]):
+                if placement_count(placement_id) >= int(policy["pause_interstitial_hourly_limit"]):
                     raise ServiceError(2008, "本小时暂停广告已达上限", 429)
-                last = self._one(
-                    connection,
-                    """SELECT shown_at FROM interstitial_events
-                    WHERE user_id = %s AND placement_id = 'int_pause_native'
-                    ORDER BY shown_at DESC LIMIT 1""",
-                    (user_id,),
-                )
-                if last and now - last["shown_at"] < timedelta(seconds=int(policy["pause_ad_cooldown_seconds"])):
-                    raise ServiceError(2009, "暂停广告冷却期未结束", 409)
+            elif placement_id == "int_reward_claim":
+                if not bool(policy["reward_claim_interstitial_enabled"]):
+                    raise ServiceError(2010, "领取宝石插屏当前未启用", 409)
+            elif placement_id == "int_episode_midroll":
+                if not bool(policy["mid_episode_interstitial_enabled"]):
+                    raise ServiceError(2011, "剧中插屏当前未启用", 409)
+                if placement_count(placement_id) >= int(policy["mid_episode_interstitial_hourly_limit"]):
+                    raise ServiceError(2012, "本小时剧中插屏已达上限", 429)
+            elif placement_id == "int_seek":
+                if not bool(policy["seek_interstitial_enabled"]):
+                    raise ServiceError(2013, "拖拽插屏当前未启用", 409)
+                if placement_count(placement_id) >= int(policy["seek_interstitial_hourly_limit"]):
+                    raise ServiceError(2014, "本小时拖拽插屏已达上限", 429)
             else:
-                # 兼容旧版 int_timer / int_pause 事件；新客户端不再主动触发 int_timer。
+                # 兼容旧版 int_timer / int_pause 事件。
                 if counters["last_interstitial_at"] and now - counters["last_interstitial_at"] < timedelta(seconds=int(policy["interstitial_cooldown_seconds"])):
                     raise ServiceError(2002, "插屏冷却期未结束", 409)
-                hourly = self._one(
-                    connection,
-                    "SELECT COUNT(*) AS count FROM interstitial_events WHERE user_id = %s AND shown_at >= NOW() - INTERVAL '1 hour'",
-                    (user_id,),
-                )["count"]
-                if hourly >= int(policy["interstitial_hourly_limit"]):
+                if placement_count(placement_id) >= int(policy["interstitial_hourly_limit"]):
                     raise ServiceError(2003, "本小时插屏展示已达上限", 429)
 
             self._execute(
@@ -559,6 +654,45 @@ class RewardsService:
                 raise ServiceError(1202, "请先领取该笔十集基础奖励后再翻倍", 409)
             return {"action": "DOUBLE_REWARD", "claim_id": claim["id"], "cycle_number": claim["cycle_number"], "gems_added": claim["base_reward_gems"], "can_double": False}
 
+        if placement_id == "rv_episode_reward_boost":
+            if not target_id:
+                raise ServiceError(1213, "本集翻倍缺少 episode_id", 422)
+            claim = self._one(
+                connection,
+                """
+                SELECT id, base_reward_gems FROM episode_reward_claims
+                WHERE user_id = %s AND episode_id = %s AND state = 'PENDING' FOR UPDATE
+                """,
+                (user_id, target_id),
+            )
+            if not claim:
+                raise ServiceError(1214, "本集暂无待领取宝石，无法开启翻倍", 409)
+            boosted = self._one(
+                connection,
+                "SELECT 1 AS exists FROM episode_reward_boosts WHERE user_id = %s AND episode_id = %s",
+                (user_id, target_id),
+            )
+            if boosted:
+                raise ServiceError(1215, "本集翻倍已开启，每集仅可翻倍一次", 409)
+            return {"action": "EPISODE_REWARD_BOOST", "episode_id": target_id, "gems_added": int(claim["base_reward_gems"])}
+
+        if placement_id == "rv_random_chest_open":
+            chest = self._one(
+                connection,
+                """
+                SELECT id FROM random_chest_inventory
+                WHERE user_id = %s AND state = 'AVAILABLE'
+                ORDER BY created_at, id LIMIT 1 FOR UPDATE
+                """,
+                (user_id,),
+            )
+            if not chest:
+                raise ServiceError(1303, "当前没有可开启的随机宝箱", 409)
+            minimum = int(policy["random_chest_min_gems"])
+            maximum = int(policy["random_chest_max_gems"])
+            gems = minimum + secrets.randbelow(maximum - minimum + 1)
+            return {"action": "RANDOM_CHEST_OPEN", "chest_id": int(chest["id"]), "gems_added": gems}
+
         if placement_id == "rv_episode_reward_double":
             if not target_id:
                 raise ServiceError(1211, "单集奖励翻倍缺少 episode_id", 422)
@@ -575,13 +709,22 @@ class RewardsService:
             return {"action": "EPISODE_REWARD_DOUBLE", "claim_id": claim["id"], "episode_id": target_id, "gems_added": int(claim["base_reward_gems"])}
 
         if placement_id == "rv_chest_task":
-            signed = self._one(connection, "SELECT 1 AS signed FROM checkins WHERE user_id = %s AND business_date = %s", (user_id, business_date))
-            if not signed:
-                raise ServiceError(1301, "签到后才可开启每日宝箱", 409)
-            existing = self._one(connection, "SELECT 1 AS claimed FROM chest_claims WHERE user_id = %s AND business_date = %s", (user_id, business_date))
-            if existing:
-                raise ServiceError(1302, "今日宝箱已经领取", 409)
-            return {"action": "CHEST_TASK", "gems_added": policy["chest_reward_gems"]}
+            # 兼容旧客户端：旧每日宝箱入口与新随机宝箱采用相同库存和结算方式。
+            chest = self._one(
+                connection,
+                """
+                SELECT id FROM random_chest_inventory
+                WHERE user_id = %s AND state = 'AVAILABLE'
+                ORDER BY created_at, id LIMIT 1 FOR UPDATE
+                """,
+                (user_id,),
+            )
+            if not chest:
+                raise ServiceError(1303, "当前没有可开启的随机宝箱", 409)
+            minimum = int(policy["random_chest_min_gems"])
+            maximum = int(policy["random_chest_max_gems"])
+            gems = minimum + secrets.randbelow(maximum - minimum + 1)
+            return {"action": "RANDOM_CHEST_OPEN", "chest_id": int(chest["id"]), "gems_added": gems}
 
         if placement_id == "rv_signin_double":
             checkin = self._one(
@@ -644,6 +787,12 @@ class RewardsService:
                 (ad_event_id, payload["claim_id"]),
             )
             self._credit_gems(connection, user_id, payload["gems_added"], policy, "DOUBLE_REWARD", "double_ad", ad_event_id)
+        elif action == "EPISODE_REWARD_BOOST":
+            self._execute(
+                connection,
+                "INSERT INTO episode_reward_boosts (user_id, episode_id, ad_event_id) VALUES (%s, %s, %s)",
+                (user_id, payload["episode_id"], ad_event_id),
+            )
         elif action == "EPISODE_REWARD_DOUBLE":
             self._execute(
                 connection,
@@ -651,13 +800,17 @@ class RewardsService:
                 (ad_event_id, payload["claim_id"]),
             )
             self._credit_gems(connection, user_id, payload["gems_added"], policy, "EPISODE_REWARD_DOUBLE", "episode_reward_double", ad_event_id)
-        elif action == "CHEST_TASK":
+        elif action == "RANDOM_CHEST_OPEN":
             self._execute(
                 connection,
-                "INSERT INTO chest_claims (user_id, business_date, ad_event_id, gems) VALUES (%s, %s, %s, %s)",
-                (user_id, business_date, ad_event_id, payload["gems_added"]),
+                """
+                UPDATE random_chest_inventory
+                SET state = 'OPENED', gems = %s, opened_ad_event_id = %s, opened_at = NOW()
+                WHERE id = %s AND state = 'AVAILABLE'
+                """,
+                (payload["gems_added"], ad_event_id, payload["chest_id"]),
             )
-            self._credit_gems(connection, user_id, payload["gems_added"], policy, "CHEST_TASK", "chest_ad", ad_event_id)
+            self._credit_gems(connection, user_id, payload["gems_added"], policy, "RANDOM_CHEST_OPEN", "random_chest", str(payload["chest_id"]))
         elif action == "SIGNIN_DOUBLE":
             self._execute(
                 connection,
@@ -701,7 +854,8 @@ class RewardsService:
         episode_id: str,
         policy: dict[str, Any],
     ) -> dict[str, Any] | None:
-        reward = int(policy["episode_reward_gems"])
+        multiplier = self._current_episode_multiplier(connection, user_id)
+        reward = max(0, math.floor(int(policy["episode_reward_gems"]) * multiplier))
         self._execute(
             connection,
             """
@@ -713,10 +867,73 @@ class RewardsService:
         )
         claim = self._one(
             connection,
-            "SELECT state FROM episode_reward_claims WHERE user_id = %s AND episode_id = %s",
+            "SELECT state, base_reward_gems FROM episode_reward_claims WHERE user_id = %s AND episode_id = %s",
             (user_id, episode_id),
         )
-        return {"episode_id": episode_id, "gems": reward, "state": claim["state"]} if claim and claim["state"] == "PENDING" else None
+        return (
+            {"episode_id": episode_id, "gems": int(claim["base_reward_gems"]), "multiplier": multiplier, "state": claim["state"]}
+            if claim and claim["state"] == "PENDING" else None
+        )
+
+    def _current_episode_multiplier(self, connection: psycopg.Connection[Any], user_id: str) -> float:
+        row = self._one(
+            connection,
+            """
+            SELECT COALESCE(MAX(p.episode_reward_multiplier), 1.00) AS multiplier
+            FROM user_achievements a
+            JOIN achievement_policy p ON p.code = a.code
+            WHERE a.user_id = %s
+            """,
+            (user_id,),
+        )
+        return float(row["multiplier"] if row else 1.0)
+
+    def _ensure_random_chests(
+        self,
+        connection: psycopg.Connection[Any],
+        user_id: str,
+        business_date: date,
+        policy: dict[str, Any],
+        lifetime_episode_count: int | None = None,
+    ) -> list[dict[str, Any]]:
+        created: list[dict[str, Any]] = []
+        created_count = 0
+        for index in range(int(policy["daily_random_chest_count"])):
+            source_key = f"{business_date.isoformat()}:{index + 1}"
+            created_count += self._execute(
+                connection,
+                """
+                INSERT INTO random_chest_inventory (user_id, source_kind, source_key, business_date)
+                VALUES (%s, 'DAILY', %s, %s)
+                ON CONFLICT (user_id, source_kind, source_key) DO NOTHING
+                """,
+                (user_id, source_key, business_date),
+            )
+        if lifetime_episode_count is None:
+            lifetime_episode_count = int(self._one(
+                connection, "SELECT COUNT(*) AS count FROM watch_events WHERE user_id = %s", (user_id,)
+            )["count"])
+        stride = int(policy["episodes_per_random_chest"])
+        chest_count = lifetime_episode_count // stride
+        for cycle in range(1, chest_count + 1):
+            source_key = str(cycle)
+            created_count += self._execute(
+                connection,
+                """
+                INSERT INTO random_chest_inventory (user_id, source_kind, source_key, business_date)
+                VALUES (%s, 'WATCH', %s, %s)
+                ON CONFLICT (user_id, source_kind, source_key) DO NOTHING
+                """,
+                (user_id, source_key, business_date),
+            )
+        available = int(self._one(
+            connection,
+            "SELECT COUNT(*) AS count FROM random_chest_inventory WHERE user_id = %s AND state = 'AVAILABLE'",
+            (user_id,),
+        )["count"])
+        if created_count:
+            created.append({"created_count": created_count, "available_count": available})
+        return created
 
     def _create_ten_round_claim_if_due(
         self,
@@ -796,25 +1013,31 @@ class RewardsService:
         today_streak = completed_streak if checkin else (completed_streak % 30 + 1)
         today_reward = self._one(connection, "SELECT gems FROM signin_reward_tiers WHERE day_number = %s", (today_streak,))["gems"]
         tiers = self._all(connection, "SELECT day_number, gems FROM signin_reward_tiers ORDER BY day_number")
-        ten_round_claims = self._all(
-            connection,
-            """
-            SELECT cycle_number, round_from, round_to, base_reward_gems, state FROM pending_claims
-            WHERE user_id = %s AND claim_kind = 'TEN_ROUND'
-            ORDER BY cycle_number
-            """,
-            (user_id,),
-        )
         episode_reward_claims = self._all(
             connection,
             """
-            SELECT episode_id, base_reward_gems, state FROM episode_reward_claims
-            WHERE user_id = %s
-            ORDER BY id
+            SELECT c.episode_id, c.base_reward_gems, c.state,
+                   EXISTS(
+                       SELECT 1 FROM episode_reward_boosts b
+                       WHERE b.user_id = c.user_id AND b.episode_id = c.episode_id
+                   ) AS boosted
+            FROM episode_reward_claims c
+            WHERE c.user_id = %s
+            ORDER BY c.id
             """,
             (user_id,),
         )
-        chest = self._one(connection, "SELECT 1 AS claimed FROM chest_claims WHERE user_id = %s AND business_date = %s", (user_id, business_date))
+        chest_rows = self._all(
+            connection,
+            """
+            SELECT source_kind, COUNT(*) AS count
+            FROM random_chest_inventory
+            WHERE user_id = %s AND state = 'AVAILABLE'
+            GROUP BY source_kind
+            """,
+            (user_id,),
+        )
+        chest_counts = {item["source_kind"]: int(item["count"]) for item in chest_rows}
         achievements = self._all(connection, "SELECT code, gems, virtual_entitlement, earned_at FROM user_achievements WHERE user_id = %s ORDER BY earned_at", (user_id,))
         welcome = self._one(connection, "SELECT gems, state FROM welcome_rewards WHERE user_id = %s", (user_id,))
         recent_ledger = self._all(
@@ -826,11 +1049,14 @@ class RewardsService:
             (user_id,),
         )
         pending_episode_rewards = [item for item in episode_reward_claims if item["state"] == "PENDING"]
-        pending_claim = next((item for item in ten_round_claims if item["state"] == "PENDING"), None)
-        ten_round_size = int(policy["ten_round_size"])
-        in_cycle = lifetime_episode_count % ten_round_size
+        pending_reward_gems = sum(int(item["base_reward_gems"]) * (2 if item["boosted"] else 1) for item in pending_episode_rewards)
+        episodes_per_chest = int(policy["episodes_per_random_chest"])
+        in_chest_cycle = lifetime_episode_count % episodes_per_chest
         release_cap = int(wallet_policy["daily_release_micros"])
-        estimated_days = math.ceil(int(user["cash_wallet_micros"]) / max(release_cap, 1)) if int(user["cash_wallet_micros"]) else 0
+        cash_wallet_micros = int(user["cash_wallet_micros"])
+        estimated_days = math.ceil(cash_wallet_micros / max(release_cap, 1)) if cash_wallet_micros else 0
+        expected_tomorrow_transfer = min(cash_wallet_micros, release_cap)
+        expected_boost_transfer = min(cash_wallet_micros, int(wallet_policy["release_boost_micros"]))
         return {
             "business_date": business_date.isoformat(),
             "user": {"geo_tier": user["geo_tier"], "lifecycle_day": lifecycle_day},
@@ -848,6 +1074,9 @@ class RewardsService:
                     "boost_used": counters["release_boost_count"],
                     "boost_cap": policy["release_boost_daily_limit"],
                     "boost_amount": self._money(int(wallet_policy["release_boost_micros"])),
+                    "expected_tomorrow_transfer": self._money(expected_tomorrow_transfer),
+                    "expected_boost_transfer": self._money(expected_boost_transfer),
+                    "boost_available": cash_wallet_micros > 0 and int(counters["release_boost_count"]) < int(policy["release_boost_daily_limit"]),
                     "estimated_days_remaining": estimated_days,
                     "pending_days": user["pending_release_days"],
                 },
@@ -858,9 +1087,11 @@ class RewardsService:
                 "rv_count": counters["rv_count"],
                 "rv_daily_limit": policy["rv_daily_limit"],
                 "completed_rounds": counters["completed_rounds"],
-                "ten_round_size": ten_round_size,
-                "episodes_to_next_ten_round": 0 if pending_claim else max(0, ten_round_size - in_cycle),
-                "next_ten_round_preview_gems": self._round_reward(policy, lifetime_episode_count // ten_round_size + 1),
+                "ten_round_size": 0,
+                "episodes_to_next_ten_round": 0,
+                "next_ten_round_preview_gems": 0,
+                "episodes_per_random_chest": episodes_per_chest,
+                "episodes_to_next_random_chest": 0 if in_chest_cycle == 0 else episodes_per_chest - in_chest_cycle,
                 "pending_episode_reward_count": len(pending_episode_rewards),
             },
             "checkin": {
@@ -881,16 +1112,23 @@ class RewardsService:
                 "progress": len(pending_episode_rewards),
                 "target": max(1, len(pending_episode_rewards)),
                 "claimable": bool(pending_episode_rewards),
-                "reward_gems": sum(int(item["base_reward_gems"]) for item in pending_episode_rewards),
-                "label": "领取宝石" if pending_episode_rewards else "追剧攒宝石",
+                "reward_gems": pending_reward_gems,
+                "label": "领取全部宝石" if pending_episode_rewards else "追剧攒宝石",
             },
             "chest": {
-                "requires_checkin": True,
-                "claimable": checkin is not None and chest is None,
-                "claimed": chest is not None,
-                "reward_gems": policy["chest_reward_gems"],
+                "requires_checkin": False,
+                "claimable": sum(chest_counts.values()) > 0,
+                "claimed": False,
+                "reward_gems": 0,
+                "available_count": sum(chest_counts.values()),
+                "daily_available_count": chest_counts.get("DAILY", 0),
+                "watch_available_count": chest_counts.get("WATCH", 0),
+                "min_gems": int(policy["random_chest_min_gems"]),
+                "max_gems": int(policy["random_chest_max_gems"]),
+                "episodes_per_chest": episodes_per_chest,
+                "episodes_to_next_chest": 0 if in_chest_cycle == 0 else episodes_per_chest - in_chest_cycle,
             },
-            "pending_claims": ten_round_claims,
+            "pending_claims": [],
             "episode_reward_claims": episode_reward_claims,
             "achievements": achievements,
             "crown_progress": self._crown_progress(connection, user_id),
@@ -910,6 +1148,12 @@ class RewardsService:
                 "pause_ad_min_play_seconds": int(policy["pause_ad_min_play_seconds"]),
                 "pause_ad_cooldown_seconds": int(policy["pause_ad_cooldown_seconds"]),
                 "pause_ad_hourly_limit": int(policy["pause_interstitial_hourly_limit"]),
+                "reward_claim_enabled": bool(policy["reward_claim_interstitial_enabled"]),
+                "mid_episode_enabled": bool(policy["mid_episode_interstitial_enabled"]),
+                "mid_episode_trigger_seconds": int(policy["mid_episode_interstitial_trigger_seconds"]),
+                "mid_episode_hourly_limit": int(policy["mid_episode_interstitial_hourly_limit"]),
+                "seek_enabled": bool(policy["seek_interstitial_enabled"]),
+                "seek_hourly_limit": int(policy["seek_interstitial_hourly_limit"]),
                 "last_rv_at": counters["last_rv_at"].isoformat() if counters["last_rv_at"] else None,
                 "last_interstitial_at": counters["last_interstitial_at"].isoformat() if counters["last_interstitial_at"] else None,
             },
@@ -948,6 +1192,7 @@ class RewardsService:
                 "code": row["code"], "title": titles.get(row["code"], row["code"]),
                 "level_rank": row["level_rank"], "earned": row["code"] in earned_codes, "gems": row["reward_gems"],
                 "entitlement": row["virtual_entitlement"], "window_hours": row["window_hours"],
+                "episode_reward_multiplier": float(row["episode_reward_multiplier"]),
                 "rounds": {"current": rounds, "target": row["required_rounds"]},
                 "signins": {"current": signins, "target": row["required_signin_days"]},
                 "rewarded_ads": {"current": rvs, "target": row["required_rv_count"]},
@@ -962,7 +1207,7 @@ class RewardsService:
         threshold = int(wallet_policy["withdrawal_threshold_micros"])
         available = int(user["available_balance_micros"])
         if not enabled:
-            reason = "提现功能尚未启用；可提现余额、现金转入规则与门槛均按页面完整披露。"
+            reason = "提现功能尚未启用；请关注钱包余额与可提现余额的后续转入进度。"
         elif available < threshold:
             reason = f"可提现余额未达到最低门槛 {self._money(threshold)}，还差 {self._money(threshold - available)}。"
         else:
@@ -1129,17 +1374,39 @@ class RewardsService:
             raise ServiceError(1502, "数据库未初始化奖励规则，请执行 sql/001_init.sql", 503)
         return policy
 
+    def _admin_policy_with_crowns(self, connection: psycopg.Connection[Any], policy: dict[str, Any]) -> dict[str, Any]:
+        payload = self._admin_policy_payload(policy)
+        payload["crown_multipliers"] = [
+            {"code": item["code"], "title": item["title"], "level_rank": int(item["level_rank"]), "episode_reward_multiplier": float(item["episode_reward_multiplier"])}
+            for item in self._all(
+                connection,
+                """
+                SELECT code, level_rank, episode_reward_multiplier,
+                       CASE code WHEN 'BRONZE' THEN '青铜' WHEN 'SILVER' THEN '白银'
+                           WHEN 'GOLD' THEN '黄金' WHEN 'DIAMOND' THEN '钻石' WHEN 'CROWN' THEN '皇冠'
+                           ELSE code END AS title
+                FROM achievement_policy ORDER BY level_rank, code
+                """,
+            )
+        ]
+        return payload
+
     @staticmethod
     def _admin_policy_payload(policy: dict[str, Any]) -> dict[str, Any]:
         return {
-            "decay_alpha": float(policy["decay_alpha"]),
-            "r0_gems": int(policy["r0_gems"]),
-            "floor_gems": int(policy["ten_round_bonus_floor_gems"]),
-            "ten_round_size": int(policy["ten_round_size"]),
+            "random_chest_min_gems": int(policy["random_chest_min_gems"]),
+            "random_chest_max_gems": int(policy["random_chest_max_gems"]),
+            "daily_random_chest_count": int(policy["daily_random_chest_count"]),
+            "episodes_per_random_chest": int(policy["episodes_per_random_chest"]),
+            "reward_claim_interstitial_enabled": bool(policy["reward_claim_interstitial_enabled"]),
+            "mid_episode_interstitial_enabled": bool(policy["mid_episode_interstitial_enabled"]),
+            "mid_episode_interstitial_trigger_seconds": int(policy["mid_episode_interstitial_trigger_seconds"]),
+            "mid_episode_interstitial_hourly_limit": int(policy["mid_episode_interstitial_hourly_limit"]),
+            "seek_interstitial_enabled": bool(policy["seek_interstitial_enabled"]),
+            "seek_interstitial_hourly_limit": int(policy["seek_interstitial_hourly_limit"]),
             "next_episode_interstitial_enabled": bool(policy["next_episode_interstitial_enabled"]),
             "next_episode_interstitial_hourly_limit": int(policy["next_episode_interstitial_hourly_limit"]),
             "next_episode_interstitial_cooldown_seconds": int(policy["next_episode_interstitial_cooldown_seconds"]),
-            "extra_episode_unlock_enabled": bool(policy["extra_episode_unlock_enabled"]),
             "pause_ad_enabled": bool(policy["pause_ad_enabled"]),
             "pause_ad_min_play_seconds": int(policy["pause_ad_min_play_seconds"]),
             "pause_ad_cooldown_seconds": int(policy["pause_ad_cooldown_seconds"]),
@@ -1183,9 +1450,10 @@ class RewardsService:
         return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
     @staticmethod
-    def _execute(connection: psycopg.Connection[Any], sql: str, params: tuple[Any, ...] = ()) -> None:
+    def _execute(connection: psycopg.Connection[Any], sql: str, params: tuple[Any, ...] = ()) -> int:
         with connection.cursor() as cursor:
             cursor.execute(sql, params)
+            return cursor.rowcount
 
     @staticmethod
     def _one(connection: psycopg.Connection[Any], sql: str, params: tuple[Any, ...] = ()) -> dict[str, Any] | None:
