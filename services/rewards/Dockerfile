@@ -3,6 +3,7 @@ FROM python:3.12-slim
 WORKDIR /srv/app
 COPY pyproject.toml ./
 COPY app ./app
+COPY sql ./sql
 RUN pip install --no-cache-dir .
 
 EXPOSE 8100

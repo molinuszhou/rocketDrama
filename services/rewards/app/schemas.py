@@ -10,6 +10,7 @@ RewardedPlacement = Literal[
     "rv_episode_pass",
     "rv_claim_reward",
     "rv_double_reward",
+    "rv_episode_reward_double",
     "rv_chest_task",
     "rv_signin_double",
     "rv_release_boost",
@@ -46,6 +47,22 @@ class CheckinRequest(BaseModel):
 
 class WelcomeBonusRequest(BaseModel):
     user_id: str = Field(min_length=1, max_length=128)
+
+
+class EpisodeRewardClaimRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=128)
+    episode_id: str = Field(min_length=1, max_length=256)
+    reference_id: str = Field(min_length=8, max_length=160)
+
+
+class DampingUpdateRequest(BaseModel):
+    decay_alpha: float = Field(ge=0.0, le=5.0)
+
+
+class TenRoundClaimRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=128)
+    cycle_number: int = Field(ge=1, le=100_000)
+    reference_id: str = Field(min_length=8, max_length=160)
 
 
 class GemsExchangeRequest(BaseModel):

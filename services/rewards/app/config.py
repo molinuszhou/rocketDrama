@@ -13,6 +13,7 @@ class Settings:
     cors_origins: list[str]
     allow_debug_ad_proof: bool
     pangle_callback_secret: str | None
+    admin_dashboard_token: str | None
     timezone: str
 
     @classmethod
@@ -33,5 +34,6 @@ class Settings:
             cors_origins=origins or ["http://localhost"],
             allow_debug_ad_proof=allow_debug_ad_proof,
             pangle_callback_secret=os.getenv("PANGLE_CALLBACK_SECRET", "").strip() or None,
+            admin_dashboard_token=os.getenv("ADMIN_DASHBOARD_TOKEN", "").strip() or None,
             timezone=os.getenv("TIMEZONE", "Asia/Shanghai").strip() or "Asia/Shanghai",
         )

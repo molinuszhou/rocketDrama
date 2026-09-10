@@ -11,6 +11,9 @@ from app.models import Availability, ContentSource, DramaCard, Episode, Entitlem
 from app.providers import FreeDramaRecord
 
 
+FREE_EPISODES_COUNT = 3
+
+
 class OwnedEpisodeInput(BaseModel):
     id: str
     index: int = Field(ge=1)
@@ -63,6 +66,7 @@ def load_owned_catalog(path: str) -> tuple[FreeDramaRecord, ...]:
     payload = OwnedCatalogInput.model_validate(json.loads(catalog_file.read_text(encoding="utf-8")))
     records: list[FreeDramaRecord] = []
     for item in payload.dramas:
+        free_episodes = FREE_EPISODES_COUNT
         sorted_episodes = sorted(item.episodes, key=lambda entry: entry.index)
         episodes = tuple(
             Episode(
@@ -72,7 +76,7 @@ def load_owned_catalog(path: str) -> tuple[FreeDramaRecord, ...]:
                 title=episode.title,
                 duration_seconds=episode.durationSeconds,
                 cover_url=resolve_poster_url(episode.posterUrl),
-                entitlement=EntitlementState.FREE if episode.index <= item.freeEpisodes else EntitlementState.AD_UNLOCK,
+                entitlement=EntitlementState.FREE if episode.index <= free_episodes else EntitlementState.AD_UNLOCK,
                 playback_mode=PlaybackMode.SIGNED_URL,
                 media_asset_id=episode.videoAssetId,
                 media_provider=episode.videoProvider,
@@ -91,7 +95,7 @@ def load_owned_catalog(path: str) -> tuple[FreeDramaRecord, ...]:
             language=item.language,
             origin_regions=item.originRegions,
             total_episodes=len(episodes),
-            free_episodes=item.freeEpisodes,
+            free_episodes=free_episodes,
             playback_mode=PlaybackMode.SIGNED_URL,
             availability=Availability(
                 available=True,

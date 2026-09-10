@@ -20,7 +20,7 @@ Docker 相关文件全部位于 `services/`，与 Android 客户端代码解耦�
 cd C:\JoyeDrama\services
 Copy-Item .env.example .env
 notepad .env
-# 至少替换 POSTGRES_PASSWORD 和 PLAYBACK_SIGNING_KEY。
+# 至少替换 POSTGRES_PASSWORD、PLAYBACK_SIGNING_KEY 和 ADMIN_DASHBOARD_TOKEN。
 
 docker compose up -d --build
 docker compose ps
@@ -40,11 +40,11 @@ OWNED_CATALOG_PATH=D:/gworkspace/JoyeDrama/services/content/content/owned_catalo
 积分与奖励服务：http://电脑IPv4:8100
 ```
 
-不要在真机中使用 `localhost`、`127.0.0.1` 或 `10.0.2.2`。完整的 Windows 服务、媒体路径、数据库重建、v3.0 奖励迁移和验收说明分别见：
+不要在真机中使用 `localhost`、`127.0.0.1` 或 `10.0.2.2`。完整的 Windows 服务、媒体路径、数据库升级、v4 奖励规则和验收说明分别见：
 
 - `services/content/docs/WINDOWS_LAN_DEPLOYMENT_AND_TEST.md`
 - `services/rewards/docs/WINDOWS_POSTGRES_REWARDS_DEPLOYMENT.md`
-- `services/rewards/docs/V3_MONETIZATION_IMPLEMENTATION.md`
+- `services/rewards/docs/ARCHITECTURE.md`（v4 奖励规则与运营后台）
 
 ## 停止与重置
 
@@ -56,11 +56,19 @@ cd C:\JoyeDrama\services
 # 停止容器，但保留 PostgreSQL 账本。
 docker compose down
 
-# 仅测试重置：删除 PostgreSQL 账本数据卷；下次启动会重新执行 001 与 002 初始化脚本。
+# 仅测试重置：删除 PostgreSQL 账本数据卷；下次启动会重新执行 001、002 与 003 初始化脚本。
 docker compose down -v
 docker compose up -d --build
 ```
 
 Android 的敏感配置仅通过本地 `local.properties` 注入。可从 `android/partner.properties.example` 复制并填写受控值；不要将真实值提交到 Git。
+
+## v4 奖励与运营后台
+
+当前规则固定为**前三集免费**；从第 4 集起，播放结束后由用户主动确认是否看广告解锁下一集，广告完成后自动续播。每集有效观看会生成一笔**待领取宝石**，悬浮宝石球会累加显示；用户点击领取后基础宝石才进入钱包，随后可自主选择广告翻倍。每累计 10 集有效观看还会形成一笔额外的十集追剧加奖。
+
+皇冠之路采用青铜、白银、黄金、钻石、皇冠五级严格累计条件，达成各级时由服务端自动发放宝石。钱包显示为“宝石 → 现金余额 → 可提现余额”。
+
+在 Windows 电脑浏览器打开 `http://localhost:8100/admin`，输入 `.env` 内的 `ADMIN_DASHBOARD_TOKEN`，即可调整十集追剧加奖的阻尼系数。该设置仅影响之后新生成的十集加奖，不追溯改写任何既有账本。
 
 详细客户端验收步骤见 `android/DRAMAFLOW_POSTGRES_REWARDS_PLAYER_TEST_RUNBOOK.md`。

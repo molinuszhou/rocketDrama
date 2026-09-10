@@ -29,7 +29,10 @@ def run() -> None:
 
     for drama in payload["dramas"]:
         expected_directory = EXPECTED_DRAMA_PATHS[drama["id"]]
-        assert drama["freeEpisodes"] == 1
+        assert drama["freeEpisodes"] == 1  # 保留原测试片单原始字段，加载器统一按前三集免费输出。
+        loaded = next(record.drama for record in records if record.drama.id == drama["id"])
+        assert loaded.free_episodes == 3
+        assert [episode.entitlement.value for episode in next(record.episodes for record in records if record.drama.id == drama["id"])] == ["FREE", "FREE", "FREE", "AD_UNLOCK", "AD_UNLOCK"]
         assert len(drama["episodes"]) == 5
         for index, episode in enumerate(drama["episodes"], start=1):
             assert episode["index"] == index

@@ -1,6 +1,6 @@
 # DramaFlow 独立 PostgreSQL 积分服务：Windows 部署与联调手册
 
-**文档版本：v3.0.1**
+**文档版本：v4.0.0**
 **适用环境：Windows 10/11、Docker Desktop、Android 真机或模拟器**
 
 本服务负责广告事件、宝石账本、新人欢迎奖励、三层钱包兑换与释放、签到、每日宝箱、追剧领奖、皇冠成就和插屏频控。它与自有短剧内容服务是**两个独立进程、两个独立端口、两套数据边界**：内容服务只负责目录、分集、短时播放 URL 与媒体文件；本服务只负责奖励与权益结算。
@@ -31,7 +31,7 @@ Copy-Item .env.example .env
 notepad .env
 ```
 
-在 `.env` 中至少设置如下项目。请使用长随机密码；`POSTGRES_PASSWORD` 与未来的 `PANGLE_CALLBACK_SECRET` 都属于敏感值，不能提交 Git、不能发送到群聊、不能写入 Android 包。
+在 `.env` 中至少设置如下项目。请使用长随机密码；`POSTGRES_PASSWORD`、`ADMIN_DASHBOARD_TOKEN` 与未来的 `PANGLE_CALLBACK_SECRET` 都属于敏感值，不能提交 Git、不能发送到群聊、不能写入 Android 包。
 
 ```dotenv
 POSTGRES_DB=dramaflow_rewards
@@ -47,6 +47,10 @@ ALLOW_DEBUG_AD_PROOF=true
 
 # 生产环境收到 Pangle 服务端回调/验签方案后再填写，并同时关闭上面的开发开关。
 PANGLE_CALLBACK_SECRET=
+
+# 奖励运营后台：http://localhost:8100/admin
+# 必须改为独立随机字符串，且仅自己保存。
+ADMIN_DASHBOARD_TOKEN=请替换为高强度后台令牌
 CORS_ORIGINS=http://localhost
 ```
 
@@ -60,14 +64,9 @@ docker compose ps
 docker compose logs -f rewards-api
 ```
 
-初次启动会拉取 PostgreSQL 镜像、构建 API 镜像并创建名为 `rewards_postgres_data` 的 Docker 持久卷。PostgreSQL 官方镜像会在**首次初始化空数据目录**时按顺序执行 `001_init.sql` 和 `002_monetization_v3.sql`；已有数据卷不会重复运行初始化脚本。[3]
+初次启动会拉取 PostgreSQL 镜像、构建 API 镜像并创建名为 `rewards_postgres_data` 的 Docker 持久卷。空数据卷会顺序执行 `001_init.sql`、`002_monetization_v3.sql` 和 `003_rewards_v4.sql`。[3]
 
-> **从 v1.0.0 升级的必做步骤：** 已经创建过数据库卷时，请在部署目录执行一次下面的迁移，然后重启 API。不要使用 `docker compose down -v` 来“升级”，那会删除真实账本。
->
-> ```powershell
-> Get-Content .\rewards\sql\002_monetization_v3.sql | docker compose exec -T postgres psql -U $env:POSTGRES_USER -d $env:POSTGRES_DB
-> docker compose restart rewards-api
-> ```
+> **v4 升级说明：** Rewards API 启动时会自动、幂等地补跑 `003_rewards_v4.sql`，因此已有数据库卷在执行 `docker compose up -d --build` 后无需手工删除或导入数据库。不要使用 `docker compose down -v` 来“升级”，那会删除真实账本。
 
 当日志显示 API 已监听端口后，按 `Ctrl+C` 退出日志跟随模式；这不会停止后台服务。随后进行健康检查：
 
@@ -125,19 +124,35 @@ http://192.168.1.25:8100
 
 不要填入内容服务地址 `:8000`。模拟器在同一开发电脑上运行时，默认地址是 `http://10.0.2.2:8100`；真机必须填写电脑的实际局域网 IPv4 地址。
 
-配置成功后，进入 **奖励** 页面应能看到新人欢迎奖励、宝石余额、待释放余额、可用余额、现金释放进度、签到进度、每日宝箱、追剧领奖和皇冠之路；悬浮攒币转轮会显示在首页和播放页。开发测试中，完整观看 Pangle 激励广告后，Android 会提交开发广告证明；数据库服务以幂等广告事件 ID 结算，重复回调不会重复加宝石。
+配置成功后，进入 **奖励** 页面应能看到新人欢迎奖励、宝石余额、现金余额、可提现余额、签到、每日宝箱、逐集待领取宝石、十集追剧加奖和五级皇冠之路；悬浮宝石球会显示在首页和播放页。开发测试中，完整观看 Pangle 激励广告后，Android 会提交开发广告证明；数据库服务以幂等广告事件 ID 结算，重复回调不会重复加宝石。
 
 | 验收路径 | 预期结果 |
 |---|---|
 | 第 1–3 集 | 免费播放，不触发集间激励广告记账。 |
-| 第 4 集及以后 | 完整激励广告结束并关闭后，才记录集间通行并向内容服务申请解锁。 |
-| 有效播放完成 | 服务端写入一轮有效观看；达到第 10 轮后显示待领取奖励。 |
-| 十轮领奖 | 观看 `rv_claim_reward` 广告后结算基础宝石；随后可观看一次 `rv_double_reward` 翻倍。 |
+| 第 4 集及以后 | 播放结束后由用户主动确认“看广告解锁”；广告关闭后自动请求内容解锁并开始播放下一集。 |
+| 每集有效播放完成 | 服务端生成一笔待领取宝石，悬浮宝石球数值增加；点击领取后才记入宝石余额。 |
+| 单集奖励翻倍 | 用户领取基础宝石后，可自主观看 `rv_episode_reward_double` 广告，再获得同额宝石。 |
+| 十集追剧加奖 | 每累计 10 集有效观看生成一笔额外宝石；基础宝石可直接领取，领取后可观看 `rv_double_reward` 广告翻倍。 |
+| 皇冠之路 | 青铜、白银、黄金、钻石、皇冠五级均采用严格的累计观看、签到和激励广告条件；达成时自动发放对应宝石。 |
 | 每日签到 | 基础签到写入数据库；签到后可观看一次 `rv_signin_double` 获得翻倍。 |
 | 每日宝箱 | 完成签到后可观看 `rv_chest_task` 广告领取一次。 |
 | 插屏 | 第 4 集起按服务端冷却时间触发；广告全屏时原视频暂停，广告关闭后按进入广告前的播放状态恢复。 |
 
-## 6. 日常运维与数据备份
+## 6. 奖励运营后台：调整十轮奖励阻尼系数
+
+在运行 Rewards API 的 Windows 电脑浏览器打开：
+
+```text
+http://localhost:8100/admin
+```
+
+输入 `.env` 中的 `ADMIN_DASHBOARD_TOKEN` 后，页面会显示首轮额外奖励、最低保底、每轮集数、当前阻尼系数，以及第 1、2、3、5、10、20 轮的奖励预览。阻尼系数公式为：
+
+> 十轮额外奖励 = `首轮额外奖励 ÷ 轮次^α`，且不会低于最低保底。
+
+`α` 越大，奖励下降越快；`α = 0` 表示不随轮次下降。保存后仅影响**未来新生成的十集加奖**，不会追溯修改用户已完成、已领取或已生成的奖励，所有变更都会写入 PostgreSQL 审计表。请不要将该端口开放到公网；生产运营必须置于 HTTPS、反向代理、访问控制与审计体系之后。
+
+## 7. 日常运维与数据备份
 
 查看运行状态与日志：
 
@@ -170,20 +185,20 @@ docker compose start rewards-api
 
 > `docker compose down -v` 会删除 PostgreSQL 持久卷并清空本地奖励账本。除非明确要重置测试数据，否则不要使用 `-v`。
 
-## 7. 开发模式与生产切换
+## 8. 开发模式与生产切换
 
 `ALLOW_DEBUG_AD_PROOF=true` 只用于当前 Android Debug 包和 Pangle 测试环境。正式上架前必须把它改为 `false`，配置 `PANGLE_CALLBACK_SECRET`，并将真实广告完成回调/验签接入服务端；否则客户端传入的开发证明不能作为生产奖励依据。
 
 提现在当前版本仅提供**透明的钱包换算和资格预检**，不会伪造到账或自动打款。开放真实提现前，应独立补充身份校验、反作弊、支付/转账通道、人工审核、限额、争议处理、对账及法务合规流程。
 
-## 8. 常见问题
+## 9. 常见问题
 
 | 现象 | 优先排查 |
 |---|---|
 | App 显示“积分服务尚未连接” | 在 App 的“我的”中确认填写了 `http://电脑IPv4:8100`，而非 `:8000`。 |
 | 手机浏览器访问 `:8100/health` 失败 | Docker Desktop 是否运行、`docker compose ps` 是否健康、Windows 防火墙是否放行 Private 网络、手机和电脑是否同网。 |
 | 端口 8100 被占用 | 修改 `.env` 的 `REWARDS_PORT`，例如 `18100`，执行 `docker compose up -d`，并在 App 填写同一新端口。 |
-| PostgreSQL 初始化规则未更新 | 新数据卷会自动执行 `001` 与 `002`。已有数据卷需要手动执行 `002_monetization_v3.sql`，然后重启 `rewards-api`；测试环境仅在确认不保留账本时才使用 `docker compose down -v`。 |
+| PostgreSQL 初始化规则未更新 | 新数据卷会自动执行 `001`、`002` 与 `003`。已有数据卷重建 Rewards API 时会自动幂等升级 `003_rewards_v4.sql`；测试环境仅在确认不保留账本时才使用 `docker compose down -v`。 |
 | 广告看完后没有宝石 | 确认 API 地址为 `:8100`、日志没有数据库错误、开发阶段 `ALLOW_DEBUG_AD_PROOF=true`。正式环境必须使用服务端广告验签。 |
 | 宝石/现金钱包与预期不一致 | 查看 `docker compose logs -f rewards-api`；以 PostgreSQL 账本与 API 返回为准，不以客户端缓存为准。 |
 

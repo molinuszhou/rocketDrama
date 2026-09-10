@@ -260,7 +260,7 @@ class PartnerDramaActivity : FragmentActivity() {
     }
 
     private fun createTasksPage(): View = scrollPage { content ->
-        content.addView(createPageTitle("奖励中心", "宝石、兑换与现金释放均由独立账本结算"))
+        content.addView(createPageTitle("奖励中心", "有效追剧先积累宝石，点击领取后才记入你的余额"))
         rewardsSnapshot?.takeIf { it.welcome.available }?.let { content.addView(createWelcomeRewardCard(it), matchParams(top = 16, bottom = 12)) }
         content.addView(createRewardsWalletSummary(), matchParams(top = 4, bottom = 16))
         content.addView(createCheckinCard(), matchParams(bottom = 16))
@@ -269,9 +269,9 @@ class PartnerDramaActivity : FragmentActivity() {
             content.addView(createInlineNotice(if (rewardsLoading) "正在同步独立积分服务…" else "积分服务尚未连接。可在“我的”中填写独立奖励服务地址。"))
         } else {
             content.addView(createChestCard(snapshot), matchParams(bottom = 16))
-            content.addView(createSectionHeader("十轮追剧奖励", "完成 10 个有效轮次后可额外观看广告领取"), matchParams(bottom = 12))
+            content.addView(createSectionHeader("十集追剧加奖", "每完成 ${snapshot.tenRoundSize} 集有效观看可领取一笔额外宝石；领取后可自主选择广告翻倍"), matchParams(bottom = 12))
             if (snapshot.tasks.isEmpty()) {
-                content.addView(createInlineNotice("今日已完成 ${snapshot.wallet.watchedEpisodes} 个有效轮次；完成第 ${snapshot.tasks.firstOrNull()?.target ?: ((snapshot.wallet.watchedEpisodes / 10 + 1) * 10)} 轮后解锁领奖。"), matchParams(bottom = 16))
+                content.addView(createInlineNotice("已完成 ${snapshot.wallet.watchedEpisodes} 集有效追剧；再完成 ${snapshot.episodesToNextTenRound} 集，可领取约 ${snapshot.nextTenRoundPreviewCoins} 宝石十集加奖。"), matchParams(bottom = 16))
             } else {
                 snapshot.tasks.forEach { content.addView(createTaskCard(it), matchParams(bottom = 12)) }
             }
@@ -338,7 +338,7 @@ class PartnerDramaActivity : FragmentActivity() {
                 setTextColor(0xDFFFFFFF.toInt())
             })
             addView(TextView(this@PartnerDramaActivity).apply {
-                text = snapshot?.wallet?.let { "可用余额 \$${it.availableBalance}" } ?: "积分服务同步中"
+                text = snapshot?.wallet?.let { "${it.coins} 宝石" } ?: "奖励服务同步中"
                 textSize = 29f
                 typeface = Typeface.DEFAULT_BOLD
                 setTextColor(Color.WHITE)
@@ -346,7 +346,7 @@ class PartnerDramaActivity : FragmentActivity() {
             })
             val row = LinearLayout(this@PartnerDramaActivity).apply { gravity = Gravity.CENTER_VERTICAL }
             row.addView(TextView(this@PartnerDramaActivity).apply {
-                text = snapshot?.wallet?.let { "${it.coins} 宝石 · 待释放 \$${it.lockedBalance} · ${if (snapshot.ring.claimable) "本轮可领取" else "攒币 ${snapshot.ring.progress}/${snapshot.ring.target}"}" } ?: "完成有效观看即可攒币"
+                text = snapshot?.let { if (it.ring.claimable) "${it.ring.rewardCoins} 宝石待领取，点击悬浮球领取" else "完成有效观看即可获得待领取宝石" } ?: "完成有效观看即可攒宝石"
                 textSize = 13f
                 setTextColor(0xEFFFFFFF.toInt())
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
@@ -551,10 +551,15 @@ class PartnerDramaActivity : FragmentActivity() {
             isClickable = true
             contentDescription = "攒币进度，点击查看奖励"
             setOnClickListener {
-                exoPlayer?.pause()
-                playerIsPaused = true
-                activeTab = MainTab.TASKS
-                showCatalog()
+                val ring = rewardsSnapshot?.ring
+                if (ring?.claimable == true) {
+                    showEpisodeRewardClaimDialog()
+                } else {
+                    exoPlayer?.pause()
+                    playerIsPaused = true
+                    activeTab = MainTab.TASKS
+                    showCatalog()
+                }
             }
         }
         val halo = View(this).apply {
@@ -598,20 +603,23 @@ class PartnerDramaActivity : FragmentActivity() {
         val ring = rewardsSnapshot?.ring
         label.text = when {
             ring == null -> "攒币\n同步中"
-            ring.claimable -> "可领取\n+${ring.rewardCoins}"
-            else -> "${ring.progress}/${ring.target}\n攒币"
+            ring.claimable -> "+${ring.rewardCoins}\n待领取"
+            else -> "看剧\n攒宝石"
         }
     }
 
     private fun createRingCard(): View {
         val ring = rewardsSnapshot?.ring
-        val progress = ring?.let { (it.progress.toFloat() / it.target.coerceAtLeast(1)).coerceIn(0f, 1f) } ?: 0f
+        val snapshot = rewardsSnapshot
+        val progress = if (ring?.claimable == true) 1f else snapshot?.let {
+            ((it.tenRoundSize - it.episodesToNextTenRound).toFloat() / it.tenRoundSize.coerceAtLeast(1)).coerceIn(0f, 1f)
+        } ?: 0f
         return LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(16), dp(14), dp(16), dp(14))
             background = roundedDrawable(COLOR_CARD, 18)
             val circle = TextView(this@PartnerDramaActivity).apply {
-                text = "${(progress * 100).toInt()}%"
+                text = if (ring?.claimable == true) "+${ring.rewardCoins}" else "${(progress * 100).toInt()}%"
                 textSize = 15f
                 typeface = Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER
@@ -628,14 +636,14 @@ class PartnerDramaActivity : FragmentActivity() {
                 setPadding(dp(12), 0, 0, 0)
                 addView(TextView(this@PartnerDramaActivity).apply { text = "追剧圆环"; textSize = 16f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE) })
                 addView(TextView(this@PartnerDramaActivity).apply {
-                    text = ring?.let { if (it.claimable) "本轮奖励已就绪，点击领取 ${it.rewardCoins} 宝石" else "再完成 ${it.target - it.progress} 集有效观看，即可领取 ${it.rewardCoins} 宝石" } ?: "连接奖励服务后显示攒币进度"
+                    text = ring?.let { if (it.claimable) "已有 ${it.rewardCoins} 宝石待领取，领取后可选择观看广告翻倍" else "每完成 1 集有效观看即可获得一笔待领取宝石" } ?: "连接奖励服务后显示追剧奖励"
                     textSize = 12f
                     setTextColor(COLOR_TEXT_MUTED)
                     setPadding(0, dp(4), 0, 0)
                 })
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             addView(TextView(this@PartnerDramaActivity).apply {
-                text = if (ring?.claimable == true) "看广告领取" else "继续攒币"
+                text = if (ring?.claimable == true) "领取宝石" else "继续追剧"
                 textSize = 13f
                 typeface = Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER
@@ -643,12 +651,52 @@ class PartnerDramaActivity : FragmentActivity() {
                 background = roundedDrawable(if (ring?.claimable == true) COLOR_ACCENT else COLOR_SURFACE, 14)
                 setPadding(dp(12), dp(8), dp(12), dp(8))
                 setOnClickListener {
-                                            if (ring?.claimable == true) requestRewardedAction("rv_claim_reward") else { activeTab = MainTab.DISCOVER; renderActiveTab() }
+                    if (ring?.claimable == true) showEpisodeRewardClaimDialog() else { activeTab = MainTab.DISCOVER; renderActiveTab() }
 
                 }
                 isClickable = true
             })
         }
+    }
+
+    private fun showEpisodeRewardClaimDialog() {
+        val claim = rewardsSnapshot?.pendingEpisodeRewards?.firstOrNull() ?: run {
+            toast("当前没有待领取的追剧宝石")
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("领取追剧宝石")
+            .setMessage("本集有效观看奖励 ${claim.rewardCoins} 宝石。基础奖励领取后会立即记入宝石余额；你还可以自主选择观看广告，再获得同等数量的翻倍宝石。")
+            .setNegativeButton("稍后领取", null)
+            .setPositiveButton("领取 ${claim.rewardCoins} 宝石") { _, _ ->
+                rewardsApi.claimEpisodeReward(anonymousInstallationId(), claim.episodeId, { action -> runOnUiThread {
+                    applyRewardsSnapshot(action.snapshot)
+                    if (action.idempotent) {
+                        toast("本集宝石已领取")
+                    } else {
+                        showEpisodeRewardDoubleDialog(claim.episodeId, action.gemsAdded.toInt())
+                    }
+                } }, { message -> runOnUiThread { toast("领取失败：$message") } })
+            }
+            .show()
+    }
+
+    private fun showEpisodeRewardDoubleDialog(episodeId: String, baseGems: Int) {
+        AlertDialog.Builder(this)
+            .setTitle("基础宝石已领取")
+            .setMessage("已领取 $baseGems 宝石。是否完整观看一条广告，再额外获得 $baseGems 宝石翻倍奖励？")
+            .setNegativeButton("暂不翻倍", null)
+            .setPositiveButton("看广告翻倍") { _, _ ->
+                requestRewardedAction(
+                    placementId = "rv_episode_reward_double",
+                    targetId = episodeId,
+                    onSettled = { action ->
+                        applyRewardsSnapshot(action.snapshot)
+                        toast("翻倍奖励到账：${action.gemsAdded} 宝石")
+                    },
+                )
+            }
+            .show()
     }
 
     private fun createCheckinCard(): View {
@@ -729,14 +777,14 @@ class PartnerDramaActivity : FragmentActivity() {
             background = gradientDrawable(intArrayOf(0xFF40317A.toInt(), 0xFF1F1936.toInt()), 22)
             addView(TextView(this@PartnerDramaActivity).apply { text = "我的钱包"; textSize = 20f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE) })
             addView(TextView(this@PartnerDramaActivity).apply {
-                text = "三层资金结构：宝石 → 已兑换待释放余额 → 可用余额"
+                text = "三层资金结构：宝石 → 现金余额 → 可提现余额"
                 textSize = 12f; setTextColor(0xDBFFFFFF.toInt()); setPadding(0, dp(4), 0, dp(14))
             })
             val balances = LinearLayout(this@PartnerDramaActivity).apply { orientation = LinearLayout.HORIZONTAL }
             listOf(
                 "宝石" to wallet.coins.toString(),
-                "待释放" to "\$${wallet.lockedBalance}",
-                "可用余额" to "\$${wallet.availableBalance}",
+                "现金余额" to "\$${wallet.lockedBalance}",
+                "可提现余额" to "\$${wallet.availableBalance}",
             ).forEachIndexed { index, item ->
                 balances.addView(LinearLayout(this@PartnerDramaActivity).apply {
                     orientation = LinearLayout.VERTICAL
@@ -749,8 +797,8 @@ class PartnerDramaActivity : FragmentActivity() {
             addView(balances)
             val release = wallet.release
             addView(TextView(this@PartnerDramaActivity).apply {
-                text = if (release.estimatedDaysRemaining > 0) "现金释放进度 · 预计还需约 ${release.estimatedDaysRemaining} 天"
-                else "现金释放进度 · 当前无待释放余额"
+                text = if (release.estimatedDaysRemaining > 0) "现金转入可提现余额进度 · 预计还需约 ${release.estimatedDaysRemaining} 天"
+                else "现金转入可提现余额进度 · 当前无现金余额"
                 textSize = 14f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(0, dp(16), 0, dp(7))
             })
             addView(ProgressBar(this@PartnerDramaActivity, null, android.R.attr.progressBarStyleHorizontal).apply {
@@ -760,12 +808,12 @@ class PartnerDramaActivity : FragmentActivity() {
                 backgroundTintList = ColorStateList.valueOf(0x3CFFFFFF)
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(8)))
             addView(TextView(this@PartnerDramaActivity).apply {
-                text = "每日基础释放 \$${release.dailyRelease}；今日加速 ${release.boostUsed}/${release.boostCap} 次，每次最多额外释放 \$${release.boostAmount}。${if (release.pendingDays > 0) " 已补计 ${release.pendingDays} 天登录前待释放额度。" else ""}"
+                text = "每日基础转入可提现余额 \$${release.dailyRelease}；今日加速 ${release.boostUsed}/${release.boostCap} 次，每次最多额外转入 \$${release.boostAmount}。${if (release.pendingDays > 0) " 已补计 ${release.pendingDays} 天登录前现金转入额度。" else ""}"
                 textSize = 12f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(7), 0, dp(12))
             })
             val actions = LinearLayout(this@PartnerDramaActivity).apply { gravity = Gravity.CENTER_VERTICAL }
             actions.addView(TextView(this@PartnerDramaActivity).apply {
-                text = "兑换宝石"
+                text = "兑换现金奖励"
                 textSize = 14f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
                 background = roundedDrawable(COLOR_ACCENT, 14); setOnClickListener { showGemsExchangeDialog(wallet) }; isClickable = true
             }, LinearLayout.LayoutParams(0, dp(42), 1f))
@@ -791,17 +839,17 @@ class PartnerDramaActivity : FragmentActivity() {
             hint = "至少 ${wallet.minimumExchangeGems} 宝石"
             setTextColor(Color.WHITE); setHintTextColor(COLOR_TEXT_MUTED)
         }
-        AlertDialog.Builder(this).setTitle("兑换为待释放余额").setMessage("兑换后进入待释放余额，按钱包规则每日释放至可用余额。\n${wallet.exchangeRateGems} 宝石 = \$1.00")
+        AlertDialog.Builder(this).setTitle("兑换现金奖励").setMessage("兑换后进入现金余额，按钱包规则每日转入可提现余额。\n${wallet.exchangeRateGems} 宝石 = \$1.00")
             .setView(input).setNegativeButton("取消", null).setPositiveButton("确认兑换") { _, _ ->
                 val gems = input.text.toString().trim().toLongOrNull()
                 if (gems == null) { toast("请输入有效的宝石数量"); return@setPositiveButton }
-                rewardsApi.exchangeGems(anonymousInstallationId(), gems, { snapshot -> runOnUiThread { applyRewardsSnapshot(snapshot); toast("兑换已记入待释放余额") } }, { message -> runOnUiThread { toast(message) } })
+                rewardsApi.exchangeGems(anonymousInstallationId(), gems, { snapshot -> runOnUiThread { applyRewardsSnapshot(snapshot); toast("兑换已记入现金余额") } }, { message -> runOnUiThread { toast(message) } })
             }.show()
     }
 
     private fun showWalletRulesDialog(wallet: RewardsApiClient.Wallet) {
         AlertDialog.Builder(this).setTitle("钱包与奖励规则").setMessage(
-            "宝石用于兑换；兑换后进入待释放余额，再按每日规则释放至可用余额。\n\n" +
+            "宝石用于兑换；兑换后进入现金余额，再按每日规则转入可提现余额。\n\n" +
                 "兑换比例：${wallet.exchangeRateGems} 宝石 = \$1.00\n" +
                 "最低兑换：${wallet.minimumExchangeGems} 宝石\n" +
                 "提现资格：${rewardsSnapshot?.walletEligibilityCopy.orEmpty()}\n\n" +
@@ -833,49 +881,49 @@ class PartnerDramaActivity : FragmentActivity() {
 
     private fun createAchievementSummary(snapshot: RewardsApiClient.Snapshot): View = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
-        setPadding(dp(16), dp(14), dp(16), dp(14))
+        setPadding(dp(16), dp(15), dp(16), dp(15))
         background = roundedDrawable(COLOR_CARD, 18)
-        if (snapshot.crownProgress.isEmpty()) {
-            addView(createInlineNotice("皇冠规则正在同步，稍后可查看真实完成进度。"))
+        val crowns = snapshot.crownProgress.sortedBy { it.levelRank }
+        val current = crowns.filter { it.earned }.maxByOrNull { it.levelRank }
+        val next = crowns.firstOrNull { !it.earned }
+        if (next == null) {
+            addView(TextView(this@PartnerDramaActivity).apply { text = "皇冠之路 · 皇冠已达成"; textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(0xFFFFDB6A.toInt()) })
+            addView(TextView(this@PartnerDramaActivity).apply { text = "青铜、白银、黄金、钻石、皇冠五级目标均已完成，皇冠奖励已由服务端记入宝石账本。"; textSize = 13f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(7), 0, 0) })
         } else {
-            snapshot.crownProgress.forEachIndexed { index, crown ->
-                val block = LinearLayout(this@PartnerDramaActivity).apply {
-                    orientation = LinearLayout.VERTICAL
-                    setPadding(dp(12), dp(11), dp(12), dp(11))
-                    background = roundedDrawable(if (crown.earned) 0x264B3A16 else COLOR_SURFACE, 14)
-                    isClickable = true
-                    setOnClickListener { showCrownRulesDialog(crown) }
-                    addView(TextView(this@PartnerDramaActivity).apply {
-                        text = if (crown.earned) "${crown.title} · 已达成" else crown.title
-                        textSize = 16f; typeface = Typeface.DEFAULT_BOLD; setTextColor(if (crown.earned) 0xFFFFDB6A.toInt() else Color.WHITE)
-                    })
-                    addView(TextView(this@PartnerDramaActivity).apply {
-                        text = "${crown.windowHours} 小时内：有效观看 ${crown.rounds.current}/${crown.rounds.target} · 签到 ${crown.signins.current}/${crown.signins.target} 天 · 激励广告 ${crown.rewardedAds.current}/${crown.rewardedAds.target} 次"
-                        textSize = 11f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(5), 0, dp(7))
-                    })
-                    addView(ProgressBar(this@PartnerDramaActivity, null, android.R.attr.progressBarStyleHorizontal).apply {
-                        max = 100; progress = (crown.progress * 100).toInt().coerceIn(0, 100)
-                        progressTintList = ColorStateList.valueOf(if (crown.earned) 0xFFFFDB6A.toInt() else COLOR_ACCENT)
-                        backgroundTintList = ColorStateList.valueOf(0x33333333)
-                    }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(6)))
-                    addView(TextView(this@PartnerDramaActivity).apply {
-                        text = if (crown.earned) "已结算 ${crown.gems} 宝石 · ${crown.entitlement}" else "进度 ${(crown.progress * 100).toInt()}% · 点击查看规则"
-                        textSize = 11f; setTextColor(if (crown.earned) 0xFFFFDB6A.toInt() else COLOR_TEXT_MUTED); setPadding(0, dp(7), 0, 0)
-                    })
-                }
-                addView(block, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { if (index > 0) topMargin = dp(9) })
-            }
+            addView(TextView(this@PartnerDramaActivity).apply {
+                text = "当前等级：${current?.title ?: "起步"} · 下一等级：${next.title}"
+                textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE)
+            })
+            addView(TextView(this@PartnerDramaActivity).apply {
+                text = "累计进度 ${(next.progress * 100).toInt()}% · 达成 ${next.title} 可获得 ${next.gems} 宝石"
+                textSize = 13f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(6), 0, dp(10))
+            })
+            addView(ProgressBar(this@PartnerDramaActivity, null, android.R.attr.progressBarStyleHorizontal).apply {
+                max = 100; progress = (next.progress * 100).toInt().coerceIn(0, 100)
+                progressTintList = ColorStateList.valueOf(COLOR_ACCENT)
+                backgroundTintList = ColorStateList.valueOf(0x33333333)
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(8)))
+            addView(TextView(this@PartnerDramaActivity).apply {
+                text = "距离下一等级：有效追剧还差 ${(next.rounds.target - next.rounds.current).coerceAtLeast(0)} 集 · 签到还差 ${(next.signins.target - next.signins.current).coerceAtLeast(0)} 天 · 激励广告还差 ${(next.rewardedAds.target - next.rewardedAds.current).coerceAtLeast(0)} 次"
+                textSize = 12f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(10), 0, dp(9))
+            })
+            addView(TextView(this@PartnerDramaActivity).apply {
+                text = "查看 ${next.title} 达成条件"
+                textSize = 13f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(0xFFFFDB6A.toInt())
+                background = roundedDrawable(COLOR_SURFACE, 13); setPadding(dp(12), dp(9), dp(12), dp(9)); isClickable = true
+                setOnClickListener { showCrownRulesDialog(next) }
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)))
         }
     }
 
     private fun showCrownRulesDialog(crown: RewardsApiClient.CrownProgress) {
-        AlertDialog.Builder(this).setTitle(crown.title).setMessage(
-            "在 ${crown.windowHours} 小时窗口内完成以下条件，服务端会自动结算：\n\n" +
-                "• 有效观看：${crown.rounds.current}/${crown.rounds.target}\n" +
-                "• 签到天数：${crown.signins.current}/${crown.signins.target}\n" +
-                "• 激励广告：${crown.rewardedAds.current}/${crown.rewardedAds.target}\n\n" +
-                "完成奖励：${crown.gems} 宝石${if (crown.entitlement.isBlank()) "" else "，并获得 ${crown.entitlement}"}。\n\n" +
-                "本页显示服务端实时进度；不设置未披露的隐藏条件。"
+        AlertDialog.Builder(this).setTitle("${crown.title}等级条件").setMessage(
+            "完成以下累计条件后，服务端会自动结算对应宝石：\n\n" +
+                "• 有效追剧：${crown.rounds.current}/${crown.rounds.target} 集\n" +
+                "• 签到天数：${crown.signins.current}/${crown.signins.target} 天\n" +
+                "• 激励广告：${crown.rewardedAds.current}/${crown.rewardedAds.target} 次\n\n" +
+                "达成奖励：${crown.gems} 宝石${if (crown.entitlement.isBlank()) "" else "，并获得 ${crown.entitlement}"}。\n\n" +
+                "规则与当前进度均由服务端公开计算，不设置未披露的隐藏条件。"
         ).setPositiveButton("知道了", null).show()
     }
 
@@ -925,7 +973,7 @@ class PartnerDramaActivity : FragmentActivity() {
         addView(TextView(this@PartnerDramaActivity).apply { text = "${task.progress}/${task.target}"; textSize = 12f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(7), 0, dp(12)) })
         val action = LinearLayout(this@PartnerDramaActivity).apply { gravity = Gravity.CENTER_VERTICAL }
         action.addView(TextView(this@PartnerDramaActivity).apply {
-            text = when (task.status) { "CLAIMABLE" -> "广告后领取"; "DOUBLE_READY" -> "广告翻倍"; "CLAIMED" -> "已翻倍领取"; else -> "去完成" }
+            text = when (task.status) { "CLAIMABLE" -> "领取基础宝石"; "DOUBLE_READY" -> "看广告翻倍"; "CLAIMED" -> "已翻倍领取"; else -> "去完成" }
             textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
@@ -934,8 +982,8 @@ class PartnerDramaActivity : FragmentActivity() {
             setPadding(dp(14), dp(9), dp(14), dp(9))
             setOnClickListener {
                 when (task.status) {
-                    "CLAIMABLE" -> requestRewardedAction("rv_claim_reward")
-                    "DOUBLE_READY" -> requestRewardedAction("rv_double_reward")
+                    "CLAIMABLE" -> claimTenRoundBaseReward(task)
+                    "DOUBLE_READY" -> requestRewardedAction("rv_double_reward", targetId = task.cycleNumber.toString())
                     "CLAIMED" -> Unit
                     else -> { activeTab = MainTab.DISCOVER; renderActiveTab() }
                 }
@@ -949,11 +997,32 @@ class PartnerDramaActivity : FragmentActivity() {
                 gravity = Gravity.CENTER
                 setTextColor(COLOR_ACCENT)
                 background = roundedDrawable(0x22FF5D69, 14)
-                setOnClickListener { requestRewardedAction("rv_double_reward") }
+                setOnClickListener { requestRewardedAction("rv_double_reward", targetId = task.cycleNumber.toString()) }
                 isClickable = true
             }, LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginStart = dp(10) })
         }
         addView(action)
+    }
+
+    private fun claimTenRoundBaseReward(task: RewardsApiClient.RewardTask) {
+        rewardsApi.claimTenRoundReward(anonymousInstallationId(), task.cycleNumber, { action -> runOnUiThread {
+            applyRewardsSnapshot(action.snapshot)
+            if (action.idempotent) {
+                toast("本轮十集加奖已领取")
+            } else {
+                AlertDialog.Builder(this)
+                    .setTitle("十集加奖已领取")
+                    .setMessage("已领取 ${action.gemsAdded} 宝石。是否完整观看一条广告，再额外获得 ${action.gemsAdded} 宝石翻倍奖励？")
+                    .setNegativeButton("暂不翻倍", null)
+                    .setPositiveButton("看广告翻倍") { _, _ ->
+                        requestRewardedAction("rv_double_reward", targetId = task.cycleNumber.toString(), onSettled = { doubled ->
+                            applyRewardsSnapshot(doubled.snapshot)
+                            toast("十集加奖翻倍到账：${doubled.gemsAdded} 宝石")
+                        })
+                    }
+                    .show()
+            }
+        } }, { message -> runOnUiThread { toast("领取十集加奖失败：$message") } })
     }
 
     private fun refreshRewardsSnapshot() {
@@ -1157,6 +1226,7 @@ class PartnerDramaActivity : FragmentActivity() {
         targetId: String? = null,
         episodeIndex: Int? = null,
         onSettled: ((RewardsApiClient.RewardAction) -> Unit)? = null,
+        onSettlementUnavailable: ((String) -> Unit)? = null,
     ) {
         if (fullscreenAdInProgress) { toast("广告正在展示，请稍候"); return }
         if (consentStore.read() != PangleConsent.GRANTED) { toast("请先在广告设置中启用广告"); return }
@@ -1184,9 +1254,14 @@ class PartnerDramaActivity : FragmentActivity() {
                         } },
                         onFailure = { message -> runOnUiThread {
                             fullscreenAdInProgress = false
-                            episodeTransitionInProgress = false
-                            resumeAfterFullscreenAdIfNeeded()
-                            toast("广告已完成，但积分未结算：$message")
+                            if (onSettlementUnavailable != null) {
+                                onSettlementUnavailable.invoke(message)
+                            } else {
+                                episodeTransitionInProgress = false
+                                resumeAfterFullscreenAdIfNeeded()
+                                toast("广告已完整观看，奖励状态暂未同步；请稍后在奖励中心查看。")
+                                logStatus("广告奖励同步失败：$message")
+                            }
                         } },
                     )
                 }
@@ -1824,8 +1899,30 @@ class PartnerDramaActivity : FragmentActivity() {
             return
         }
         episodeTransitionInProgress = true
-        if (!userInitiated) toast("正在进入第 ${nextIndex + 1} 集")
-        if (needsUnlock(nextIndex)) unlockEpisodeThenAutoPlay(nextIndex) else selectEpisode(nextIndex)
+        if (needsUnlock(nextIndex)) {
+            episodeTransitionInProgress = false
+            showNextEpisodeUnlockDialog(nextIndex)
+        } else {
+            if (!userInitiated) toast("正在进入第 ${nextIndex + 1} 集")
+            selectEpisode(nextIndex)
+        }
+    }
+
+    private fun showNextEpisodeUnlockDialog(nextIndex: Int) {
+        val drama = selectedDrama ?: return
+        if (nextIndex !in drama.episodes.indices) return
+        AlertDialog.Builder(this)
+            .setTitle("继续观看下一集？")
+            .setMessage("第 ${nextIndex + 1} 集需要完整观看一条广告解锁。广告完成后将自动开始播放；本集看完后可领取宝石奖励。")
+            .setNegativeButton("稍后再看") { _, _ ->
+                episodeTransitionInProgress = false
+                updateEpisodeStatus()
+            }
+            .setPositiveButton("看广告解锁") { _, _ ->
+                episodeTransitionInProgress = true
+                unlockEpisodeThenAutoPlay(nextIndex)
+            }
+            .show()
     }
 
     private fun unlockEpisodeThenAutoPlay(index: Int) {
@@ -1843,14 +1940,21 @@ class PartnerDramaActivity : FragmentActivity() {
             return
         }
         toast("观看广告解锁第 ${index + 1} 集…")
+        val unlockAndPlay = {
+            settleEpisodeUnlockAfterAd(index) { selectEpisode(index) }
+        }
         requestRewardedAction(
             placementId = "rv_episode_pass",
             targetId = episode.id,
             episodeIndex = index + 1,
-            onSettled = { action ->
-                // 广告已关闭且账本已记录待完成轮次后，才向内容服务申请解锁并请求新视频 URL。
-                settleEpisodeUnlockAfterAd(index) { selectEpisode(index) }
-                toast("广告完成。第 ${index + 1} 集已解锁；完成有效观看后将自动结算宝石")
+            onSettled = {
+                unlockAndPlay()
+                toast("广告完成，第 ${index + 1} 集已解锁并开始播放。看完本集可领取宝石。")
+            },
+            onSettlementUnavailable = { message ->
+                logStatus("广告解锁奖励暂未同步：$message")
+                unlockAndPlay()
+                toast("广告完成，第 ${index + 1} 集已解锁并开始播放；奖励状态稍后同步。")
             },
         )
     }
@@ -1934,8 +2038,14 @@ class PartnerDramaActivity : FragmentActivity() {
             dramaId = drama.id,
             episodeId = episode.id,
             validWatchSeconds = rewardsSnapshot?.unlock?.validWatchSeconds ?: 60,
-            onSuccess = { snapshot -> runOnUiThread { applyRewardsSnapshot(snapshot) } },
-            onFailure = { message -> logStatus("观看奖励事件未结算：$message") },
+            onSuccess = { reward -> runOnUiThread {
+                applyRewardsSnapshot(reward.snapshot)
+                when {
+                    reward.tenRoundRewardCoins > 0 -> toast("本集奖励已计入待领取；十集加奖 ${reward.tenRoundRewardCoins} 宝石也已就绪")
+                    reward.episodeRewardCoins > 0 -> toast("本集奖励 +${reward.episodeRewardCoins} 宝石待领取，点击悬浮球领取")
+                }
+            } },
+            onFailure = { message -> logStatus("观看奖励同步失败：$message") },
         )
     }
 

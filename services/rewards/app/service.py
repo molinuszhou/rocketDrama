@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import math
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
@@ -109,6 +110,8 @@ class RewardsService:
             )
             # 关联该次广告与对应的权益动作。插屏冷却从该广告完成时重新开始。
             self._link_rewarded_event(connection, user_id, business_date, placement_id, target_id, ad_event_id)
+            achievements = self._award_achievements_if_due(connection, user_id, policy)
+            result["achievements_awarded"] = achievements
             result["reset_int_timer"] = True
             return {"idempotent": False, "result": result, "snapshot": self._snapshot(connection, user_id)}
 
@@ -125,8 +128,13 @@ class RewardsService:
             self._ensure_user(connection, user_id)
             business_date = self._business_date()
             duplicate = self._one(connection, "SELECT event_id FROM watch_events WHERE event_id = %s", (event_id,))
-            if duplicate:
-                return {"idempotent": True, "result": {"gems_added": 0, "round_completed": False}, "snapshot": self._snapshot(connection, user_id)}
+            already_rewarded = self._one(
+                connection,
+                "SELECT id FROM episode_reward_claims WHERE user_id = %s AND episode_id = %s",
+                (user_id, episode_id),
+            )
+            if duplicate or already_rewarded:
+                return {"idempotent": True, "result": {"gems_added": 0, "episode_reward": None, "ten_round_claim": None}, "snapshot": self._snapshot(connection, user_id)}
 
             policy = self._policy(connection)
             if watched_seconds < policy["valid_watch_seconds"]:
@@ -152,19 +160,20 @@ class RewardsService:
                 (watched_seconds, user_id, business_date),
             )
             counters = self._daily_counter(connection, user_id, business_date, lock=True)
-            user = self._one(connection, "SELECT created_at FROM users WHERE user_id = %s", (user_id,))
-            lifecycle_day = self._lifecycle_day(user["created_at"])
-            claim_stride = self._claim_stride(policy, lifecycle_day)
-            pending_claim = self._create_pending_claim_if_due(
-                connection, user_id, business_date, policy, counters["episode_count"], claim_stride
+            lifetime_episode_count = int(self._one(
+                connection, "SELECT COUNT(*) AS count FROM watch_events WHERE user_id = %s", (user_id,)
+            )["count"])
+            episode_reward = self._create_episode_reward_claim(connection, user_id, business_date, episode_id, policy)
+            ten_round_claim = self._create_ten_round_claim_if_due(
+                connection, user_id, business_date, policy, lifetime_episode_count
             )
             achievements = self._award_achievements_if_due(connection, user_id, policy)
             result = {
                 "gems_added": 0,
-                "round_completed": pending_claim is not None,
                 "episode_count": counters["episode_count"],
-                "claim_stride": claim_stride,
-                "pending_claim": pending_claim,
+                "lifetime_episode_count": lifetime_episode_count,
+                "episode_reward": episode_reward,
+                "ten_round_claim": ten_round_claim,
                 "achievements_awarded": achievements,
             }
             return {"idempotent": False, "result": result, "snapshot": self._snapshot(connection, user_id)}
@@ -246,6 +255,105 @@ class RewardsService:
                 "idempotent": False,
                 "result": {"action": "WELCOME_BONUS", "gems_added": int(welcome["gems"])},
                 "snapshot": self._snapshot(connection, user_id),
+            }
+
+    def claim_episode_reward(self, user_id: str, episode_id: str, reference_id: str) -> dict[str, Any]:
+        with self._transaction() as connection:
+            self._ensure_user(connection, user_id)
+            claim = self._one(
+                connection,
+                """
+                SELECT id, base_reward_gems, state FROM episode_reward_claims
+                WHERE user_id = %s AND episode_id = %s FOR UPDATE
+                """,
+                (user_id, episode_id),
+            )
+            if not claim:
+                raise ServiceError(1210, "该集尚未完成有效观看，暂无可领取宝石", 409)
+            if claim["state"] != "PENDING":
+                return {"idempotent": True, "result": {"action": "EPISODE_REWARD_CLAIM", "gems_added": 0}, "snapshot": self._snapshot(connection, user_id)}
+            policy = self._policy(connection)
+            self._credit_gems(
+                connection, user_id, int(claim["base_reward_gems"]), policy,
+                "EPISODE_REWARD_CLAIM", "episode_reward_claim", reference_id,
+            )
+            self._execute(
+                connection,
+                "UPDATE episode_reward_claims SET state = 'CLAIMED', claim_reference_id = %s, claimed_at = NOW() WHERE id = %s",
+                (reference_id, claim["id"]),
+            )
+            return {
+                "idempotent": False,
+                "result": {"action": "EPISODE_REWARD_CLAIM", "gems_added": int(claim["base_reward_gems"]), "can_double": True},
+                "snapshot": self._snapshot(connection, user_id),
+            }
+
+    def claim_ten_round_bonus(self, user_id: str, cycle_number: int, reference_id: str) -> dict[str, Any]:
+        with self._transaction() as connection:
+            self._ensure_user(connection, user_id)
+            claim = self._one(
+                connection,
+                """
+                SELECT id, base_reward_gems, state FROM pending_claims
+                WHERE user_id = %s AND cycle_number = %s AND claim_kind = 'TEN_ROUND' FOR UPDATE
+                """,
+                (user_id, cycle_number),
+            )
+            if not claim:
+                raise ServiceError(1220, "该十轮追剧奖励尚未达成", 409)
+            if claim["state"] != "PENDING":
+                return {"idempotent": True, "result": {"action": "TEN_ROUND_CLAIM", "gems_added": 0}, "snapshot": self._snapshot(connection, user_id)}
+            policy = self._policy(connection)
+            self._credit_gems(
+                connection, user_id, int(claim["base_reward_gems"]), policy,
+                "TEN_ROUND_CLAIM", "ten_round_claim", reference_id,
+            )
+            self._execute(
+                connection,
+                "UPDATE pending_claims SET state = 'CLAIMED', claim_ad_event_id = NULL, claimed_at = NOW() WHERE id = %s",
+                (claim["id"],),
+            )
+            return {
+                "idempotent": False,
+                "result": {"action": "TEN_ROUND_CLAIM", "gems_added": int(claim["base_reward_gems"]), "can_double": True},
+                "snapshot": self._snapshot(connection, user_id),
+            }
+
+    def admin_reward_policy(self, authorization: str | None) -> dict[str, Any]:
+        self._verify_admin_token(authorization)
+        with self._transaction() as connection:
+            policy = self._policy(connection)
+            return {
+                "decay_alpha": float(policy["decay_alpha"]),
+                "r0_gems": int(policy["r0_gems"]),
+                "floor_gems": int(policy["floor_gems"]),
+                "ten_round_size": int(policy["ten_round_size"]),
+                "updated_at": policy["updated_at"].isoformat(),
+            }
+
+    def update_damping(self, authorization: str | None, decay_alpha: float) -> dict[str, Any]:
+        self._verify_admin_token(authorization)
+        with self._transaction() as connection:
+            policy = self._policy(connection)
+            old_value = str(policy["decay_alpha"])
+            new_value = f"{decay_alpha:.4f}"
+            self._execute(
+                connection,
+                "UPDATE reward_policy SET decay_alpha = %s, updated_at = NOW() WHERE id = 1",
+                (new_value,),
+            )
+            self._execute(
+                connection,
+                "INSERT INTO reward_policy_admin_audit (actor, field_name, old_value, new_value) VALUES (%s, 'decay_alpha', %s, %s)",
+                ("dashboard", old_value, new_value),
+            )
+            updated = self._policy(connection)
+            return {
+                "decay_alpha": float(updated["decay_alpha"]),
+                "r0_gems": int(updated["r0_gems"]),
+                "floor_gems": int(updated["floor_gems"]),
+                "ten_round_size": int(updated["ten_round_size"]),
+                "updated_at": updated["updated_at"].isoformat(),
             }
 
     def exchange_gems(self, user_id: str, gems: int, reference_id: str) -> dict[str, Any]:
@@ -373,47 +481,66 @@ class RewardsService:
                 raise ServiceError(1101, "集间通行广告缺少 episode_id 或 episode_index", 422)
             if episode_index <= policy["free_episodes_count"]:
                 raise ServiceError(1100, f"前 {policy['free_episodes_count']} 集为免费体验，无需激励广告", 409)
-            duplicate_round = self._one(
-                connection,
-                "SELECT id, round_number FROM episode_rounds WHERE user_id = %s AND business_date = %s AND episode_id = %s",
-                (user_id, business_date, target_id),
-            )
-            if duplicate_round:
-                raise ServiceError(1102, "该集已经存在待完成或已完成的奖励轮次", 409)
-            next_round = self._one(
-                connection,
-                "SELECT COALESCE(MAX(round_number), 0) + 1 AS next_round FROM episode_rounds WHERE user_id = %s AND business_date = %s",
-                (user_id, business_date),
-            )["next_round"]
-            return {"action": "EPISODE_PASS", "episode_id": target_id, "round_number": next_round, "gems_added": 0, "round_incremented": False}
+            return {"action": "EPISODE_PASS", "episode_id": target_id, "gems_added": 0, "unlocked": True}
 
         if placement_id == "rv_claim_reward":
             claim = self._one(
                 connection,
                 """
                 SELECT id, base_reward_gems, cycle_number FROM pending_claims
-                WHERE user_id = %s AND business_date = %s AND state = 'PENDING'
+                WHERE user_id = %s AND claim_kind = 'TEN_ROUND' AND state = 'PENDING'
                 ORDER BY cycle_number ASC LIMIT 1 FOR UPDATE
                 """,
-                (user_id, business_date),
+                (user_id,),
             )
             if not claim:
                 raise ServiceError(1201, "暂无可领取的十轮奖励", 409)
             return {"action": "CLAIM_REWARD", "claim_id": claim["id"], "cycle_number": claim["cycle_number"], "gems_added": claim["base_reward_gems"], "can_double": True}
 
         if placement_id == "rv_double_reward":
+            if target_id:
+                try:
+                    cycle_number = int(target_id)
+                except ValueError as error:
+                    raise ServiceError(1203, "十集奖励翻倍缺少有效轮次", 422) from error
+                claim = self._one(
+                    connection,
+                    """
+                    SELECT id, base_reward_gems, cycle_number FROM pending_claims
+                    WHERE user_id = %s AND cycle_number = %s AND claim_kind = 'TEN_ROUND' AND state = 'CLAIMED'
+                    FOR UPDATE
+                    """,
+                    (user_id, cycle_number),
+                )
+            else:
+                # 兼容旧 Android 客户端：未传轮次时仅翻倍最新一笔已领取的十集加奖。
+                claim = self._one(
+                    connection,
+                    """
+                    SELECT id, base_reward_gems, cycle_number FROM pending_claims
+                    WHERE user_id = %s AND claim_kind = 'TEN_ROUND' AND state = 'CLAIMED'
+                    ORDER BY cycle_number DESC LIMIT 1 FOR UPDATE
+                    """,
+                    (user_id,),
+                )
+            if not claim:
+                raise ServiceError(1202, "请先领取该笔十集基础奖励后再翻倍", 409)
+            return {"action": "DOUBLE_REWARD", "claim_id": claim["id"], "cycle_number": claim["cycle_number"], "gems_added": claim["base_reward_gems"], "can_double": False}
+
+        if placement_id == "rv_episode_reward_double":
+            if not target_id:
+                raise ServiceError(1211, "单集奖励翻倍缺少 episode_id", 422)
             claim = self._one(
                 connection,
                 """
-                SELECT id, base_reward_gems, cycle_number FROM pending_claims
-                WHERE user_id = %s AND business_date = %s AND state = 'CLAIMED'
-                ORDER BY cycle_number DESC LIMIT 1 FOR UPDATE
+                SELECT id, base_reward_gems FROM episode_reward_claims
+                WHERE user_id = %s AND episode_id = %s AND state = 'CLAIMED' FOR UPDATE
                 """,
-                (user_id, business_date),
+                (user_id, target_id),
             )
             if not claim:
-                raise ServiceError(1202, "请先领取一笔十轮基础奖励后再翻倍", 409)
-            return {"action": "DOUBLE_REWARD", "claim_id": claim["id"], "cycle_number": claim["cycle_number"], "gems_added": claim["base_reward_gems"], "can_double": False}
+                raise ServiceError(1212, "请先领取该集基础宝石后再观看广告翻倍", 409)
+            return {"action": "EPISODE_REWARD_DOUBLE", "claim_id": claim["id"], "episode_id": target_id, "gems_added": int(claim["base_reward_gems"])}
 
         if placement_id == "rv_chest_task":
             signed = self._one(connection, "SELECT 1 AS signed FROM checkins WHERE user_id = %s AND business_date = %s", (user_id, business_date))
@@ -469,14 +596,8 @@ class RewardsService:
         payload = event["result_payload"]
         action = payload["action"]
         if action == "EPISODE_PASS":
-            self._execute(
-                connection,
-                """
-                INSERT INTO episode_rounds (user_id, business_date, round_number, episode_id, rewarded_event_id, state)
-                VALUES (%s, %s, %s, %s, %s, 'PENDING_WATCH')
-                """,
-                (user_id, business_date, payload["round_number"], target_id, ad_event_id),
-            )
+            # 广告只授予本集的内容通行权益；观看完成后才会形成独立的待领取宝石。
+            return
         elif action == "CLAIM_REWARD":
             self._execute(
                 connection,
@@ -491,6 +612,13 @@ class RewardsService:
                 (ad_event_id, payload["claim_id"]),
             )
             self._credit_gems(connection, user_id, payload["gems_added"], policy, "DOUBLE_REWARD", "double_ad", ad_event_id)
+        elif action == "EPISODE_REWARD_DOUBLE":
+            self._execute(
+                connection,
+                "UPDATE episode_reward_claims SET state = 'DOUBLED', double_ad_event_id = %s, doubled_at = NOW() WHERE id = %s",
+                (ad_event_id, payload["claim_id"]),
+            )
+            self._credit_gems(connection, user_id, payload["gems_added"], policy, "EPISODE_REWARD_DOUBLE", "episode_reward_double", ad_event_id)
         elif action == "CHEST_TASK":
             self._execute(
                 connection,
@@ -533,33 +661,59 @@ class RewardsService:
                 (user_id, -amount, amount, ad_event_id),
             )
 
-    def _create_pending_claim_if_due(
+    def _create_episode_reward_claim(
+        self,
+        connection: psycopg.Connection[Any],
+        user_id: str,
+        business_date: date,
+        episode_id: str,
+        policy: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        reward = int(policy["episode_reward_gems"])
+        self._execute(
+            connection,
+            """
+            INSERT INTO episode_reward_claims (user_id, business_date, episode_id, base_reward_gems)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (user_id, episode_id) DO NOTHING
+            """,
+            (user_id, business_date, episode_id, reward),
+        )
+        claim = self._one(
+            connection,
+            "SELECT state FROM episode_reward_claims WHERE user_id = %s AND episode_id = %s",
+            (user_id, episode_id),
+        )
+        return {"episode_id": episode_id, "gems": reward, "state": claim["state"]} if claim and claim["state"] == "PENDING" else None
+
+    def _create_ten_round_claim_if_due(
         self,
         connection: psycopg.Connection[Any],
         user_id: str,
         business_date: date,
         policy: dict[str, Any],
-        episode_count: int,
-        claim_stride: int,
+        lifetime_episode_count: int,
     ) -> dict[str, Any] | None:
-        if episode_count <= 0 or episode_count % claim_stride != 0:
+        round_size = int(policy["ten_round_size"])
+        if lifetime_episode_count <= 0 or lifetime_episode_count % round_size != 0:
             return None
-        cycle_number = episode_count // claim_stride
+        cycle_number = lifetime_episode_count // round_size
         reward = self._round_reward(policy, cycle_number)
         self._execute(
             connection,
             """
-            INSERT INTO pending_claims (user_id, business_date, cycle_number, round_from, round_to, base_reward_gems)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            ON CONFLICT (user_id, business_date, cycle_number) DO NOTHING
+            INSERT INTO pending_claims
+            (user_id, business_date, cycle_number, round_from, round_to, base_reward_gems, claim_kind)
+            VALUES (%s, %s, %s, %s, %s, %s, 'TEN_ROUND')
+            ON CONFLICT (user_id, cycle_number) WHERE claim_kind = 'TEN_ROUND' DO NOTHING
             """,
-            (user_id, business_date, cycle_number, episode_count - claim_stride + 1, episode_count, reward),
+            (user_id, business_date, cycle_number, lifetime_episode_count - round_size + 1, lifetime_episode_count, reward),
         )
-        return {"cycle_number": cycle_number, "gems": reward, "claim_stride": claim_stride}
+        return {"cycle_number": cycle_number, "gems": reward, "round_size": round_size}
 
     def _award_achievements_if_due(self, connection: psycopg.Connection[Any], user_id: str, policy: dict[str, Any]) -> list[dict[str, Any]]:
         awarded: list[dict[str, Any]] = []
-        policies = self._all(connection, "SELECT * FROM achievement_policy ORDER BY window_hours ASC")
+        policies = self._all(connection, "SELECT * FROM achievement_policy ORDER BY level_rank ASC, code ASC")
         now = self._now()
         for item in policies:
             exists = self._one(connection, "SELECT 1 AS earned FROM user_achievements WHERE user_id = %s AND code = %s", (user_id, item["code"]))
@@ -595,7 +749,9 @@ class RewardsService:
         wallet_policy = self._wallet_policy(connection, user_id)
         counters = self._daily_counter(connection, user_id, business_date)
         lifecycle_day = self._lifecycle_day(user["created_at"])
-        claim_stride = self._claim_stride(policy, lifecycle_day)
+        lifetime_episode_count = int(self._one(
+            connection, "SELECT COUNT(*) AS count FROM watch_events WHERE user_id = %s", (user_id,)
+        )["count"])
         checkin = self._one(connection, "SELECT streak_day, base_gems, double_gems FROM checkins WHERE user_id = %s AND business_date = %s", (user_id, business_date))
         previous = self._one(
             connection,
@@ -608,10 +764,23 @@ class RewardsService:
         today_streak = completed_streak if checkin else (completed_streak % 30 + 1)
         today_reward = self._one(connection, "SELECT gems FROM signin_reward_tiers WHERE day_number = %s", (today_streak,))["gems"]
         tiers = self._all(connection, "SELECT day_number, gems FROM signin_reward_tiers ORDER BY day_number")
-        claims = self._all(
+        ten_round_claims = self._all(
             connection,
-            "SELECT cycle_number, round_from, round_to, base_reward_gems, state FROM pending_claims WHERE user_id = %s AND business_date = %s ORDER BY cycle_number",
-            (user_id, business_date),
+            """
+            SELECT cycle_number, round_from, round_to, base_reward_gems, state FROM pending_claims
+            WHERE user_id = %s AND claim_kind = 'TEN_ROUND'
+            ORDER BY cycle_number
+            """,
+            (user_id,),
+        )
+        episode_reward_claims = self._all(
+            connection,
+            """
+            SELECT episode_id, base_reward_gems, state FROM episode_reward_claims
+            WHERE user_id = %s
+            ORDER BY id
+            """,
+            (user_id,),
         )
         chest = self._one(connection, "SELECT 1 AS claimed FROM chest_claims WHERE user_id = %s AND business_date = %s", (user_id, business_date))
         achievements = self._all(connection, "SELECT code, gems, virtual_entitlement, earned_at FROM user_achievements WHERE user_id = %s ORDER BY earned_at", (user_id,))
@@ -624,9 +793,10 @@ class RewardsService:
             """,
             (user_id,),
         )
-        pending_claim = next((item for item in claims if item["state"] == "PENDING"), None)
-        in_cycle = int(counters["episode_count"]) % claim_stride
-        ring_progress = claim_stride if pending_claim else in_cycle
+        pending_episode_rewards = [item for item in episode_reward_claims if item["state"] == "PENDING"]
+        pending_claim = next((item for item in ten_round_claims if item["state"] == "PENDING"), None)
+        ten_round_size = int(policy["ten_round_size"])
+        in_cycle = lifetime_episode_count % ten_round_size
         release_cap = int(wallet_policy["daily_release_micros"])
         estimated_days = math.ceil(int(user["cash_wallet_micros"]) / max(release_cap, 1)) if int(user["cash_wallet_micros"]) else 0
         return {
@@ -652,12 +822,14 @@ class RewardsService:
             },
             "today": {
                 "episode_count": counters["episode_count"],
+                "lifetime_episode_count": lifetime_episode_count,
                 "rv_count": counters["rv_count"],
                 "rv_daily_limit": policy["rv_daily_limit"],
                 "completed_rounds": counters["completed_rounds"],
-                "claim_stride": claim_stride,
-                "episodes_to_next_claim": 0 if pending_claim else max(0, claim_stride - in_cycle),
-                "next_claim_preview_gems": self._round_reward(policy, int(counters["episode_count"]) // claim_stride + 1),
+                "ten_round_size": ten_round_size,
+                "episodes_to_next_ten_round": 0 if pending_claim else max(0, ten_round_size - in_cycle),
+                "next_ten_round_preview_gems": self._round_reward(policy, lifetime_episode_count // ten_round_size + 1),
+                "pending_episode_reward_count": len(pending_episode_rewards),
             },
             "checkin": {
                 "signed_today": checkin is not None,
@@ -674,11 +846,11 @@ class RewardsService:
             },
             "ring": {
                 "enabled": True,
-                "progress": ring_progress,
-                "target": claim_stride,
-                "claimable": pending_claim is not None,
-                "reward_gems": int(pending_claim["base_reward_gems"]) if pending_claim else self._round_reward(policy, int(counters["episode_count"]) // claim_stride + 1),
-                "label": "领取" if pending_claim else "攒币",
+                "progress": len(pending_episode_rewards),
+                "target": max(1, len(pending_episode_rewards)),
+                "claimable": bool(pending_episode_rewards),
+                "reward_gems": sum(int(item["base_reward_gems"]) for item in pending_episode_rewards),
+                "label": "领取宝石" if pending_episode_rewards else "追剧攒宝石",
             },
             "chest": {
                 "requires_checkin": True,
@@ -686,7 +858,8 @@ class RewardsService:
                 "claimed": chest is not None,
                 "reward_gems": policy["chest_reward_gems"],
             },
-            "pending_claims": claims,
+            "pending_claims": ten_round_claims,
+            "episode_reward_claims": episode_reward_claims,
             "achievements": achievements,
             "crown_progress": self._crown_progress(connection, user_id),
             "episode_unlock": {
@@ -715,10 +888,10 @@ class RewardsService:
 
     def _crown_progress(self, connection: psycopg.Connection[Any], user_id: str) -> list[dict[str, Any]]:
         now = self._now()
-        rows = self._all(connection, "SELECT * FROM achievement_policy ORDER BY window_hours ASC")
+        rows = self._all(connection, "SELECT * FROM achievement_policy ORDER BY level_rank ASC, code ASC")
         earned_codes = {item["code"] for item in self._all(connection, "SELECT code FROM user_achievements WHERE user_id = %s", (user_id,))}
         result: list[dict[str, Any]] = []
-        titles = {"BRONZE": "青铜皇冠", "SILVER": "白银皇冠", "GOLD": "黄金皇冠"}
+        titles = {"BRONZE": "青铜", "SILVER": "白银", "GOLD": "黄金", "DIAMOND": "钻石", "CROWN": "皇冠"}
         for row in rows:
             start = now - timedelta(hours=int(row["window_hours"]))
             rounds = int(self._one(connection, "SELECT COUNT(*) AS count FROM watch_events WHERE user_id = %s AND recorded_at >= %s", (user_id, start))["count"])
@@ -733,7 +906,7 @@ class RewardsService:
             progress = min((current / target for current, target in active), default=1.0)
             result.append({
                 "code": row["code"], "title": titles.get(row["code"], row["code"]),
-                "earned": row["code"] in earned_codes, "gems": row["reward_gems"],
+                "level_rank": row["level_rank"], "earned": row["code"] in earned_codes, "gems": row["reward_gems"],
                 "entitlement": row["virtual_entitlement"], "window_hours": row["window_hours"],
                 "rounds": {"current": rounds, "target": row["required_rounds"]},
                 "signins": {"current": signins, "target": row["required_signin_days"]},
@@ -749,7 +922,7 @@ class RewardsService:
         threshold = int(wallet_policy["withdrawal_threshold_micros"])
         available = int(user["available_balance_micros"])
         if not enabled:
-            reason = "提现功能尚未启用；可用余额、释放规则与门槛均按页面完整披露。"
+            reason = "提现功能尚未启用；可提现余额、现金转入规则与门槛均按页面完整披露。"
         elif available < threshold:
             reason = f"可提现余额未达到最低门槛 {self._money(threshold)}，还差 {self._money(threshold - available)}。"
         else:
@@ -916,6 +1089,14 @@ class RewardsService:
             raise ServiceError(1502, "数据库未初始化奖励规则，请执行 sql/001_init.sql", 503)
         return policy
 
+    def _verify_admin_token(self, authorization: str | None) -> None:
+        token = self.settings.admin_dashboard_token
+        supplied = authorization.removeprefix("Bearer ").strip() if authorization else ""
+        if not token:
+            raise ServiceError(1901, "运营后台未启用；请设置 ADMIN_DASHBOARD_TOKEN", 404)
+        if not hmac.compare_digest(supplied, token):
+            raise ServiceError(1902, "管理员令牌无效", 401)
+
     def _verify_ad_proof(self, proof: str | None) -> None:
         if self.settings.allow_debug_ad_proof and proof == "TEST_PANGLE_REWARD":
             return
@@ -925,7 +1106,7 @@ class RewardsService:
 
     def _round_reward(self, policy: dict[str, Any], round_number: int) -> int:
         raw = policy["r0_gems"] * math.pow(float(round_number), -float(policy["decay_alpha"]))
-        return max(int(raw), int(policy["floor_gems"]))
+        return max(int(raw), int(policy.get("ten_round_bonus_floor_gems", policy["floor_gems"])))
 
     def _business_date(self) -> date:
         return self._now().date()

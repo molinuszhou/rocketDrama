@@ -14,6 +14,7 @@ services:
       - rewards_postgres_data:/var/lib/postgresql/data
       - ./rewards/sql/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
       - ./rewards/sql/002_monetization_v3.sql:/docker-entrypoint-initdb.d/002_monetization_v3.sql:ro
+      - ./rewards/sql/003_rewards_v4.sql:/docker-entrypoint-initdb.d/003_rewards_v4.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
@@ -36,6 +37,7 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost,http://10.0.2.2}
       ALLOW_DEBUG_AD_PROOF: ${ALLOW_DEBUG_AD_PROOF:-true}
       PANGLE_CALLBACK_SECRET: ${PANGLE_CALLBACK_SECRET:-}
+      ADMIN_DASHBOARD_TOKEN: ${ADMIN_DASHBOARD_TOKEN:-}
       TIMEZONE: ${TIMEZONE:-Asia/Shanghai}
     ports:
       - "${REWARDS_PORT:-8100}:8100"

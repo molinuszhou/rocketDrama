@@ -1,18 +1,23 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
+from app.admin_dashboard import DASHBOARD_HTML
 from app.config import Settings
+from app.migrations import apply_runtime_migrations
 from app.schemas import (
     ApiEnvelope,
     BootstrapRequest,
     CheckinRequest,
+    DampingUpdateRequest,
+    EpisodeRewardClaimRequest,
     GemsExchangeRequest,
     HealthResponse,
     InterstitialShownRequest,
     RewardedCompleteRequest,
+    TenRoundClaimRequest,
     WelcomeBonusRequest,
     WatchEventRequest,
     WithdrawalPreflightRequest,
@@ -20,6 +25,7 @@ from app.schemas import (
 from app.service import RewardsService, ServiceError
 
 settings = Settings.from_environment()
+apply_runtime_migrations(settings)
 service = RewardsService(settings)
 
 app = FastAPI(
@@ -31,7 +37,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=False,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PUT"],
     allow_headers=["Content-Type", "Authorization", "X-Device-Id"],
 )
 
@@ -89,6 +95,31 @@ def checkin(payload: CheckinRequest) -> dict:
 @app.post("/v2/welcome/claim", response_model=ApiEnvelope)
 def claim_welcome_bonus(payload: WelcomeBonusRequest) -> dict:
     return {"code": 0, "data": service.claim_welcome_bonus(payload.user_id)}
+
+
+@app.post("/v2/episode-rewards/claim", response_model=ApiEnvelope)
+def claim_episode_reward(payload: EpisodeRewardClaimRequest) -> dict:
+    return {"code": 0, "data": service.claim_episode_reward(payload.user_id, payload.episode_id, payload.reference_id)}
+
+
+@app.post("/v2/ten-round-rewards/claim", response_model=ApiEnvelope)
+def claim_ten_round_reward(payload: TenRoundClaimRequest) -> dict:
+    return {"code": 0, "data": service.claim_ten_round_bonus(payload.user_id, payload.cycle_number, payload.reference_id)}
+
+
+@app.get("/v2/admin/policy", response_model=ApiEnvelope)
+def admin_reward_policy(authorization: str | None = Header(default=None)) -> dict:
+    return {"code": 0, "data": service.admin_reward_policy(authorization)}
+
+
+@app.put("/v2/admin/policy/damping", response_model=ApiEnvelope)
+def update_damping(payload: DampingUpdateRequest, authorization: str | None = Header(default=None)) -> dict:
+    return {"code": 0, "data": service.update_damping(authorization, payload.decay_alpha)}
+
+
+@app.get("/admin", response_class=HTMLResponse, include_in_schema=False)
+def admin_dashboard() -> str:
+    return DASHBOARD_HTML
 
 
 @app.post("/v2/wallet/exchange", response_model=ApiEnvelope)
