@@ -12,8 +12,8 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - rewards_postgres_data:/var/lib/postgresql/data
-      - ./services/rewards/sql/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
-      - ./services/rewards/sql/002_monetization_v3.sql:/docker-entrypoint-initdb.d/002_monetization_v3.sql:ro
+      - ./rewards/sql/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+      - ./rewards/sql/002_monetization_v3.sql:/docker-entrypoint-initdb.d/002_monetization_v3.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
@@ -22,7 +22,7 @@ services:
 
   rewards-api:
     build:
-      context: ./services/rewards
+      context: ./rewards
       dockerfile: Dockerfile
     restart: unless-stopped
     depends_on:
@@ -47,7 +47,7 @@ services:
 
   content-api:
     build:
-      context: ./services/content
+      context: ./content
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
@@ -63,8 +63,8 @@ services:
       LOCAL_MEDIA_ENABLED: ${LOCAL_MEDIA_ENABLED:-true}
       LOCAL_MEDIA_ROOT: /app/media
     volumes:
-      - ./services/content/content:/app/content:ro
-      - ./services/content/media:/app/media:ro
+      - ./content/content:/app/content:ro
+      - ./content/media:/app/media:ro
     ports:
       - "${CONTENT_PORT:-8000}:8000"
     healthcheck:

@@ -7,7 +7,7 @@
 
 > 不要把积分服务地址写成短剧内容服务的 `:8000`。默认情况下，内容服务使用 **8000**，独立 PostgreSQL 积分服务使用 **8100**。
 >
-> **推荐：从仓库根目录统一启动。** 根目录 `docker-compose.yml` 会同时启动内容服务、PostgreSQL 与本服务。请优先执行根目录 `README.md` 中的 `docker compose up -d --build`，不需要分别启动内容服务。本手册保留数据库规则、奖励验收、备份和故障排查说明。
+> **推荐：从 `services/` 目录统一启动。** `services/docker-compose.yml` 会同时启动内容服务、PostgreSQL 与本服务。请先进入仓库的 `services/` 目录，再执行 `docker compose up -d --build`，不需要分别启动内容服务。本手册保留数据库规则、奖励验收、备份和故障排查说明。
 
 ## 1. 部署前准备
 
@@ -23,10 +23,10 @@
 
 ## 2. 解压与配置环境变量
 
-使用统一 Compose 时，请将仓库解压到例如 `C:\DramaFlow\JoyeDrama`，并在**仓库根目录**复制配置模板：
+使用统一 Compose 时，请将仓库解压到例如 `C:\DramaFlow\JoyeDrama`，并在仓库的 **`services/` 目录**复制配置模板：
 
 ```powershell
-cd C:\DramaFlow\JoyeDrama
+cd C:\DramaFlow\JoyeDrama\services
 Copy-Item .env.example .env
 notepad .env
 ```
@@ -65,7 +65,7 @@ docker compose logs -f rewards-api
 > **从 v1.0.0 升级的必做步骤：** 已经创建过数据库卷时，请在部署目录执行一次下面的迁移，然后重启 API。不要使用 `docker compose down -v` 来“升级”，那会删除真实账本。
 >
 > ```powershell
-> Get-Content .\sql\002_monetization_v3.sql | docker compose exec -T postgres psql -U $env:POSTGRES_USER -d $env:POSTGRES_DB
+> Get-Content .\rewards\sql\002_monetization_v3.sql | docker compose exec -T postgres psql -U $env:POSTGRES_USER -d $env:POSTGRES_DB
 > docker compose restart rewards-api
 > ```
 

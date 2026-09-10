@@ -6,7 +6,7 @@
 
 > **安装修订（服务端 v0.1.1）：** 已限制 setuptools 只发现 `app` 服务包，因此在已存在 `content`、`media`、`runtime` 目录的 Windows 解压目录中，`python -m pip install .` 可以正常运行，不再出现 “Multiple top-level packages discovered” 错误。
 
-> **推荐：统一 Docker 启动。** 从仓库根目录运行 `docker compose up -d --build` 会同时启动内容服务（8000）、PostgreSQL 和积分服务（8100），无需再单独打开 PowerShell 运行 `uvicorn`。请优先阅读根目录 `README.md` 的“Windows 一键启动测试环境”。本手册其余 Python 步骤仅用于不安装 Docker Desktop 时的内容服务单独调试。
+> **推荐：统一 Docker 启动。** 请先进入仓库的 `services/` 目录，再运行 `docker compose up -d --build`；该命令会同时启动内容服务（8000）、PostgreSQL 和积分服务（8100），无需再单独打开 PowerShell 运行 `uvicorn`。请优先阅读仓库根目录 `README.md` 的“Windows 一键启动测试环境”。本手册其余 Python 步骤仅用于不安装 Docker Desktop 时的内容服务单独调试。
 
 ## 1. 目标与前置条件
 
@@ -106,7 +106,7 @@ Copy-Item .\content\owned_catalog.local-media.example.json .\content\owned_catal
 复制示例环境文件：
 
 ```powershell
-Copy-Item .\.env.example .\.env
+Copy-Item ..\.env.example .\.env
 ```
 
 用记事本打开：
