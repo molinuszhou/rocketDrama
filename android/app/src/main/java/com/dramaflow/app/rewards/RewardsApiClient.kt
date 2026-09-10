@@ -55,6 +55,7 @@ class RewardsApiClient(
         val expectedTomorrowTransfer: String = "0.00",
         val expectedBoostTransfer: String = "0.00",
         val boostAvailable: Boolean = false,
+        val boostPercent: Float = 0.2f,
     )
 
     data class Wallet(
@@ -101,6 +102,9 @@ class RewardsApiClient(
         val rewardedAds: CrownMetric,
         val progress: Float,
         val episodeRewardMultiplier: Float = 1f,
+        val watchedRounds: CrownMetric = CrownMetric(0, 0),
+        val adEquivalentRounds: Int = 0,
+        val adsPerEpisode: Int = 2,
     )
 
     data class UnlockRule(
@@ -109,6 +113,7 @@ class RewardsApiClient(
         val title: String,
         val description: String,
         val nextEpisodeInterstitialEnabled: Boolean = false,
+        val nextEpisodeRewardedEnabled: Boolean = true,
         val extraEpisodeUnlockEnabled: Boolean = false,
         val validWatchSeconds: Int,
     )
@@ -142,6 +147,8 @@ class RewardsApiClient(
         val midEpisodeHourlyLimit: Int = 0,
         val seekEnabled: Boolean = false,
         val seekHourlyLimit: Int = 0,
+        val speedEnabled: Boolean = false,
+        val speedHourlyLimit: Int = 0,
         val lastRvAt: String?,
         val lastInterstitialAt: String?,
     )
@@ -187,7 +194,7 @@ class RewardsApiClient(
         val geoTier: String,
     ) {
         val rewardsEnabled: Boolean get() = true
-        val ruleVersion: String get() = "postgresql-v6"
+        val ruleVersion: String get() = "postgresql-v7"
     }
 
     data class WatchReward(
@@ -202,6 +209,8 @@ class RewardsApiClient(
         val action: String,
         val gemsAdded: Long,
         val snapshot: Snapshot,
+        val adEventId: String? = null,
+        val releasedMicros: Long = 0L,
     )
 
     val isConfigured: Boolean
@@ -244,12 +253,12 @@ class RewardsApiClient(
         }, onFailure,
     )
 
-    fun claimAllEpisodeRewards(userId: String, onSuccess: (RewardAction) -> Unit, onFailure: (String) -> Unit) = post(
+    fun claimAllEpisodeRewards(userId: String, adEventId: String, onSuccess: (RewardAction) -> Unit, onFailure: (String) -> Unit) = post(
         "/v2/episode-rewards/claim-all",
-        JSONObject().put("user_id", userId).put("reference_id", "episode-claim-all-${UUID.randomUUID()}"),
+        JSONObject().put("user_id", userId).put("reference_id", "episode-claim-all-${UUID.randomUUID()}").put("ad_event_id", adEventId),
         { data ->
             val result = data.optJSONObject("result") ?: JSONObject()
-            onSuccess(RewardAction(data.optBoolean("idempotent"), result.optString("action"), result.optLong("gems_added"), parseSnapshot(data.getJSONObject("snapshot"))))
+            onSuccess(RewardAction(data.optBoolean("idempotent"), result.optString("action"), result.optLong("gems_added"), parseSnapshot(data.getJSONObject("snapshot")), adEventId))
         }, onFailure,
     )
 
@@ -271,13 +280,17 @@ class RewardsApiClient(
         onSuccess: (RewardAction) -> Unit,
         onFailure: (String) -> Unit,
     ) {
-        val payload = JSONObject().put("user_id", userId).put("ad_event_id", "pangle-${UUID.randomUUID()}")
+        val adEventId = "pangle-${UUID.randomUUID()}"
+        val payload = JSONObject().put("user_id", userId).put("ad_event_id", adEventId)
             .put("placement_id", placementId).put("proof", proof).put("timestamp_ms", System.currentTimeMillis())
         if (!targetId.isNullOrBlank()) payload.put("target_id", targetId)
         if (episodeIndex != null) payload.put("episode_index", episodeIndex)
         post("/v2/ads/rewarded/complete", payload, { data ->
             val result = data.optJSONObject("result") ?: JSONObject()
-            onSuccess(RewardAction(data.optBoolean("idempotent"), result.optString("action"), result.optLong("gems_added"), parseSnapshot(data.getJSONObject("snapshot"))))
+            onSuccess(RewardAction(
+                data.optBoolean("idempotent"), result.optString("action"), result.optLong("gems_added"),
+                parseSnapshot(data.getJSONObject("snapshot")), adEventId, result.optLong("released_micros"),
+            ))
         }, onFailure)
     }
 
@@ -358,7 +371,7 @@ class RewardsApiClient(
                     release.optInt("boost_used"), release.optInt("boost_cap", 3), release.optString("boost_amount", "0.00"),
                     release.optInt("estimated_days_remaining"), release.optInt("pending_days"),
                     release.optString("expected_tomorrow_transfer", "0.00"), release.optString("expected_boost_transfer", "0.00"),
-                    release.optBoolean("boost_available")),
+                    release.optBoolean("boost_available"), release.optDouble("boost_percent", 0.2).toFloat()),
             ),
             tasks = taskList,
             pendingEpisodeRewards = pendingEpisodeRewards,
@@ -375,6 +388,7 @@ class RewardsApiClient(
                 "广告解锁",
                 "免费集数用完后，由你确认观看广告解锁下一集",
                 unlock.optBoolean("next_episode_interstitial_enabled", false),
+                unlock.optBoolean("next_episode_rewarded_enabled", true),
                 unlock.optBoolean("extra_episode_unlock_enabled", false),
                 unlock.optInt("valid_watch_seconds", 60),
             ),
@@ -402,6 +416,8 @@ class RewardsApiClient(
                 interstitial.optInt("mid_episode_hourly_limit", 0),
                 interstitial.optBoolean("seek_enabled", false),
                 interstitial.optInt("seek_hourly_limit", 0),
+                interstitial.optBoolean("speed_enabled", false),
+                interstitial.optInt("speed_hourly_limit", 0),
                 nullableString(interstitial, "last_rv_at"),
                 nullableString(interstitial, "last_interstitial_at"),
             ),
@@ -440,7 +456,12 @@ class RewardsApiClient(
         for (index in 0 until (array?.length() ?: 0)) {
             val item = array!!.getJSONObject(index)
             fun metric(key: String): CrownMetric { val value = item.optJSONObject(key) ?: JSONObject(); return CrownMetric(value.optInt("current"), value.optInt("target")) }
-            add(CrownProgress(item.optString("code"), item.optString("title"), item.optInt("level_rank", index + 1), item.optBoolean("earned"), item.optLong("gems"), item.optString("entitlement"), item.optInt("window_hours"), metric("rounds"), metric("signins"), metric("rewarded_ads"), item.optDouble("progress").toFloat(), item.optDouble("episode_reward_multiplier", 1.0).toFloat()))
+            add(CrownProgress(
+                item.optString("code"), item.optString("title"), item.optInt("level_rank", index + 1), item.optBoolean("earned"),
+                item.optLong("gems"), item.optString("entitlement"), item.optInt("window_hours"), metric("rounds"),
+                metric("signins"), metric("rewarded_ads"), item.optDouble("progress").toFloat(), item.optDouble("episode_reward_multiplier", 1.0).toFloat(),
+                metric("watched_rounds"), item.optInt("ad_equivalent_rounds"), item.optInt("ads_per_episode", 2).coerceAtLeast(1),
+            ))
         }
     }
 

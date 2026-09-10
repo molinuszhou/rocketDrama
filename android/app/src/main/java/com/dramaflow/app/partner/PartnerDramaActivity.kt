@@ -74,6 +74,7 @@ class PartnerDramaActivity : FragmentActivity() {
                 val duration = player.duration.takeIf { it > 0 }?.div(1_000L)?.toInt() ?: playerDurationSeconds
                 val position = player.currentPosition.coerceAtLeast(0L).div(1_000L).toInt()
                 updatePlayerProgress(position, duration)
+                persistPlaybackProgressIfNeeded(position)
                 requestMidEpisodeInterstitialIfEligible(position)
                 progressHandler.postDelayed(this, 500L)
             }
@@ -100,6 +101,9 @@ class PartnerDramaActivity : FragmentActivity() {
     private var playerControlsVisible = true
     private var playerProgressSeconds = 0
     private var playerDurationSeconds = 0
+    private var pendingResumePositionSeconds = 0
+    private var lastPersistedPlaybackSecond = -1
+    private var playerPauseOverlay: TextView? = null
     private var playerIsSeeking = false
     private var playerIsPaused = false
     private var playerMuted = false
@@ -120,6 +124,7 @@ class PartnerDramaActivity : FragmentActivity() {
     private val rewardWatchRecordedEpisodeKeys = mutableSetOf<String>()
     private val floatingWheelLabels = mutableSetOf<TextView>()
     private val favorites by lazy { getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE) }
+    private val playbackHistory by lazy { getSharedPreferences(PLAYBACK_HISTORY_PREFERENCES, Context.MODE_PRIVATE) }
 
     private val consentStore by lazy { PangleConsentStore(applicationContext) }
     private val pangleAds by lazy { PangleAdsManager(applicationContext, PangleSettings.fromBuildConfig()) }
@@ -141,6 +146,7 @@ class PartnerDramaActivity : FragmentActivity() {
 
     override fun onStop() {
         // 退后台时必须停止画面、音频与播放时钟，返回应用后不自动续播。
+        persistPlaybackProgress()
         exoPlayer?.pause()
         playerIsPaused = true
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -480,13 +486,15 @@ class PartnerDramaActivity : FragmentActivity() {
     private fun createWalletCard(): View = createRewardsWalletSummary()
 
     private fun createHistoryRow(drama: LocalDrama): View = LinearLayout(this).apply {
+        val resumeEpisode = savedResumeEpisodeIndex(drama)
+        val resumeSecond = savedResumePositionSeconds(drama)
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(10), dp(10), dp(12), dp(10))
         background = roundedDrawable(COLOR_CARD, 16)
         isClickable = true
-        setOnClickListener { showPlayer(drama, 0) }
+        setOnClickListener { showPlayer(drama, resumeEpisode, resumeSecond) }
         addView(ImageView(this@PartnerDramaActivity).apply { scaleType = ImageView.ScaleType.CENTER_CROP; background = posterFallbackDrawable(); load(drama.coverImage) { placeholder(posterFallbackDrawable()); error(posterFallbackDrawable()) } }, LinearLayout.LayoutParams(dp(48), dp(64)))
-        addView(TextView(this@PartnerDramaActivity).apply { text = drama.title; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); maxLines = 2; setPadding(dp(12), 0, dp(8), 0) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        addView(TextView(this@PartnerDramaActivity).apply { text = "${drama.title}\n第 ${resumeEpisode + 1} 集 · ${formatPlaybackTime(resumeSecond)}"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); maxLines = 2; setPadding(dp(12), 0, dp(8), 0) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         addView(TextView(this@PartnerDramaActivity).apply { text = "继续 ›"; textSize = 13f; setTextColor(COLOR_ACCENT) })
     }
 
@@ -550,7 +558,7 @@ class PartnerDramaActivity : FragmentActivity() {
         val wheel = FrameLayout(this).apply {
             elevation = dp(10).toFloat()
             isClickable = true
-            contentDescription = "累计待领取宝石，点击播放插屏后全部领取"
+            contentDescription = "累计待领取宝石，点击完整观看激励广告后全部领取"
             setOnClickListener {
                 if (rewardsSnapshot?.ring?.claimable == true) showEpisodeRewardClaimDialog() else {
                     exoPlayer?.pause()
@@ -561,10 +569,12 @@ class PartnerDramaActivity : FragmentActivity() {
             }
         }
         val halo = View(this).apply {
-            background = GradientDrawable().apply {
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(0xFFFF2D55.toInt(), 0xFFFFA928.toInt(), 0xFFFFDB6A.toInt()),
+            ).apply {
                 shape = GradientDrawable.OVAL
-                setColor(0x2439D98A)
-                setStroke(dp(2), 0xFFFFDB6A.toInt())
+                setStroke(dp(3), Color.WHITE)
             }
         }
         wheel.addView(halo, FrameLayout.LayoutParams(size, size))
@@ -580,10 +590,12 @@ class PartnerDramaActivity : FragmentActivity() {
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
             setPadding(dp(4), dp(4), dp(4), dp(4))
-            background = GradientDrawable().apply {
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(0xFFE8294C.toInt(), 0xFF8F1738.toInt()),
+            ).apply {
                 shape = GradientDrawable.OVAL
-                setColor(0xEE241D35.toInt())
-                setStroke(dp(2), COLOR_PURPLE)
+                setStroke(dp(2), 0xFFFFDB6A.toInt())
             }
         }
         floatingWheelLabels.add(label)
@@ -593,22 +605,25 @@ class PartnerDramaActivity : FragmentActivity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             addView(wheel, LinearLayout.LayoutParams(size, size))
-            addView(TextView(this@PartnerDramaActivity).apply {
-                val reward = currentEpisodePendingReward()
-                text = when {
-                    reward == null -> "翻倍"
-                    reward.boosted -> "已翻倍"
-                    else -> "翻倍"
-                }
-                textSize = 11f
-                typeface = Typeface.DEFAULT_BOLD
-                gravity = Gravity.CENTER
-                setTextColor(if (reward != null && !reward.boosted) 0xFFFFDB6A.toInt() else COLOR_TEXT_MUTED)
-                background = roundedDrawable(0xD8241D35.toInt(), 12)
-                setPadding(dp(10), dp(5), dp(10), dp(5))
-                isClickable = reward != null && !reward.boosted
-                setOnClickListener { if (reward != null && !reward.boosted) requestEpisodeRewardBoost(reward) }
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(30)).apply { topMargin = dp(3) })
+            if (playerShown) {
+                addView(TextView(this@PartnerDramaActivity).apply {
+                    val reward = currentEpisodePendingReward()
+                    text = when {
+                        reward == null -> "本集翻倍"
+                        reward.boosted -> "已翻倍"
+                        else -> "本集翻倍"
+                    }
+                    textSize = 12f
+                    typeface = Typeface.DEFAULT_BOLD
+                    gravity = Gravity.CENTER
+                    setTextColor(if (reward != null && !reward.boosted) Color.WHITE else COLOR_TEXT_MUTED)
+                    background = gradientDrawable(intArrayOf(0xFFFF4B58.toInt(), 0xFFC91F39.toInt()), 14)
+                    setPadding(dp(12), dp(6), dp(12), dp(6))
+                    isClickable = reward != null && !reward.boosted
+                    alpha = if (reward != null && !reward.boosted) 1f else 0.55f
+                    setOnClickListener { if (reward != null && !reward.boosted) requestEpisodeRewardBoost(reward) else toast("本集暂无可翻倍的待领取宝石") }
+                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34)).apply { topMargin = dp(5) })
+            }
         }
     }
 
@@ -646,7 +661,7 @@ class PartnerDramaActivity : FragmentActivity() {
                 setPadding(dp(12), 0, 0, 0)
                 addView(TextView(this@PartnerDramaActivity).apply { text = "追剧宝石"; textSize = 16f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE) })
                 addView(TextView(this@PartnerDramaActivity).apply {
-                    text = ring?.let { if (it.claimable) "已累计 ${it.rewardCoins} 宝石，观看一次插屏后全部领取" else "每完成 1 集有效观看即可积累宝石" } ?: "连接奖励服务后显示追剧奖励"
+                    text = ring?.let { if (it.claimable) "已累计 ${it.rewardCoins} 宝石，完整观看一次激励广告后全部领取" else "每完成 1 集有效观看即可积累宝石" } ?: "连接奖励服务后显示追剧奖励"
                     textSize = 12f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(4), 0, 0)
                 })
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
@@ -675,9 +690,9 @@ class PartnerDramaActivity : FragmentActivity() {
         if (!ring.claimable || ring.rewardCoins <= 0) { toast("当前没有待领取的追剧宝石"); return }
         AlertDialog.Builder(this)
             .setTitle("领取全部追剧宝石")
-            .setMessage("你已累计 ${ring.rewardCoins} 宝石。观看一条插屏广告后将一次性领取全部待领取宝石；已提前开启翻倍的分集会按双倍结算。")
+            .setMessage("你已累计 ${ring.rewardCoins} 宝石。完整观看一条激励广告后将一次性领取全部待领取宝石；已提前开启翻倍的分集会按双倍结算。")
             .setNegativeButton("稍后领取", null)
-            .setPositiveButton("观看广告并领取") { _, _ -> showRewardClaimInterstitialThenSettle() }
+            .setPositiveButton("看激励广告并领取") { _, _ -> requestRewardedClaimAllEpisodeRewards() }
             .show()
     }
 
@@ -696,24 +711,23 @@ class PartnerDramaActivity : FragmentActivity() {
             .show()
     }
 
-    private fun showRewardClaimInterstitialThenSettle() {
-        val policy = rewardsSnapshot?.interstitial
-        if (policy?.rewardClaimEnabled == false) { claimAllEpisodeRewardsAfterInterstitial(); return }
-        showPlaybackActionInterstitial("int_reward_claim", onShown = { claimAllEpisodeRewardsAfterInterstitial() }, onUnavailable = { message ->
-            resumeAfterFullscreenAdIfNeeded()
-            toast("领取宝石插屏未展示：$message")
+    private fun requestRewardedClaimAllEpisodeRewards() {
+        requestRewardedAction("rv_episode_rewards_claim", onSettled = { authorization ->
+            val adEventId = authorization.adEventId
+            if (adEventId.isNullOrBlank()) {
+                resumeAfterFullscreenAdIfNeeded()
+                toast("领取授权未生成，请稍后重试")
+                return@requestRewardedAction
+            }
+            rewardsApi.claimAllEpisodeRewards(anonymousInstallationId(), adEventId, { action -> runOnUiThread {
+                applyRewardsSnapshot(action.snapshot)
+                resumeAfterFullscreenAdIfNeeded()
+                toast(if (action.idempotent) "当前没有待领取宝石" else "已领取全部 ${action.gemsAdded} 宝石")
+            } }, { message -> runOnUiThread {
+                resumeAfterFullscreenAdIfNeeded()
+                toast("领取失败：$message")
+            } })
         })
-    }
-
-    private fun claimAllEpisodeRewardsAfterInterstitial() {
-        rewardsApi.claimAllEpisodeRewards(anonymousInstallationId(), { action -> runOnUiThread {
-            applyRewardsSnapshot(action.snapshot)
-            resumeAfterFullscreenAdIfNeeded()
-            toast(if (action.idempotent) "当前没有待领取宝石" else "已领取全部 ${action.gemsAdded} 宝石")
-        } }, { message -> runOnUiThread {
-            resumeAfterFullscreenAdIfNeeded()
-            toast("领取失败：$message")
-        } })
     }
 
     private fun createCheckinCard(): View {
@@ -735,7 +749,7 @@ class PartnerDramaActivity : FragmentActivity() {
             addView(createCheckinTierStrip(snapshot), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(14) })
             val row = LinearLayout(this@PartnerDramaActivity).apply { gravity = Gravity.CENTER_VERTICAL }
             row.addView(TextView(this@PartnerDramaActivity).apply {
-                text = if (snapshot?.checkinSignedToday == true) "今日已签到" else "立即签到"
+                text = if (snapshot?.checkinSignedToday == true) "今日已签到" else "看广告签到"
                 textSize = 14f
                 typeface = Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER
@@ -766,11 +780,11 @@ class PartnerDramaActivity : FragmentActivity() {
         background = gradientDrawable(intArrayOf(0xFFB05A23.toInt(), 0xFF5C2A6E.toInt()), 20)
         addView(TextView(this@PartnerDramaActivity).apply { text = "新人欢迎奖励"; textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE) })
         addView(TextView(this@PartnerDramaActivity).apply {
-            text = "首次加入可领取 ${snapshot.welcome.gems} 宝石。领取后可在钱包中查看余额和透明兑换规则。"
+            text = "首次加入可领取 ${snapshot.welcome.gems} 宝石。完整观看一条激励广告后即可到账。"
             textSize = 13f; setTextColor(0xECFFFFFF.toInt()); setPadding(0, dp(6), 0, dp(13))
         })
         addView(TextView(this@PartnerDramaActivity).apply {
-            text = "领取欢迎奖励"
+            text = "看广告领取欢迎奖励"
             textSize = 14f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(0xFF542012.toInt())
             background = roundedDrawable(0xFFFFE7A0.toInt(), 14); setPadding(dp(14), dp(10), dp(14), dp(10)); isClickable = true
             setOnClickListener { claimWelcomeBonus() }
@@ -778,11 +792,11 @@ class PartnerDramaActivity : FragmentActivity() {
     }
 
     private fun claimWelcomeBonus() {
-        if (!rewardsApi.isConfigured) { toast("独立积分服务尚未配置"); return }
-        rewardsApi.claimWelcomeBonus(anonymousInstallationId(), { action -> runOnUiThread {
+        requestRewardedAction("rv_welcome_bonus", onSettled = { action ->
             applyRewardsSnapshot(action.snapshot)
+            resumeAfterFullscreenAdIfNeeded()
             toast(if (action.idempotent) "欢迎奖励已领取" else "欢迎奖励到账：${action.gemsAdded} 宝石")
-        } }, { message -> runOnUiThread { toast(message) } })
+        })
     }
 
     private fun createRewardsWalletSummary(): View {
@@ -815,7 +829,7 @@ class PartnerDramaActivity : FragmentActivity() {
                 textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(0, dp(16), 0, dp(5))
             })
             addView(TextView(this@PartnerDramaActivity).apply {
-                text = if (release.boostAvailable) "观看广告可额外转入 \$${release.expectedBoostTransfer} 到可提现余额" else "今日暂无可广告加速的转入额度"
+                text = if (release.boostAvailable) "看广告预计额外转入 \$${release.expectedBoostTransfer} 到可提现余额（当日基础转入的 ${(release.boostPercent * 100).toInt()}%）" else "今日暂无可广告加速的转入额度"
                 textSize = 12f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(0), 0, dp(12))
             })
             val actions = LinearLayout(this@PartnerDramaActivity).apply { gravity = Gravity.CENTER_VERTICAL }
@@ -828,7 +842,7 @@ class PartnerDramaActivity : FragmentActivity() {
                 text = "广告加速"
                 textSize = 13f; gravity = Gravity.CENTER; setTextColor(0xFFFFDB6A.toInt())
                 background = roundedDrawable(0x30FFFFFF, 14)
-                setOnClickListener { requestRewardedAction("rv_release_boost") }
+                setOnClickListener { showWalletReleaseBoostDialog() }
                 isClickable = release.boostAvailable
             }, LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginStart = dp(9) })
             addView(actions)
@@ -838,6 +852,39 @@ class PartnerDramaActivity : FragmentActivity() {
                 setOnClickListener { showWalletRulesDialog(wallet) }; isClickable = true
             })
         }
+    }
+
+    private fun showWalletReleaseBoostDialog() {
+        val release = rewardsSnapshot?.wallet?.release ?: return
+        if (!release.boostAvailable) { toast("今日暂无可广告加速的转入额度"); return }
+        AlertDialog.Builder(this)
+            .setTitle("广告加速转入")
+            .setMessage("完整观看一条激励广告后，预计额外转入 \$${release.expectedBoostTransfer} 到可提现余额（当日基础转入的 ${(release.boostPercent * 100).toInt()}%）。")
+            .setNegativeButton("暂不加速", null)
+            .setPositiveButton("看广告加速") { _, _ -> requestWalletReleaseBoost() }
+            .show()
+    }
+
+    private fun requestWalletReleaseBoost() {
+        requestRewardedAction("rv_release_boost", onSettled = { action ->
+            applyRewardsSnapshot(action.snapshot)
+            resumeAfterFullscreenAdIfNeeded()
+            val transferred = action.releasedMicros / 1_000_000.0
+            val updatedRelease = action.snapshot.wallet.release
+            val nextMessage = if (updatedRelease.boostAvailable) {
+                "本次已额外转入 \$${String.format(Locale.US, "%.2f", transferred)} 到可提现余额。继续加速预计还可额外转入 \$${updatedRelease.expectedBoostTransfer}。"
+            } else {
+                "本次已额外转入 \$${String.format(Locale.US, "%.2f", transferred)} 到可提现余额。今日广告加速额度已用完。"
+            }
+            AlertDialog.Builder(this)
+                .setTitle("广告加速完成")
+                .setMessage(nextMessage)
+                .setNegativeButton("稍后再说", null)
+                .setPositiveButton(if (updatedRelease.boostAvailable) "继续加速" else "知道了") { _, _ ->
+                    if (updatedRelease.boostAvailable) showWalletReleaseBoostDialog()
+                }
+                .show()
+        })
     }
 
     private fun showGemsExchangeDialog(wallet: RewardsApiClient.Wallet) {
@@ -879,23 +926,30 @@ class PartnerDramaActivity : FragmentActivity() {
             text = if (snapshot.chest.availableCount > 0) "观看广告开启 1 个" else "继续追剧获得宝箱"
             textSize = 14f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
             background = roundedDrawable(if (snapshot.chest.availableCount > 0) COLOR_ACCENT else COLOR_SURFACE, 14)
-            setPadding(dp(14), dp(10), dp(14), dp(10)); isClickable = snapshot.chest.availableCount > 0
-            setOnClickListener { if (snapshot.chest.availableCount > 0) requestRandomChestOpen() }
+            setPadding(dp(14), dp(10), dp(14), dp(10)); isClickable = true
+            setOnClickListener {
+                if (snapshot.chest.availableCount > 0) requestRandomChestOpen() else {
+                    activeTab = MainTab.HOME
+                    renderActiveTab()
+                }
+            }
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)))
     }
 
-    private fun requestRandomChestOpen() {
+    private fun requestRandomChestOpen(onFinished: () -> Unit = {}) {
         requestRewardedAction(
             placementId = "rv_random_chest_open",
             onSettled = { action ->
                 applyRewardsSnapshot(action.snapshot)
                 resumeAfterFullscreenAdIfNeeded()
                 toast("随机宝箱开启：+${action.gemsAdded} 宝石")
+                onFinished()
             },
             onSettlementUnavailable = { message ->
                 resumeAfterFullscreenAdIfNeeded()
                 val noChest = message.contains("没有可开启") || message.contains("没有可用")
                 toast(if (noChest) "广告已完整观看，但当前没有可开启的宝箱" else "宝箱结算失败：$message")
+                onFinished()
             },
         )
     }
@@ -925,9 +979,15 @@ class PartnerDramaActivity : FragmentActivity() {
                 backgroundTintList = ColorStateList.valueOf(0x33333333)
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(8)))
             addView(TextView(this@PartnerDramaActivity).apply {
-                text = "距离下一等级：有效追剧还差 ${(next.rounds.target - next.rounds.current).coerceAtLeast(0)} 集 · 签到还差 ${(next.signins.target - next.signins.current).coerceAtLeast(0)} 天 · 激励广告还差 ${(next.rewardedAds.target - next.rewardedAds.current).coerceAtLeast(0)} 次"
+                text = "距离下一等级：有效追剧还差 ${(next.rounds.target - next.rounds.current).coerceAtLeast(0)} 集（其中广告已抵 ${next.adEquivalentRounds} 集）· 签到还差 ${(next.signins.target - next.signins.current).coerceAtLeast(0)} 天 · 激励广告还差 ${(next.rewardedAds.target - next.rewardedAds.current).coerceAtLeast(0)} 次"
                 textSize = 12f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(10), 0, dp(9))
             })
+            addView(TextView(this@PartnerDramaActivity).apply {
+                text = "看 ${next.adsPerEpisode} 条激励广告升级（抵 1 集追剧）"
+                textSize = 13f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
+                background = gradientDrawable(intArrayOf(0xFFFF5D69.toInt(), 0xFFC42048.toInt()), 13); setPadding(dp(12), dp(9), dp(12), dp(9)); isClickable = true
+                setOnClickListener { showCrownRewardedUpgradeDialog(next) }
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)).apply { bottomMargin = dp(8) })
             addView(TextView(this@PartnerDramaActivity).apply {
                 text = "查看 ${next.title} 达成条件"
                 textSize = 13f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(0xFFFFDB6A.toInt())
@@ -940,12 +1000,40 @@ class PartnerDramaActivity : FragmentActivity() {
     private fun showCrownRulesDialog(crown: RewardsApiClient.CrownProgress) {
         AlertDialog.Builder(this).setTitle("${crown.title}等级条件").setMessage(
             "完成以下累计条件后，服务端会自动结算对应宝石：\n\n" +
-                "• 有效追剧：${crown.rounds.current}/${crown.rounds.target} 集\n" +
+                "• 有效追剧：${crown.rounds.current}/${crown.rounds.target} 集（实际看剧 ${crown.watchedRounds.current} 集，广告等效 ${crown.adEquivalentRounds} 集）\n" +
+                "• 广告升级：每完整观看 ${crown.adsPerEpisode} 条激励广告可抵 1 集有效追剧\n" +
                 "• 签到天数：${crown.signins.current}/${crown.signins.target} 天\n" +
                 "• 激励广告：${crown.rewardedAds.current}/${crown.rewardedAds.target} 次\n\n" +
                 "达成奖励：${crown.gems} 宝石；后续每集待领取宝石提升至 ${String.format(Locale.US, "%.2f", crown.episodeRewardMultiplier)}x${if (crown.entitlement.isBlank()) "" else "，并获得 ${crown.entitlement}"}。\n\n" +
                 "规则与当前进度均由服务端公开计算，不设置未披露的隐藏条件。"
         ).setPositiveButton("知道了", null).show()
+    }
+
+    private fun showCrownRewardedUpgradeDialog(crown: RewardsApiClient.CrownProgress) {
+        AlertDialog.Builder(this)
+            .setTitle("广告升级皇冠之路")
+            .setMessage("完整观看 ${crown.adsPerEpisode} 条激励广告，可按 1 集有效追剧计入 ${crown.title} 成长进度。广告完成后由服务端重新计算等级和单集宝石倍率。")
+            .setNegativeButton("暂不升级", null)
+            .setPositiveButton("开始看广告") { _, _ -> requestCrownRewardedUpgrade(crown.adsPerEpisode, crown.title) }
+            .show()
+    }
+
+    private fun requestCrownRewardedUpgrade(remaining: Int, title: String) {
+        if (remaining <= 0) { refreshRewardsSnapshot(); return }
+        requestRewardedAction("rv_crown_upgrade", onSettled = { action ->
+            applyRewardsSnapshot(action.snapshot)
+            resumeAfterFullscreenAdIfNeeded()
+            if (remaining > 1) {
+                AlertDialog.Builder(this)
+                    .setTitle("皇冠升级进度")
+                    .setMessage("已完成 1/${remaining} 条广告，再看 ${remaining - 1} 条即可获得 1 集等效追剧进度。")
+                    .setNegativeButton("稍后继续", null)
+                    .setPositiveButton("继续观看") { _, _ -> requestCrownRewardedUpgrade(remaining - 1, title) }
+                    .show()
+            } else {
+                toast("已完成皇冠广告升级，${title}进度已刷新")
+            }
+        })
     }
 
     /** 当前仅为前端展示演示；活动配置、进度验证与点数账本将在后续运营后台阶段接入。 */
@@ -1033,7 +1121,7 @@ class PartnerDramaActivity : FragmentActivity() {
             text = when {
                 snapshot == null -> "奖励服务正在同步，连接成功后即可领取"
                 snapshot.checkinSignedToday -> "今天已签到 · 已连续签到 ${snapshot.checkinStreak} 天；看广告开启随机宝箱获取更多宝石"
-                else -> "今天是第 ${snapshot.checkinTodayIndex} 天 · 今日可领 ${snapshot.checkinNextRewardCoins} 宝石"
+                else -> "今天是第 ${snapshot.checkinTodayIndex} 天 · 看广告签到可得 ${snapshot.checkinNextRewardCoins} 宝石"
             }
             textSize = 13f
             gravity = Gravity.CENTER
@@ -1045,7 +1133,7 @@ class PartnerDramaActivity : FragmentActivity() {
             text = when {
                 snapshot == null -> "奖励将在服务连接后按动态规则结算"
                 snapshot.checkinSignedToday -> "观看一条激励广告即可尝试开启 1 个随机宝箱"
-                else -> "第 ${snapshot.checkinTodayIndex} 天奖励：${snapshot.checkinNextRewardCoins} 宝石"
+                else -> "完整观看激励广告后签到：${snapshot.checkinNextRewardCoins} 宝石"
             }
             textSize = 14f
             gravity = Gravity.CENTER
@@ -1056,7 +1144,7 @@ class PartnerDramaActivity : FragmentActivity() {
             text = when {
                 snapshot == null -> "正在同步签到状态"
                 snapshot.checkinSignedToday -> "看广告开宝箱"
-                else -> "立即签到"
+                else -> "看广告签到"
             }
             textSize = 16f
             typeface = Typeface.DEFAULT_BOLD
@@ -1149,18 +1237,16 @@ class PartnerDramaActivity : FragmentActivity() {
     }
 
     private fun completeDailyCheckin() {
-        if (!rewardsApi.isConfigured) { toast("独立积分服务尚未配置，请先在“我的”中填写服务地址"); return }
-        rewardsApi.checkin(anonymousInstallationId(), { action ->
-            runOnUiThread {
-                applyRewardsSnapshot(action.snapshot)
-                if (action.idempotent) {
-                    toast("今天已经签到")
-                } else {
-                    toast("签到成功，获得 ${action.gemsAdded} 宝石")
-                    showCheckinRewardDialog(action.snapshot)
-                }
+        requestRewardedAction("rv_checkin_complete", onSettled = { action ->
+            applyRewardsSnapshot(action.snapshot)
+            resumeAfterFullscreenAdIfNeeded()
+            if (action.idempotent) {
+                toast("今天已经签到")
+            } else {
+                toast("签到成功，获得 ${action.gemsAdded} 宝石")
+                showCheckinRewardDialog(action.snapshot)
             }
-        }, { message -> runOnUiThread { toast(message) } })
+        })
     }
 
     /** 全屏广告展示时暂停原视频；Pangle 回调已保证在广告关闭后才会进入这里的结果分支。 */
@@ -1324,7 +1410,7 @@ class PartnerDramaActivity : FragmentActivity() {
         background = roundedDrawable(color, 12)
     }
 
-    private fun showPlayer(drama: LocalDrama, startIndex: Int) {
+    private fun showPlayer(drama: LocalDrama, startIndex: Int, resumePositionSeconds: Int = 0) {
         if (drama.episodes.isEmpty()) {
             renderLoading("正在加载剧集详情…")
             localDramaApi.fetchDrama(
@@ -1332,7 +1418,7 @@ class PartnerDramaActivity : FragmentActivity() {
                 dramaId = drama.id,
                 region = CONTENT_REGION,
                 userId = anonymousInstallationId(),
-                onSuccess = { detail -> runOnUiThread { showPlayer(detail, startIndex) } },
+                onSuccess = { detail -> runOnUiThread { showPlayer(detail, startIndex, resumePositionSeconds) } },
                 onFailure = { message -> runOnUiThread { renderFailure("剧集详情加载失败：$message") } },
             )
             return
@@ -1341,7 +1427,9 @@ class PartnerDramaActivity : FragmentActivity() {
         releasePlayer()
         selectedDrama = drama
         currentEpisodeIndex = startIndex.coerceIn(0, drama.episodes.lastIndex.coerceAtLeast(0))
-        playerProgressSeconds = 0
+        pendingResumePositionSeconds = resumePositionSeconds.coerceAtLeast(0)
+        lastPersistedPlaybackSecond = -1
+        playerProgressSeconds = pendingResumePositionSeconds
         playerDurationSeconds = 0
         playerIsSeeking = false
         playerIsPaused = false
@@ -1361,6 +1449,7 @@ class PartnerDramaActivity : FragmentActivity() {
         player.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 playerIsPaused = !isPlaying && player.playbackState == Player.STATE_READY
+                updatePauseOverlayVisibility(playerIsPaused && !fullscreenAdInProgress && !pauseNativeAdInProgress)
                 if (isPlaying) {
                     window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 } else {
@@ -1399,7 +1488,7 @@ class PartnerDramaActivity : FragmentActivity() {
         })
         root.addView(playerView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         root.addView(createPlayerChrome(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        root.addView(createFloatingRewardWheel(compact = true), FrameLayout.LayoutParams(dp(84), dp(106), Gravity.END or Gravity.CENTER_VERTICAL).apply {
+        root.addView(createFloatingRewardWheel(compact = true), FrameLayout.LayoutParams(dp(96), dp(132), Gravity.END or Gravity.CENTER_VERTICAL).apply {
             marginEnd = dp(10)
             topMargin = dp(42)
         })
@@ -1413,6 +1502,23 @@ class PartnerDramaActivity : FragmentActivity() {
     private fun createPlayerChrome(): View {
         val chrome = FrameLayout(this).apply { isClickable = false }
         chrome.addView(createPlayerGestureLayer(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        playerPauseOverlay = TextView(this).apply {
+            text = "▶\n继续播放"
+            textSize = 15f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(0x99000000.toInt())
+                setStroke(dp(2), 0xCCFFDB6A.toInt())
+            }
+            visibility = View.GONE
+            contentDescription = "继续播放"
+            isClickable = true
+            setOnClickListener { resumePlaybackFromPauseOverlay() }
+        }
+        chrome.addView(playerPauseOverlay, FrameLayout.LayoutParams(dp(104), dp(104), Gravity.CENTER))
         chrome.addView(transparentPlayerIcon("‹", "返回首页") { showCatalog() }, FrameLayout.LayoutParams(dp(48), dp(48), Gravity.TOP or Gravity.START).apply {
             topMargin = dp(28)
             marginStart = dp(14)
@@ -1634,11 +1740,28 @@ class PartnerDramaActivity : FragmentActivity() {
     }
 
     /** 视频区域单击是唯一的播放/暂停操作；Media3 会同步停止画面、音频和播放时钟。 */
+    private fun updatePauseOverlayVisibility(visible: Boolean) {
+        playerPauseOverlay?.visibility = if (visible) View.VISIBLE else View.GONE
+    }
+
+    private fun resumePlaybackFromPauseOverlay() {
+        val player = exoPlayer ?: return
+        if (player.playbackState == Player.STATE_IDLE) {
+            selectEpisode(currentEpisodeIndex)
+            return
+        }
+        player.play()
+        playerIsPaused = false
+        updatePauseOverlayVisibility(false)
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    }
+
     private fun togglePlaybackFromVideoTap() {
         val player = exoPlayer ?: return
         if (player.isPlaying) {
             player.pause()
             playerIsPaused = true
+            updatePauseOverlayVisibility(true)
             requestPauseInterstitialIfEligible()
         } else {
             if (player.playbackState == Player.STATE_IDLE) {
@@ -1647,6 +1770,7 @@ class PartnerDramaActivity : FragmentActivity() {
             }
             player.play()
             playerIsPaused = false
+            updatePauseOverlayVisibility(false)
         }
     }
 
@@ -1668,10 +1792,22 @@ class PartnerDramaActivity : FragmentActivity() {
         AlertDialog.Builder(this)
             .setTitle("播放速度")
             .setSingleChoiceItems(labels, selected) { dialog, which ->
-                playerSpeed = speeds[which]
-                exoPlayer?.setPlaybackSpeed(playerSpeed)
-                speedButton?.text = labels[which]
+                val applySpeed = {
+                    playerSpeed = speeds[which]
+                    exoPlayer?.setPlaybackSpeed(playerSpeed)
+                    speedButton?.text = labels[which]
+                    resumeAfterFullscreenAdIfNeeded()
+                }
                 dialog.dismiss()
+                val policy = rewardsSnapshot?.interstitial
+                if (policy?.speedEnabled == true) {
+                    showPlaybackActionInterstitial("int_speed", onShown = applySpeed, onUnavailable = { message ->
+                        logStatus("倍速插屏未展示：$message")
+                        applySpeed()
+                    })
+                } else {
+                    applySpeed()
+                }
             }
             .setNegativeButton("取消", null)
             .show()
@@ -1825,6 +1961,7 @@ class PartnerDramaActivity : FragmentActivity() {
     }
 
     private fun selectEpisode(index: Int) {
+        if (playerShown && index != currentEpisodeIndex) persistPlaybackProgress()
         val drama = selectedDrama ?: return
         val episode = drama.episodes.getOrNull(index) ?: run {
             toast("第 ${index + 1} 集信息不存在")
@@ -1857,6 +1994,9 @@ class PartnerDramaActivity : FragmentActivity() {
                 player.setPlaybackSpeed(playerSpeed)
                 player.volume = if (playerMuted) 0f else 1f
                 player.prepare()
+                val resumeAtSeconds = pendingResumePositionSeconds
+                if (resumeAtSeconds > 0) player.seekTo(resumeAtSeconds * 1_000L)
+                pendingResumePositionSeconds = 0
                 player.play()
                 episodeTransitionInProgress = false
                 window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -1898,79 +2038,45 @@ class PartnerDramaActivity : FragmentActivity() {
         val episode = selectedDrama?.episodes?.getOrNull(index) ?: return
         AlertDialog.Builder(this)
             .setTitle("免费集数已用完")
-            .setMessage("第 ${index + 1} 集需要观看一条广告解锁。广告结束后会自动开始播放本集。")
+            .setMessage("第 ${index + 1} 集需要完整观看一条激励广告解锁。广告结束后会自动开始播放本集。")
             .setNegativeButton("稍后再看") { _, _ ->
                 episodeTransitionInProgress = false
                 exoPlayer?.pause()
                 playerIsPaused = true
+                updatePauseOverlayVisibility(true)
             }
-            .setPositiveButton("观看广告解锁") { _, _ -> startEpisodeUnlockAfterConfirmation(index) }
+            .setPositiveButton("看激励广告解锁") { _, _ -> startEpisodeUnlockAfterConfirmation(index) }
             .show()
     }
 
-    /** 用户确认后展示解锁插屏；广告关闭后才向内容服务申请本集解锁。 */
+    /** 用户确认后完整观看激励广告；服务端结算成功后才向内容服务申请本集解锁并自动播放。 */
     private fun startEpisodeUnlockAfterConfirmation(index: Int) {
         val episode = selectedDrama?.episodes?.getOrNull(index) ?: run {
             episodeTransitionInProgress = false
             return
         }
-        val snapshot = rewardsSnapshot
-        if (consentStore.read() != PangleConsent.GRANTED) {
+        if (rewardsSnapshot != null && !rewardsSnapshot!!.unlock.nextEpisodeRewardedEnabled) {
             episodeTransitionInProgress = false
-            toast("下一集需要广告解锁，请在广告设置中启用后继续")
+            toast("下一集激励广告解锁当前未启用")
             return
         }
-        if (snapshot != null && !snapshot.unlock.nextEpisodeInterstitialEnabled) {
-            episodeTransitionInProgress = false
-            toast("下一集插屏解锁当前未启用")
-            return
-        }
-        val episodeKey = episodeKey(index)
-        if (!interstitialRequestedEpisodeKeys.add(episodeKey)) return
         episodeTransitionInProgress = true
-        fullscreenAdInProgress = true
-        pauseForFullscreenAd()
-        pangleAds.showInterstitialForEpisodeUnlock(this) { result -> runOnUiThread {
-            fullscreenAdInProgress = false
-            when (result) {
-                PangleAdsManager.FullscreenResult.Shown -> {
-                    val unlockAndPlay = {
-                        settleEpisodeUnlockAfterAd(index, unlockMethod = "AD_INTERSTITIAL") {
-                            selectEpisode(index)
-                        }
-                    }
-                    if (rewardsApi.isConfigured) {
-                        rewardsApi.recordInterstitial(
-                            anonymousInstallationId(),
-                            "int_next_episode_unlock",
-                            onSuccess = { updated -> runOnUiThread {
-                                applyRewardsSnapshot(updated)
-                                unlockAndPlay()
-                            } },
-                            onFailure = { message -> runOnUiThread {
-                                // 广告已实际展示时，奖励服务短暂不可用不应阻断内容续播。
-                                logStatus("下一集插屏频控记录未同步：$message")
-                                unlockAndPlay()
-                            } },
-                        )
-                    } else {
-                        unlockAndPlay()
-                    }
+        requestRewardedAction(
+            placementId = "rv_episode_pass",
+            targetId = episode.id,
+            episodeIndex = index + 1,
+            onSettled = { action ->
+                applyRewardsSnapshot(action.snapshot)
+                settleEpisodeUnlockAfterAd(index, unlockMethod = "AD_REWARDED") {
+                    selectEpisode(index)
                 }
-                is PangleAdsManager.FullscreenResult.Skipped -> {
-                    episodeTransitionInProgress = false
-                    interstitialRequestedEpisodeKeys.remove(episodeKey)
-                    resumeAfterFullscreenAdIfNeeded()
-                    toast("下一集插屏暂不可用：${result.reason}")
-                }
-                is PangleAdsManager.FullscreenResult.Failed -> {
-                    episodeTransitionInProgress = false
-                    interstitialRequestedEpisodeKeys.remove(episodeKey)
-                    resumeAfterFullscreenAdIfNeeded()
-                    toast("下一集插屏加载失败（${result.code}），请稍后重试")
-                }
-            }
-        } }
+            },
+            onSettlementUnavailable = { message ->
+                episodeTransitionInProgress = false
+                resumeAfterFullscreenAdIfNeeded()
+                toast("广告已完整观看，但解锁结算暂未同步：$message")
+            },
+        )
     }
 
     private fun handleEpisodeCompleted(index: Int) {
@@ -1979,8 +2085,10 @@ class PartnerDramaActivity : FragmentActivity() {
         currentEpisodeIndex = index
         updateEpisodeStatus()
         updatePlayerProgress(playerDurationSeconds, playerDurationSeconds)
-        recordCompletedEpisodeForRewards(index)
-        startNextEpisodeAutomatically(index)
+        persistNextEpisodeResume(index)
+        recordCompletedEpisodeForRewards(index) {
+            startNextEpisodeAutomatically(index)
+        }
     }
 
     private fun settleEpisodeUnlockAfterAd(index: Int, unlockMethod: String, onUnlocked: () -> Unit = {}) {
@@ -1997,7 +2105,7 @@ class PartnerDramaActivity : FragmentActivity() {
             } },
             onFailure = { message -> runOnUiThread {
                 episodeTransitionInProgress = false
-                if (unlockMethod == "AD_INTERSTITIAL") interstitialRequestedEpisodeKeys.remove(episodeKey(index))
+                if (unlockMethod == "AD_INTERSTITIAL" || unlockMethod == "AD_REWARDED") interstitialRequestedEpisodeKeys.remove(episodeKey(index))
                 logStatus("自有剧解锁失败：$message")
                 resumeAfterFullscreenAdIfNeeded()
                 toast("解锁服务暂不可用：$message")
@@ -2012,11 +2120,11 @@ class PartnerDramaActivity : FragmentActivity() {
         toast(message)
     }
 
-    private fun recordCompletedEpisodeForRewards(index: Int) {
-        val drama = selectedDrama ?: return
-        val episode = drama.episodes.getOrNull(index) ?: return
+    private fun recordCompletedEpisodeForRewards(index: Int, onContinuePlayback: () -> Unit) {
+        val drama = selectedDrama ?: run { onContinuePlayback(); return }
+        val episode = drama.episodes.getOrNull(index) ?: run { onContinuePlayback(); return }
         val target = "${drama.id}:${episode.id}"
-        if (!rewardWatchRecordedEpisodeKeys.add(target) || !rewardsApi.isConfigured) return
+        if (!rewardWatchRecordedEpisodeKeys.add(target) || !rewardsApi.isConfigured) { onContinuePlayback(); return }
         rewardsApi.recordWatchEvent(
             userId = anonymousInstallationId(),
             dramaId = drama.id,
@@ -2025,12 +2133,32 @@ class PartnerDramaActivity : FragmentActivity() {
             onSuccess = { reward -> runOnUiThread {
                 applyRewardsSnapshot(reward.snapshot)
                 when {
-                    reward.randomChestsCreated > 0 -> toast("本集宝石已累计；获得 ${reward.randomChestsCreated} 个随机宝箱，当前可开启 ${reward.snapshot.chest.availableCount} 个")
-                    reward.episodeRewardCoins > 0 -> toast("本集奖励 +${reward.episodeRewardCoins} 宝石待领取，点击悬浮球观看插屏后全部领取")
+                    reward.randomChestsCreated > 0 -> showRandomChestEarnedDialog(
+                        reward.randomChestsCreated,
+                        reward.snapshot.chest.availableCount,
+                        onContinuePlayback,
+                    )
+                    reward.episodeRewardCoins > 0 -> {
+                        toast("本集奖励 +${reward.episodeRewardCoins} 宝石待领取，点击悬浮球观看激励广告后全部领取")
+                        onContinuePlayback()
+                    }
+                    else -> onContinuePlayback()
                 }
             } },
-            onFailure = { message -> logStatus("观看奖励同步失败：$message") },
+            onFailure = { message -> runOnUiThread {
+                logStatus("观看奖励同步失败：$message")
+                onContinuePlayback()
+            } },
         )
+    }
+
+    private fun showRandomChestEarnedDialog(createdCount: Int, availableCount: Int, onContinuePlayback: () -> Unit) {
+        AlertDialog.Builder(this)
+            .setTitle("恭喜获得 ${createdCount} 个随机宝箱")
+            .setMessage("当前共有 ${availableCount} 个可开启宝箱。每开启 1 个需要完整观看一条激励广告，是否现在开启？")
+            .setNegativeButton("继续观看") { _, _ -> onContinuePlayback() }
+            .setPositiveButton("立即开启") { _, _ -> requestRandomChestOpen(onFinished = onContinuePlayback) }
+            .show()
     }
 
     /**
@@ -2063,9 +2191,8 @@ class PartnerDramaActivity : FragmentActivity() {
                 runOnUiThread {
                     pauseNativeAdInProgress = false
                     if (!isFinishing && !isDestroyed) {
-                        exoPlayer?.play()
-                        playerIsPaused = false
-                        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                        playerIsPaused = true
+                        updatePauseOverlayVisibility(true)
                     }
                 }
             },
@@ -2320,11 +2447,48 @@ class PartnerDramaActivity : FragmentActivity() {
         ?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
         ?: BuildConfig.LOCAL_CONTENT_API_BASE_URL.trim().trimEnd('/')
 
+    private fun resumePreferenceKey(dramaId: String, suffix: String): String = "resume_${suffix}_${dramaId}"
+
+    private fun savedResumeEpisodeIndex(drama: LocalDrama): Int = playbackHistory
+        .getInt(resumePreferenceKey(drama.id, "episode"), 0)
+        .coerceIn(0, drama.episodes.lastIndex.coerceAtLeast(0))
+
+    private fun savedResumePositionSeconds(drama: LocalDrama): Int = playbackHistory
+        .getInt(resumePreferenceKey(drama.id, "position"), 0)
+        .coerceAtLeast(0)
+
+    private fun persistPlaybackProgressIfNeeded(positionSeconds: Int) {
+        if (positionSeconds == lastPersistedPlaybackSecond || positionSeconds % 3 != 0) return
+        persistPlaybackProgress(positionSeconds)
+    }
+
+    private fun persistPlaybackProgress(positionSeconds: Int = playerProgressSeconds) {
+        val drama = selectedDrama ?: return
+        if (!playerShown || currentEpisodeIndex !in drama.episodes.indices) return
+        val safePosition = positionSeconds.coerceAtLeast(0)
+        playbackHistory.edit()
+            .putInt(resumePreferenceKey(drama.id, "episode"), currentEpisodeIndex)
+            .putInt(resumePreferenceKey(drama.id, "position"), safePosition)
+            .apply()
+        lastPersistedPlaybackSecond = safePosition
+    }
+
+    private fun persistNextEpisodeResume(completedIndex: Int) {
+        val drama = selectedDrama ?: return
+        val nextIndex = (completedIndex + 1).coerceAtMost(drama.episodes.lastIndex.coerceAtLeast(0))
+        playbackHistory.edit()
+            .putInt(resumePreferenceKey(drama.id, "episode"), nextIndex)
+            .putInt(resumePreferenceKey(drama.id, "position"), 0)
+            .apply()
+    }
+
     private fun releasePlayer() {
+        persistPlaybackProgress()
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         progressHandler.removeCallbacks(progressTicker)
         playerView?.player = null
         playerView = null
+        playerPauseOverlay = null
         exoPlayer?.release()
         exoPlayer = null
     }
@@ -2371,6 +2535,7 @@ class PartnerDramaActivity : FragmentActivity() {
         private const val CONTENT_REGION = "SG"
         private const val REWARDS_REGION = CONTENT_REGION
         private const val PREFERENCES = "joyedrama.short_drama"
+        private const val PLAYBACK_HISTORY_PREFERENCES = "joyedrama.playback_history"
         private const val SERVER_PREFERENCES = "dramaflow.local_content"
         private const val SERVER_BASE_URL_KEY = "base_url"
         private const val REWARDS_SERVER_BASE_URL_KEY = "rewards_base_url"

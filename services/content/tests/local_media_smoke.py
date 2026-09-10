@@ -17,11 +17,11 @@ def run() -> None:
     with tempfile.TemporaryDirectory() as temporary_directory:
         workspace = Path(temporary_directory)
         media_root = workspace / "media"
-        video_path = media_root / "owned" / "local-test-drama" / "ep-001.mp4"
+        video_path = media_root / "Love in Cyberpunk 2077" / "ep01.mp4"
         video_path.parent.mkdir(parents=True)
         video_path.write_bytes(b"local-media-test-bytes")
 
-        catalog_path = project_root / "content" / "owned_catalog.local-media.example.json"
+        catalog_path = project_root / "content" / "owned_catalog.three-test-dramas.json"
         os.environ["ENVIRONMENT"] = "development"
         os.environ["LOCAL_MEDIA_ENABLED"] = "true"
         os.environ["LOCAL_MEDIA_ROOT"] = str(media_root)
@@ -35,7 +35,7 @@ def run() -> None:
         health = client.get("/health")
         assert health.status_code == 200 and health.json()["local_media"] == "enabled"
 
-        free_episode = "owned:local-test-drama:ep:1"
+        free_episode = "owned:love-in-cyberpunk-2077:ep:1"
         session = client.post(
             f"/v1/episodes/{free_episode}/playback-session",
             json={"region": "SG", "user_id": "local-user", "device_id": "test-device"},
@@ -49,7 +49,7 @@ def run() -> None:
         missing_token = client.get(f"/v1/dev/local-media/{free_episode}?token=invalid-token-value-1234")
         assert missing_token.status_code == 403
 
-        locked_episode = "owned:local-test-drama:ep:2"
+        locked_episode = "owned:love-in-cyberpunk-2077:ep:4"
         locked_session = client.post(
             f"/v1/episodes/{locked_episode}/playback-session",
             json={"region": "SG", "user_id": "local-user", "device_id": "test-device"},

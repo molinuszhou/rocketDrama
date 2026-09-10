@@ -107,7 +107,7 @@ def claim_episode_reward(payload: EpisodeRewardClaimRequest) -> dict:
 
 @app.post("/v2/episode-rewards/claim-all", response_model=ApiEnvelope)
 def claim_all_episode_rewards(payload: ClaimAllEpisodeRewardsRequest) -> dict:
-    return {"code": 0, "data": service.claim_all_episode_rewards(payload.user_id, payload.reference_id)}
+    return {"code": 0, "data": service.claim_all_episode_rewards(payload.user_id, payload.reference_id, payload.ad_event_id)}
 
 
 @app.post("/v2/ten-round-rewards/claim", response_model=ApiEnvelope)

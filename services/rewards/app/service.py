@@ -179,6 +179,10 @@ class RewardsService:
             return {"idempotent": False, "result": result, "snapshot": self._snapshot(connection, user_id)}
 
     def checkin(self, user_id: str) -> dict[str, Any]:
+        # v7 起签到必须由 rv_checkin_complete 广告事件结算；保留方法仅防止旧客户端绕过广告。
+        raise ServiceError(1404, "签到需要完整观看激励广告，请升级客户端后重试", 409)
+
+    def _legacy_checkin(self, user_id: str) -> dict[str, Any]:
         with self._transaction() as connection:
             self._ensure_user(connection, user_id)
             business_date = self._business_date()
@@ -229,6 +233,10 @@ class RewardsService:
             }
 
     def claim_welcome_bonus(self, user_id: str) -> dict[str, Any]:
+        # v7 起欢迎奖励必须由 rv_welcome_bonus 广告事件结算；保留方法仅防止旧客户端绕过广告。
+        raise ServiceError(1601, "欢迎奖励需要完整观看激励广告，请升级客户端后重试", 409)
+
+    def _legacy_claim_welcome_bonus(self, user_id: str) -> dict[str, Any]:
         with self._transaction() as connection:
             self._ensure_user(connection, user_id)
             self._apply_wallet_release_on_active_day(connection, user_id)
@@ -259,45 +267,28 @@ class RewardsService:
             }
 
     def claim_episode_reward(self, user_id: str, episode_id: str, reference_id: str) -> dict[str, Any]:
+        # v7 仅允许使用一次激励广告授权后的聚合领取，避免旧端点绕过广告。
+        raise ServiceError(1218, "请先完整观看领取宝石的激励广告，再使用全部领取", 409)
+
+    def claim_all_episode_rewards(self, user_id: str, reference_id: str, ad_event_id: str) -> dict[str, Any]:
         with self._transaction() as connection:
             self._ensure_user(connection, user_id)
-            claim = self._one(
+            authorization = self._one(
                 connection,
                 """
-                SELECT id, base_reward_gems, state FROM episode_reward_claims
-                WHERE user_id = %s AND episode_id = %s FOR UPDATE
+                SELECT ad_event_id, used_at FROM episode_reward_claim_authorizations
+                WHERE ad_event_id = %s AND user_id = %s FOR UPDATE
                 """,
-                (user_id, episode_id),
+                (ad_event_id, user_id),
             )
-            if not claim:
-                raise ServiceError(1210, "该集尚未完成有效观看，暂无可领取宝石", 409)
-            if claim["state"] != "PENDING":
-                return {"idempotent": True, "result": {"action": "EPISODE_REWARD_CLAIM", "gems_added": 0}, "snapshot": self._snapshot(connection, user_id)}
-            boosted = self._one(
-                connection,
-                "SELECT 1 AS enabled FROM episode_reward_boosts WHERE user_id = %s AND episode_id = %s",
-                (user_id, episode_id),
-            ) is not None
-            gems = int(claim["base_reward_gems"]) * (2 if boosted else 1)
-            policy = self._policy(connection)
-            self._credit_gems(
-                connection, user_id, gems, policy,
-                "EPISODE_REWARD_CLAIM", "episode_reward_claim", reference_id,
-            )
-            self._execute(
-                connection,
-                "UPDATE episode_reward_claims SET state = %s, claim_reference_id = %s, claimed_at = NOW() WHERE id = %s",
-                ("DOUBLED" if boosted else "CLAIMED", reference_id, claim["id"]),
-            )
-            return {
-                "idempotent": False,
-                "result": {"action": "EPISODE_REWARD_CLAIM", "gems_added": gems, "boosted": boosted, "can_double": False},
-                "snapshot": self._snapshot(connection, user_id),
-            }
-
-    def claim_all_episode_rewards(self, user_id: str, reference_id: str) -> dict[str, Any]:
-        with self._transaction() as connection:
-            self._ensure_user(connection, user_id)
+            if not authorization:
+                raise ServiceError(1216, "请先完整观看领取宝石的激励广告", 409)
+            if authorization["used_at"] is not None:
+                return {
+                    "idempotent": True,
+                    "result": {"action": "EPISODE_REWARDS_CLAIM_ALL", "gems_added": 0, "claimed_count": 0},
+                    "snapshot": self._snapshot(connection, user_id),
+                }
             claims = self._all(
                 connection,
                 """
@@ -308,6 +299,11 @@ class RewardsService:
                 (user_id,),
             )
             if not claims:
+                self._execute(
+                    connection,
+                    "UPDATE episode_reward_claim_authorizations SET used_at = NOW() WHERE ad_event_id = %s",
+                    (ad_event_id,),
+                )
                 return {
                     "idempotent": True,
                     "result": {"action": "EPISODE_REWARDS_CLAIM_ALL", "gems_added": 0, "claimed_count": 0},
@@ -339,6 +335,11 @@ class RewardsService:
                 )
                 total += gems
                 boosted_count += 1 if boosted else 0
+            self._execute(
+                connection,
+                "UPDATE episode_reward_claim_authorizations SET used_at = NOW() WHERE ad_event_id = %s",
+                (ad_event_id,),
+            )
             return {
                 "idempotent": False,
                 "result": {"action": "EPISODE_REWARDS_CLAIM_ALL", "gems_added": total, "claimed_count": len(claims), "boosted_count": boosted_count},
@@ -407,7 +408,8 @@ class RewardsService:
             "random_chest_min_gems", "random_chest_max_gems", "daily_random_chest_count", "episodes_per_random_chest",
             "reward_claim_interstitial_enabled", "mid_episode_interstitial_enabled", "mid_episode_interstitial_trigger_seconds",
             "mid_episode_interstitial_hourly_limit", "seek_interstitial_enabled", "seek_interstitial_hourly_limit",
-            "next_episode_interstitial_enabled",
+            "next_episode_interstitial_enabled", "speed_interstitial_enabled", "speed_interstitial_hourly_limit",
+            "crown_rewarded_ads_per_episode", "release_boost_percent", "release_boost_daily_limit",
         }
         changed = {key: value for key, value in updates.items() if key in allowed and value is not None}
         if not changed:
@@ -531,13 +533,21 @@ class RewardsService:
             elif placement_id == "int_episode_midroll":
                 if not bool(policy["mid_episode_interstitial_enabled"]):
                     raise ServiceError(2011, "剧中插屏当前未启用", 409)
-                if placement_count(placement_id) >= int(policy["mid_episode_interstitial_hourly_limit"]):
+                mid_limit = int(policy["mid_episode_interstitial_hourly_limit"])
+                if mid_limit > 0 and placement_count(placement_id) >= mid_limit:
                     raise ServiceError(2012, "本小时剧中插屏已达上限", 429)
             elif placement_id == "int_seek":
                 if not bool(policy["seek_interstitial_enabled"]):
                     raise ServiceError(2013, "拖拽插屏当前未启用", 409)
-                if placement_count(placement_id) >= int(policy["seek_interstitial_hourly_limit"]):
+                seek_limit = int(policy["seek_interstitial_hourly_limit"])
+                if seek_limit > 0 and placement_count(placement_id) >= seek_limit:
                     raise ServiceError(2014, "本小时拖拽插屏已达上限", 429)
+            elif placement_id == "int_speed":
+                if not bool(policy["speed_interstitial_enabled"]):
+                    raise ServiceError(2015, "倍速插屏当前未启用", 409)
+                speed_limit = int(policy["speed_interstitial_hourly_limit"])
+                if speed_limit > 0 and placement_count(placement_id) >= speed_limit:
+                    raise ServiceError(2016, "本小时倍速插屏已达上限", 429)
             else:
                 # 兼容旧版 int_timer / int_pause 事件。
                 if counters["last_interstitial_at"] and now - counters["last_interstitial_at"] < timedelta(seconds=int(policy["interstitial_cooldown_seconds"])):
@@ -603,6 +613,53 @@ class RewardsService:
         episode_index: int | None,
         policy: dict[str, Any],
     ) -> dict[str, Any]:
+        if placement_id == "rv_welcome_bonus":
+            welcome = self._one(
+                connection,
+                "SELECT gems, state FROM welcome_rewards WHERE user_id = %s FOR UPDATE",
+                (user_id,),
+            )
+            if not welcome or welcome["state"] != "PENDING":
+                raise ServiceError(1602, "欢迎奖励已领取或暂不可用", 409)
+            return {"action": "WELCOME_BONUS", "gems_added": int(welcome["gems"])}
+
+        if placement_id == "rv_checkin_complete":
+            # 锁定用户行，避免并发广告回调重复计算同一业务日的连续签到天数。
+            self._one(connection, "SELECT user_id FROM users WHERE user_id = %s FOR UPDATE", (user_id,))
+            existing = self._one(
+                connection,
+                "SELECT streak_day FROM checkins WHERE user_id = %s AND business_date = %s",
+                (user_id, business_date),
+            )
+            if existing:
+                raise ServiceError(1405, "今天已经签到", 409)
+            previous = self._one(
+                connection,
+                """
+                SELECT business_date, streak_day FROM checkins
+                WHERE user_id = %s ORDER BY business_date DESC LIMIT 1 FOR UPDATE
+                """,
+                (user_id,),
+            )
+            streak_day = previous["streak_day"] % 30 + 1 if previous and previous["business_date"] == business_date - timedelta(days=1) else 1
+            reward = self._one(connection, "SELECT gems FROM signin_reward_tiers WHERE day_number = %s", (streak_day,))
+            if not reward:
+                raise ServiceError(1500, "数据库缺少签到奖励种子数据", 503)
+            return {"action": "SIGN_IN", "streak_day": int(streak_day), "gems_added": int(reward["gems"])}
+
+        if placement_id == "rv_episode_rewards_claim":
+            pending = self._one(
+                connection,
+                "SELECT 1 AS available FROM episode_reward_claims WHERE user_id = %s AND state = 'PENDING' LIMIT 1",
+                (user_id,),
+            )
+            if not pending:
+                raise ServiceError(1217, "当前没有待领取的追剧宝石", 409)
+            return {"action": "EPISODE_REWARDS_CLAIM_AUTH", "gems_added": 0}
+
+        if placement_id == "rv_crown_upgrade":
+            return {"action": "CROWN_UPGRADE", "gems_added": 0}
+
         if placement_id == "rv_episode_pass":
             if not target_id or episode_index is None:
                 raise ServiceError(1101, "集间通行广告缺少 episode_id 或 episode_index", 422)
@@ -746,14 +803,24 @@ class RewardsService:
                 (user_id,),
             )
             if user["last_wallet_release_date"] != business_date:
-                raise ServiceError(1450, "今日基础释放尚未生效，请稍后再试", 409)
+                raise ServiceError(1450, "今日基础转入尚未生效，请稍后再试", 409)
             if int(counters["release_boost_count"]) >= int(policy["release_boost_daily_limit"]):
-                raise ServiceError(1451, "今日解锁加速次数已达上限", 429)
+                raise ServiceError(1451, "今日广告加速次数已达上限", 429)
             if int(user["cash_wallet_micros"]) <= 0:
-                raise ServiceError(1452, "当前没有待释放的现金钱包余额", 409)
-            wallet_policy = self._wallet_policy(connection, user_id)
-            amount = min(int(user["cash_wallet_micros"]), int(wallet_policy["release_boost_micros"]))
-            return {"action": "RELEASE_BOOST", "gems_added": 0, "released_micros": amount}
+                raise ServiceError(1452, "当前没有可加速转入的钱包余额", 409)
+            base_today = self._today_base_release_micros(connection, user_id, business_date)
+            if base_today <= 0:
+                raise ServiceError(1453, "今日没有基础可提现转入额度，暂不能广告加速", 409)
+            amount = min(
+                int(user["cash_wallet_micros"]),
+                max(1, math.floor(base_today * float(policy["release_boost_percent"]))),
+            )
+            return {
+                "action": "RELEASE_BOOST",
+                "gems_added": 0,
+                "released_micros": amount,
+                "release_boost_percent": float(policy["release_boost_percent"]),
+            }
 
         raise ServiceError(1099, "不支持的激励广告位", 422)
 
@@ -772,6 +839,39 @@ class RewardsService:
         action = payload["action"]
         if action == "EPISODE_PASS":
             # 广告只授予本集的内容通行权益；观看完成后才会形成独立的待领取宝石。
+            return
+        elif action == "WELCOME_BONUS":
+            updated = self._execute(
+                connection,
+                "UPDATE welcome_rewards SET state = 'CLAIMED', claimed_at = NOW() WHERE user_id = %s AND state = 'PENDING'",
+                (user_id,),
+            )
+            if updated != 1:
+                raise ServiceError(1603, "欢迎奖励状态已变化，请刷新后重试", 409)
+            self._execute(connection, "UPDATE users SET welcome_claimed_at = NOW() WHERE user_id = %s", (user_id,))
+            self._credit_gems(connection, user_id, int(payload["gems_added"]), policy, "WELCOME_BONUS", "welcome_bonus_ad", ad_event_id)
+        elif action == "SIGN_IN":
+            inserted = self._execute(
+                connection,
+                """
+                INSERT INTO checkins (user_id, business_date, streak_day, base_gems)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (user_id, business_date) DO NOTHING
+                """,
+                (user_id, business_date, int(payload["streak_day"]), int(payload["gems_added"])),
+            )
+            if inserted != 1:
+                raise ServiceError(1406, "今天已经签到", 409)
+            self._credit_gems(connection, user_id, int(payload["gems_added"]), policy, "SIGN_IN", "checkin_ad", ad_event_id)
+            self._ensure_random_chests(connection, user_id, business_date, policy)
+        elif action == "EPISODE_REWARDS_CLAIM_AUTH":
+            self._execute(
+                connection,
+                "INSERT INTO episode_reward_claim_authorizations (ad_event_id, user_id) VALUES (%s, %s)",
+                (ad_event_id, user_id),
+            )
+        elif action == "CROWN_UPGRADE":
+            # 奖励事件本身已写入表；_award_achievements_if_due 会将每 2 条广告按 1 集等效追剧计算。
             return
         elif action == "CLAIM_REWARD":
             self._execute(
@@ -969,17 +1069,24 @@ class RewardsService:
             if exists:
                 continue
             start = now - timedelta(hours=item["window_hours"])
-            rounds = self._one(
+            watched_rounds = int(self._one(
                 connection,
                 "SELECT COUNT(*) AS count FROM watch_events WHERE user_id = %s AND recorded_at >= %s",
                 (user_id, start),
-            )["count"]
+            )["count"])
+            rewarded_rounds = int(self._one(
+                connection,
+                "SELECT COUNT(*) AS count FROM rewarded_ad_events WHERE user_id = %s AND processed_at >= %s",
+                (user_id, start),
+            )["count"])
+            equivalent_rounds = rewarded_rounds // max(1, int(policy["crown_rewarded_ads_per_episode"]))
+            rounds = watched_rounds + equivalent_rounds
             if rounds < item["required_rounds"]:
                 continue
             signins = self._one(connection, "SELECT COUNT(*) AS count FROM checkins WHERE user_id = %s AND created_at >= %s", (user_id, start))["count"]
             if signins < item["required_signin_days"]:
                 continue
-            rvs = self._one(connection, "SELECT COUNT(*) AS count FROM rewarded_ad_events WHERE user_id = %s AND processed_at >= %s", (user_id, start))["count"]
+            rvs = rewarded_rounds
             if rvs < item["required_rv_count"]:
                 continue
             self._execute(
@@ -1056,7 +1163,11 @@ class RewardsService:
         cash_wallet_micros = int(user["cash_wallet_micros"])
         estimated_days = math.ceil(cash_wallet_micros / max(release_cap, 1)) if cash_wallet_micros else 0
         expected_tomorrow_transfer = min(cash_wallet_micros, release_cap)
-        expected_boost_transfer = min(cash_wallet_micros, int(wallet_policy["release_boost_micros"]))
+        base_today_transfer = self._today_base_release_micros(connection, user_id, business_date)
+        expected_boost_transfer = min(
+            cash_wallet_micros,
+            max(0, math.floor(base_today_transfer * float(policy["release_boost_percent"]))),
+        )
         return {
             "business_date": business_date.isoformat(),
             "user": {"geo_tier": user["geo_tier"], "lifecycle_day": lifecycle_day},
@@ -1073,10 +1184,11 @@ class RewardsService:
                     "daily_release": self._money(release_cap),
                     "boost_used": counters["release_boost_count"],
                     "boost_cap": policy["release_boost_daily_limit"],
-                    "boost_amount": self._money(int(wallet_policy["release_boost_micros"])),
+                    "boost_amount": self._money(expected_boost_transfer),
+                    "boost_percent": float(policy["release_boost_percent"]),
                     "expected_tomorrow_transfer": self._money(expected_tomorrow_transfer),
                     "expected_boost_transfer": self._money(expected_boost_transfer),
-                    "boost_available": cash_wallet_micros > 0 and int(counters["release_boost_count"]) < int(policy["release_boost_daily_limit"]),
+                    "boost_available": expected_boost_transfer > 0 and int(counters["release_boost_count"]) < int(policy["release_boost_daily_limit"]),
                     "estimated_days_remaining": estimated_days,
                     "pending_days": user["pending_release_days"],
                 },
@@ -1134,8 +1246,9 @@ class RewardsService:
             "crown_progress": self._crown_progress(connection, user_id),
             "episode_unlock": {
                 "free_episodes_count": policy["free_episodes_count"],
-                "placement_id": "int_next_episode_unlock",
-                "next_episode_interstitial_enabled": bool(policy["next_episode_interstitial_enabled"]),
+                "placement_id": "rv_episode_pass",
+                "next_episode_interstitial_enabled": False,
+                "next_episode_rewarded_enabled": True,
                 "extra_episode_unlock_enabled": bool(policy["extra_episode_unlock_enabled"]),
                 "valid_watch_seconds": policy["valid_watch_seconds"],
             },
@@ -1154,6 +1267,8 @@ class RewardsService:
                 "mid_episode_hourly_limit": int(policy["mid_episode_interstitial_hourly_limit"]),
                 "seek_enabled": bool(policy["seek_interstitial_enabled"]),
                 "seek_hourly_limit": int(policy["seek_interstitial_hourly_limit"]),
+                "speed_enabled": bool(policy["speed_interstitial_enabled"]),
+                "speed_hourly_limit": int(policy["speed_interstitial_hourly_limit"]),
                 "last_rv_at": counters["last_rv_at"].isoformat() if counters["last_rv_at"] else None,
                 "last_interstitial_at": counters["last_interstitial_at"].isoformat() if counters["last_interstitial_at"] else None,
             },
@@ -1178,9 +1293,12 @@ class RewardsService:
         titles = {"BRONZE": "青铜", "SILVER": "白银", "GOLD": "黄金", "DIAMOND": "钻石", "CROWN": "皇冠"}
         for row in rows:
             start = now - timedelta(hours=int(row["window_hours"]))
-            rounds = int(self._one(connection, "SELECT COUNT(*) AS count FROM watch_events WHERE user_id = %s AND recorded_at >= %s", (user_id, start))["count"])
+            watched_rounds = int(self._one(connection, "SELECT COUNT(*) AS count FROM watch_events WHERE user_id = %s AND recorded_at >= %s", (user_id, start))["count"])
             signins = int(self._one(connection, "SELECT COUNT(*) AS count FROM checkins WHERE user_id = %s AND created_at >= %s", (user_id, start))["count"])
             rvs = int(self._one(connection, "SELECT COUNT(*) AS count FROM rewarded_ad_events WHERE user_id = %s AND processed_at >= %s", (user_id, start))["count"])
+            ads_per_episode = max(1, int(self._policy(connection)["crown_rewarded_ads_per_episode"]))
+            equivalent_rounds = rvs // ads_per_episode
+            rounds = watched_rounds + equivalent_rounds
             requirements = [
                 (rounds, int(row["required_rounds"])),
                 (signins, int(row["required_signin_days"])),
@@ -1194,6 +1312,9 @@ class RewardsService:
                 "entitlement": row["virtual_entitlement"], "window_hours": row["window_hours"],
                 "episode_reward_multiplier": float(row["episode_reward_multiplier"]),
                 "rounds": {"current": rounds, "target": row["required_rounds"]},
+                "watched_rounds": {"current": watched_rounds, "target": row["required_rounds"]},
+                "ad_equivalent_rounds": equivalent_rounds,
+                "ads_per_episode": ads_per_episode,
                 "signins": {"current": signins, "target": row["required_signin_days"]},
                 "rewarded_ads": {"current": rvs, "target": row["required_rv_count"]},
                 "progress": round(progress, 4),
@@ -1294,6 +1415,19 @@ class RewardsService:
         if lifecycle_day <= 3:
             return int(policy["claim_stride_day1_3"])
         return int(policy["claim_stride_steady"])
+
+    def _today_base_release_micros(self, connection: psycopg.Connection[Any], user_id: str, business_date: date) -> int:
+        row = self._one(
+            connection,
+            """
+            SELECT COALESCE(SUM(available_balance_delta_micros), 0) AS amount
+            FROM ledger_entries
+            WHERE user_id = %s AND entry_type = 'DAILY_RELEASE'
+              AND reference_id = %s
+            """,
+            (user_id, f"{user_id}:{business_date.isoformat()}"),
+        )
+        return int(row["amount"] if row else 0)
 
     def _apply_wallet_release_on_active_day(self, connection: psycopg.Connection[Any], user_id: str) -> None:
         business_date = self._business_date()
@@ -1406,6 +1540,11 @@ class RewardsService:
             "seek_interstitial_hourly_limit": int(policy["seek_interstitial_hourly_limit"]),
             "next_episode_interstitial_enabled": bool(policy["next_episode_interstitial_enabled"]),
             "next_episode_interstitial_hourly_limit": int(policy["next_episode_interstitial_hourly_limit"]),
+            "speed_interstitial_enabled": bool(policy["speed_interstitial_enabled"]),
+            "speed_interstitial_hourly_limit": int(policy["speed_interstitial_hourly_limit"]),
+            "crown_rewarded_ads_per_episode": int(policy["crown_rewarded_ads_per_episode"]),
+            "release_boost_percent": float(policy["release_boost_percent"]),
+            "release_boost_daily_limit": int(policy["release_boost_daily_limit"]),
             "next_episode_interstitial_cooldown_seconds": int(policy["next_episode_interstitial_cooldown_seconds"]),
             "pause_ad_enabled": bool(policy["pause_ad_enabled"]),
             "pause_ad_min_play_seconds": int(policy["pause_ad_min_play_seconds"]),

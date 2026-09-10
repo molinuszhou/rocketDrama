@@ -16,6 +16,10 @@ RewardedPlacement = Literal[
     "rv_release_boost",
     "rv_random_chest_open",
     "rv_episode_reward_boost",
+    "rv_welcome_bonus",
+    "rv_checkin_complete",
+    "rv_episode_rewards_claim",
+    "rv_crown_upgrade",
 ]
 InterstitialPlacement = Literal[
     "int_timer",
@@ -25,6 +29,7 @@ InterstitialPlacement = Literal[
     "int_reward_claim",
     "int_episode_midroll",
     "int_seek",
+    "int_speed",
 ]
 
 
@@ -72,6 +77,7 @@ class DampingUpdateRequest(BaseModel):
 class ClaimAllEpisodeRewardsRequest(BaseModel):
     user_id: str = Field(min_length=1, max_length=128)
     reference_id: str = Field(min_length=8, max_length=160)
+    ad_event_id: str = Field(min_length=8, max_length=160)
 
 
 class RewardPolicyUpdateRequest(BaseModel):
@@ -86,6 +92,11 @@ class RewardPolicyUpdateRequest(BaseModel):
     seek_interstitial_enabled: bool | None = None
     seek_interstitial_hourly_limit: int | None = Field(default=None, ge=0, le=120)
     next_episode_interstitial_enabled: bool | None = None
+    speed_interstitial_enabled: bool | None = None
+    speed_interstitial_hourly_limit: int | None = Field(default=None, ge=0, le=240)
+    crown_rewarded_ads_per_episode: int | None = Field(default=None, ge=1, le=10)
+    release_boost_percent: float | None = Field(default=None, gt=0.0, le=1.0)
+    release_boost_daily_limit: int | None = Field(default=None, ge=0, le=20)
 
 
 class CrownMultiplierUpdateRequest(BaseModel):
