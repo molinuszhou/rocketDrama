@@ -122,6 +122,7 @@ ENVIRONMENT=development
 PANGLE_CONTENT_ENABLED=false
 LOCAL_MEDIA_ENABLED=true
 LOCAL_MEDIA_ROOT=C:/DramaFlow/dramaflow_content_server/media
+LOCAL_COVER_ROOT=C:/DramaFlow/dramaflow_content_server/content/covers
 OWNED_CATALOG_PATH=C:/DramaFlow/dramaflow_content_server/content/owned_catalog.local-media.json
 ```
 
@@ -131,9 +132,10 @@ OWNED_CATALOG_PATH=C:/DramaFlow/dramaflow_content_server/content/owned_catalog.l
 | `PANGLE_CONTENT_ENABLED` | `false` | 关闭尚未配置的外部短剧内容源；不影响 Pangle 广告 SDK |
 | `LOCAL_MEDIA_ENABLED` | `true` | 开启本地 MP4 和短时播放 URL |
 | `LOCAL_MEDIA_ROOT` | 你的 `media` 绝对路径 | 服务端读取 MP4 的根目录 |
+| `LOCAL_COVER_ROOT` | 你的 `content/covers` 绝对路径 | 服务端读取相对封面图片的根目录 |
 | `OWNED_CATALOG_PATH` | 你的片单绝对路径 | 供 Android 展示的自有剧目录 |
 
-`.env`、`media`、`runtime` 下的账本文件和实际片单不应上传到 Git、网盘公开链接或源码压缩包。
+`.env`、`media`、`content/covers`、`runtime` 下的账本文件和实际片单不应上传到 Git、网盘公开链接或源码压缩包。片单中使用 `coverUrl` 和 `posterUrl`；外部 HTTPS 地址会原样返回，相对文件名则从 `LOCAL_COVER_ROOT` 通过 `/v1/covers/...` 提供。
 
 ## 5. 备用方案：手动启动服务与本机验证
 
@@ -157,7 +159,7 @@ Invoke-RestMethod http://127.0.0.1:8000/health
 Invoke-RestMethod "http://127.0.0.1:8000/v1/feed?region=SG"
 ```
 
-健康检查应显示 `status` 为 `ok`，并且 `local_media` 为 `enabled`。也可打开浏览器访问 `http://127.0.0.1:8000/docs` 查看 API 文档。
+健康检查应显示 `status` 为 `ok`，并且 `local_media` 为 `enabled`；配置本地封面后，`local_covers` 也应为 `enabled`。也可打开浏览器访问 `http://127.0.0.1:8000/docs` 查看 API 文档。若封面仍不显示，请从 `/v1/feed` 复制 `cover_url`，用手机浏览器直接访问；返回图片说明服务端正常，返回 404 则检查 `LOCAL_COVER_ROOT` 和文件名大小写。
 
 ## 6. 获取 Windows 局域网 IP 并配置防火墙
 

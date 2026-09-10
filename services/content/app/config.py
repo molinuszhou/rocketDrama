@@ -11,6 +11,7 @@ class Settings:
     pangle_content_enabled: bool
     owned_catalog_path: str | None
     local_media_root: str | None
+    local_cover_root: str | None
     local_media_enabled: bool
     reward_rules_path: str
     reward_ledger_path: str
@@ -30,6 +31,7 @@ class Settings:
             pangle_content_enabled=os.getenv("PANGLE_CONTENT_ENABLED", "false").lower() == "true",
             owned_catalog_path=os.getenv("OWNED_CATALOG_PATH") or None,
             local_media_root=os.getenv("LOCAL_MEDIA_ROOT") or None,
+            local_cover_root=os.getenv("LOCAL_COVER_ROOT") or None,
             local_media_enabled=local_media_enabled,
             reward_rules_path=os.getenv("REWARD_RULES_PATH", "./runtime/reward_rules.json"),
             reward_ledger_path=os.getenv("REWARD_LEDGER_PATH", "./runtime/reward_ledger.sqlite3"),

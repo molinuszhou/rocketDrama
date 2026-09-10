@@ -62,6 +62,7 @@ services:
       OWNED_CATALOG_PATH: /app/content/${OWNED_CATALOG_FILE:-owned_catalog.three-test-dramas.json}
       LOCAL_MEDIA_ENABLED: ${LOCAL_MEDIA_ENABLED:-true}
       LOCAL_MEDIA_ROOT: /app/media
+      LOCAL_COVER_ROOT: ${LOCAL_COVER_ROOT:-/app/content/covers}
     volumes:
       - ./content/content:/app/content:ro
       - ./content/media:/app/media:ro

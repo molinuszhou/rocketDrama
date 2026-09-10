@@ -78,12 +78,12 @@ python .\tests\rewards_smoke.py
 ## 载入首批自有剧测试片单
 
 1. 在 Windows 服务目录中复制 `content\\owned_catalog.local-media.example.json` 为一个**不提交到公开仓库**的实际片单文件，例如 `C:\\DramaFlow\\dramaflow_content_server\\content\\owned_catalog.local-media.json`。
-2. 将其中的剧集、地区、权益、封面和本地视频相对路径替换为你的已授权测试数据；不要在 JSON 中写入长期视频 URL 或云服务 API 密钥。
-3. 在 `.env` 中设置 `OWNED_CATALOG_PATH=C:/DramaFlow/dramaflow_content_server/content/owned_catalog.local-media.json`，然后重启内容 API。
+2. 将其中的剧集、地区、权益、封面和本地视频相对路径替换为你的已授权测试数据；不要在 JSON 中写入长期视频 URL 或云服务 API 密钥。封面字段必须使用 `coverUrl`，分集封面字段必须使用 `posterUrl`。完整的 `http://` 或 `https://` 地址会原样返回；如果填写相对文件名，例如 `cover.png`，请将文件放入 `content/covers/`，服务会自动返回可供 Android 访问的 `/v1/covers/cover.png`。
+3. 在 `.env` 中设置 `OWNED_CATALOG_PATH=C:/DramaFlow/dramaflow_content_server/content/owned_catalog.local-media.json`；使用相对封面时再设置 `LOCAL_COVER_ROOT=C:/DramaFlow/dramaflow_content_server/content/covers`，然后重启内容 API。
 4. 服务启动时会校验片单格式，并将自有剧 ID（建议以 `owned:` 开头）替换内置示例目录；Android 的 Feed 即可读取真实剧集元数据。
 5. 当前播放会话会返回短时测试 URL。连接 Cloudflare Stream、Mux 或对象存储 CDN 后，只需替换服务端播放令牌签发器，不改变 Android 接口。
 
-本地自有剧测试请使用 `content/owned_catalog.local-media.example.json` 作为片单模板。如需配置 Windows 本地 MP4、短时播放 URL、PowerShell 防火墙规则和 Android 真机联调，请按 `docs/WINDOWS_LAN_DEPLOYMENT_AND_TEST.md` 操作。本地文件模式只能在 `ENVIRONMENT=development` 中启用，服务会拒绝在其他环境启动该模式。
+本地自有剧测试请使用 `content/owned_catalog.local-media.example.json` 作为片单模板。封面无法显示时，先访问服务返回的 `/v1/feed`，确认 `cover_url` 是否为预期的外部地址或 `/v1/covers/...`；再用手机浏览器直接访问该封面 URL。如需配置 Windows 本地 MP4、短时播放 URL、PowerShell 防火墙规则和 Android 真机联调，请按 `docs/WINDOWS_LAN_DEPLOYMENT_AND_TEST.md` 操作。本地文件模式只能在 `ENVIRONMENT=development` 中启用，服务会拒绝在其他环境启动该模式。
 
 ## 动态奖励与轻量运营配置
 

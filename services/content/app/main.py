@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse
 
 from app.catalog_loader import load_owned_catalog
 from app.config import Settings
-from app.local_media import LocalMediaStore, LocalPlaybackSessionStore
+from app.local_media import LocalCoverStore, LocalMediaStore, LocalPlaybackSessionStore
 from app.models import (
     DramaDetail,
     FeedPage,
@@ -34,6 +34,7 @@ if settings.local_media_enabled and not settings.local_media_root:
     raise RuntimeError("启用 LOCAL_MEDIA_ENABLED 时必须同时设置 LOCAL_MEDIA_ROOT")
 
 local_media_store = LocalMediaStore(settings.local_media_root) if settings.local_media_enabled else None
+local_cover_store = LocalCoverStore(settings.local_cover_root) if settings.local_cover_root else None
 local_playback_sessions = LocalPlaybackSessionStore() if settings.local_media_enabled else None
 owned_records = load_owned_catalog(settings.owned_catalog_path) if settings.owned_catalog_path else None
 orchestrator = ContentOrchestrator(
@@ -67,6 +68,7 @@ def health() -> dict[str, str]:
         "status": "ok",
         "environment": settings.environment,
         "local_media": "enabled" if settings.local_media_enabled else "disabled",
+        "local_covers": "enabled" if local_cover_store is not None else "disabled",
     }
 
 
@@ -102,6 +104,16 @@ def create_playback_session(
         device_id=payload.device_id,
         request_base_url=str(request.base_url).rstrip("/"),
     )
+
+
+@app.get("/v1/covers/{cover_path:path}")
+def serve_local_cover(cover_path: str) -> FileResponse:
+    """开发阶段提供片单相对封面的局域网访问。"""
+    if local_cover_store is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="本地封面服务未启用")
+    file_path = local_cover_store.resolve(cover_path)
+    media_types = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".gif": "image/gif"}
+    return FileResponse(path=file_path, media_type=media_types.get(file_path.suffix.lower()), content_disposition_type="inline")
 
 
 @app.get("/v1/dev/local-media/{episode_id}")

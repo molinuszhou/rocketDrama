@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from urllib.parse import quote
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 from app.models import Availability, ContentSource, DramaCard, Episode, EntitlementState, PlaybackMode
 from app.providers import FreeDramaRecord
@@ -15,7 +16,7 @@ class OwnedEpisodeInput(BaseModel):
     index: int = Field(ge=1)
     title: str
     durationSeconds: int = Field(ge=1)
-    posterUrl: str
+    posterUrl: str = Field(validation_alias=AliasChoices("posterUrl", "poster_url", "poster", "coverUrl", "cover_url", "cover"))
     videoProvider: str
     videoAssetId: str
     subtitleLanguages: list[str] = Field(default_factory=list)
@@ -25,7 +26,7 @@ class OwnedDramaInput(BaseModel):
     id: str
     title: str
     summary: str
-    coverUrl: str
+    coverUrl: str = Field(validation_alias=AliasChoices("coverUrl", "cover_url", "cover"))
     genres: list[str] = Field(default_factory=list)
     language: str
     originRegions: list[str] = Field(default_factory=list)
@@ -40,6 +41,20 @@ class OwnedDramaInput(BaseModel):
 class OwnedCatalogInput(BaseModel):
     version: int
     dramas: list[OwnedDramaInput] = Field(min_length=1)
+
+
+def normalize_cover_url(raw_url: str) -> str:
+    value = raw_url.strip()
+    if not value:
+        return ""
+    if value.startswith(("http://", "https://")):
+        return value
+    if value.startswith("/v1/covers/"):
+        return value
+    relative = value.replace("\\", "/").lstrip("/")
+    if relative.startswith("covers/"):
+        relative = relative[len("covers/"):]
+    return "/v1/covers/" + quote(relative, safe="/@:+-._~")
 
 
 def load_owned_catalog(path: str) -> tuple[FreeDramaRecord, ...]:
@@ -61,7 +76,7 @@ def load_owned_catalog(path: str) -> tuple[FreeDramaRecord, ...]:
                 index=episode.index,
                 title=episode.title,
                 duration_seconds=episode.durationSeconds,
-                cover_url=episode.posterUrl,
+                cover_url=normalize_cover_url(episode.posterUrl),
                 entitlement=EntitlementState.FREE if episode.index <= item.freeEpisodes else EntitlementState.AD_UNLOCK,
                 playback_mode=PlaybackMode.SIGNED_URL,
                 media_asset_id=episode.videoAssetId,
@@ -74,7 +89,7 @@ def load_owned_catalog(path: str) -> tuple[FreeDramaRecord, ...]:
             source=ContentSource.FREE_DRAMA,
             title=item.title,
             summary=item.summary,
-            cover_url=item.coverUrl,
+            cover_url=normalize_cover_url(item.coverUrl),
             genre=item.genres,
             language=item.language,
             origin_regions=item.originRegions,
