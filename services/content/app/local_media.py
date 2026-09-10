@@ -17,12 +17,25 @@ class LocalMediaStore:
     """
 
     _ALLOWED_EXTENSIONS = {".mp4", ".m4v", ".webm", ".m3u8", ".mpd"}
+    _IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 
     def __init__(self, root: str) -> None:
         media_root = Path(root).expanduser().resolve()
         if not media_root.is_dir():
             raise RuntimeError(f"LOCAL_MEDIA_ROOT 不存在或不是目录：{media_root}")
         self._root = media_root
+
+    def resolve_image(self, relative_path: str) -> Path:
+        normalized = relative_path.replace("\\", "/").strip()
+        requested = Path(normalized)
+        if not normalized or requested.is_absolute() or ".." in requested.parts:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="本地图片路径必须是媒体根目录下的相对路径")
+        resolved = (self._root / requested).resolve()
+        if self._root not in resolved.parents or not resolved.is_file():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"本地图片文件不存在：{normalized}")
+        if resolved.suffix.lower() not in self._IMAGE_EXTENSIONS:
+            raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="本地图片格式不受支持")
+        return resolved
 
     def resolve(self, relative_path: str) -> Path:
         normalized = relative_path.replace("\\", "/").strip()

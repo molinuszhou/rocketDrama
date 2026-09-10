@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import quote
 
 from pydantic import BaseModel, Field
 
@@ -42,6 +43,14 @@ class OwnedCatalogInput(BaseModel):
     dramas: list[OwnedDramaInput] = Field(min_length=1)
 
 
+def resolve_poster_url(raw_url: str) -> str:
+    value = raw_url.strip()
+    if not value or value.startswith(("http://", "https://")):
+        return value
+    relative = value.replace("\\", "/").lstrip("/")
+    return "/v1/dev/local-image/" + quote(relative, safe="/@:+-._~")
+
+
 def load_owned_catalog(path: str) -> tuple[FreeDramaRecord, ...]:
     """从经审核的本地 JSON 元数据加载自有剧。
 
@@ -62,7 +71,7 @@ def load_owned_catalog(path: str) -> tuple[FreeDramaRecord, ...]:
                 index=episode.index,
                 title=episode.title,
                 duration_seconds=episode.durationSeconds,
-                cover_url=episode.posterUrl,
+                cover_url=resolve_poster_url(episode.posterUrl),
                 entitlement=EntitlementState.FREE if episode.index <= item.freeEpisodes else EntitlementState.AD_UNLOCK,
                 playback_mode=PlaybackMode.SIGNED_URL,
                 media_asset_id=episode.videoAssetId,
@@ -71,6 +80,7 @@ def load_owned_catalog(path: str) -> tuple[FreeDramaRecord, ...]:
             for episode in sorted_episodes
         )
         card_cover_url = next((episode.posterUrl.strip() for episode in sorted_episodes if episode.posterUrl.strip()), item.coverUrl)
+        card_cover_url = resolve_poster_url(card_cover_url)
         card = DramaCard(
             id=item.id,
             source=ContentSource.FREE_DRAMA,

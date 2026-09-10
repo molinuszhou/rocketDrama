@@ -104,6 +104,16 @@ def create_playback_session(
     )
 
 
+@app.get("/v1/dev/local-image/{image_path:path}")
+def serve_local_image(image_path: str) -> FileResponse:
+    """仅开发环境从同一 LOCAL_MEDIA_ROOT 提供本地封面图片。"""
+    if local_media_store is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="本地媒体测试模式未启用")
+    file_path = local_media_store.resolve_image(image_path)
+    media_types = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".gif": "image/gif"}
+    return FileResponse(path=file_path, media_type=media_types.get(file_path.suffix.lower()), content_disposition_type="inline")
+
+
 @app.get("/v1/dev/local-media/{episode_id}")
 def stream_local_media(episode_id: str, token: str = Query(min_length=16)) -> FileResponse:
     """仅开发环境的本地媒体端点；不可在生产环境或公网常驻部署中启用。"""
