@@ -87,14 +87,15 @@ class LocalDramaApiClient {
         episodeId: String,
         region: String,
         userId: String,
+        unlockMethod: String = "AD_REWARD",
         onSuccess: () -> Unit,
         onFailure: (String) -> Unit,
     ) {
         val payload = JSONObject()
             .put("region", region)
-            .put("method", "AD_REWARD")
+            .put("method", unlockMethod)
             .put("user_id", userId)
-            .put("proof", "TEST_REWARD_PROOF")
+            .put("proof", if (unlockMethod == "AD_INTERSTITIAL") "TEST_INTERSTITIAL_PROOF" else "TEST_REWARD_PROOF")
         val request = Request.Builder()
             .url(endpoint(baseUrl, "/v1/episodes/${encodePathSegment(episodeId)}/unlock"))
             .post(payload.toString().toRequestBody(JSON))

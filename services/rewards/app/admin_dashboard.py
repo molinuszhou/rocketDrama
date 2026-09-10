@@ -22,7 +22,7 @@ DASHBOARD_HTML = """<!doctype html>
 </head>
 <body><main>
   <h1>JoyeDrama 奖励运营后台</h1>
-  <p class="intro">此页面仅调整<strong>十轮追剧额外奖励</strong>的递减速度。用户已完成、已领取或已生成的奖励不回溯变更；新生成的十轮奖励会使用最新规则。</p>
+  <p class="intro">此页面可查看当前<strong>下一集插屏解锁、主动额外解锁与暂停广告</strong>规则，并调整<strong>十轮追剧额外奖励</strong>的递减速度。已完成、已领取或已生成的奖励不回溯变更。</p>
   <section class="card">
     <div class="notice">请设置并保存 <code>ADMIN_DASHBOARD_TOKEN</code> 后使用。令牌仅保存在本浏览器的会话内，并以请求头发送，不会写入数据库或页面地址。</div>
     <label for="token">管理员令牌</label><input id="token" type="password" autocomplete="off" placeholder="粘贴 ADMIN_DASHBOARD_TOKEN">
@@ -30,7 +30,10 @@ DASHBOARD_HTML = """<!doctype html>
     <div id="status"></div>
   </section>
   <section class="card" id="policy" hidden>
-    <h2 style="margin:0;font-size:20px">十轮奖励阻尼</h2>
+    <h2 style="margin:0;font-size:20px">播放广告规则</h2>
+    <div class="metrics"><div class="metric"><span>下一集插屏</span><strong id="nextAd">–</strong></div><div class="metric"><span>主动额外解锁</span><strong id="extraUnlock">–</strong></div><div class="metric"><span>暂停广告</span><strong id="pauseAd">–</strong></div></div>
+    <div class="notice" id="adRuleNotice"></div>
+    <h2 style="margin:22px 0 0;font-size:20px">十轮奖励阻尼</h2>
     <div class="metrics"><div class="metric"><span>首轮额外奖励</span><strong id="r0">–</strong></div><div class="metric"><span>最低保底</span><strong id="floor">–</strong></div><div class="metric"><span>每轮集数</span><strong id="roundSize">–</strong></div></div>
     <label for="alpha">阻尼系数 α（0.00–5.00）</label><input id="alpha" type="number" min="0" max="5" step="0.01">
     <div class="notice" id="formula">奖励公式：首轮奖励 ÷ 轮次^α，且不低于保底值。</div>
@@ -42,7 +45,7 @@ DASHBOARD_HTML = """<!doctype html>
 const $=id=>document.getElementById(id); let current=null;
 function auth(){return {'Authorization':'Bearer '+$('token').value.trim(),'Content-Type':'application/json'};}
 function status(text,type=''){const e=$('status');e.textContent=text;e.className=type;}
-function render(p){current=p;$('policy').hidden=false;$('r0').textContent=p.r0_gems+' 宝石';$('floor').textContent=p.floor_gems+' 宝石';$('roundSize').textContent=p.ten_round_size+' 集';$('alpha').value=p.decay_alpha;curve();}
+function render(p){current=p;$('policy').hidden=false;$('r0').textContent=p.r0_gems+' 宝石';$('floor').textContent=p.floor_gems+' 宝石';$('roundSize').textContent=p.ten_round_size+' 集';$('alpha').value=p.decay_alpha;$('nextAd').textContent=p.next_episode_interstitial_enabled?'已启用':'已关闭';$('extraUnlock').textContent=p.extra_episode_unlock_enabled?'已启用':'已关闭';$('pauseAd').textContent=p.pause_ad_enabled?'已启用':'已关闭';$('adRuleNotice').textContent=`下一集插屏：每小时最多 ${p.next_episode_interstitial_hourly_limit} 次，间隔 ${p.next_episode_interstitial_cooldown_seconds} 秒。暂停广告：播放满 ${p.pause_ad_min_play_seconds} 秒后可请求，每小时最多 ${p.pause_ad_hourly_limit} 次，间隔 ${p.pause_ad_cooldown_seconds} 秒。当前页面仅开放阻尼系数调整。`;curve();}
 function curve(){if(!current)return;const a=Number($('alpha').value),r0=Number(current.r0_gems),floor=Number(current.floor_gems);$('curve').innerHTML=[1,2,3,5,10,20].map(n=>`<tr><td>第 ${n} 轮</td><td>${Math.max(Math.floor(r0/Math.pow(n,a)),floor)} 宝石</td></tr>`).join('');}
 async function load(){status('正在读取规则…');try{const r=await fetch('/v2/admin/policy',{headers:auth()});const j=await r.json();if(!r.ok)throw Error(j.msg||'读取失败');render(j.data);status('规则已加载。','ok');}catch(e){status(e.message,'error');}}
 async function save(){if(!current)return;const alpha=Number($('alpha').value);if(!Number.isFinite(alpha)||alpha<0||alpha>5){status('阻尼系数必须在 0.00 到 5.00 之间。','error');return;}status('正在保存…');try{const r=await fetch('/v2/admin/policy/damping',{method:'PUT',headers:auth(),body:JSON.stringify({decay_alpha:alpha})});const j=await r.json();if(!r.ok)throw Error(j.msg||'保存失败');render(j.data);status('已保存。之后新生成的十轮奖励将使用该系数。','ok');}catch(e){status(e.message,'error');}}

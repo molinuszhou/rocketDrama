@@ -53,6 +53,17 @@ def main() -> None:
     expect(playback.status_code == 200, f"playback failed after unlock: {playback.text}")
     expect(playback.json()["playback_mode"] == "SIGNED_URL", "free drama should use signed URL mode")
 
+    interstitial_unlock = client.post(
+        "/v1/episodes/free:shadow-contract:ep:3/unlock",
+        json={"region": "SG", "user_id": "u-200", "method": "AD_INTERSTITIAL", "proof": "TEST_INTERSTITIAL_PROOF"},
+    )
+    expect(interstitial_unlock.status_code == 200, f"interstitial unlock failed: {interstitial_unlock.text}")
+    invalid_interstitial_unlock = client.post(
+        "/v1/episodes/free:shadow-contract:ep:3/unlock",
+        json={"region": "SG", "user_id": "u-201", "method": "AD_INTERSTITIAL", "proof": "TEST_REWARD_PROOF"},
+    )
+    expect(invalid_interstitial_unlock.status_code == 403, "interstitial unlock must reject a rewarded-ad proof")
+
     providers = client.get("/v1/providers/health")
     expect(providers.status_code == 200, "provider health failed")
     pangle = next(item for item in providers.json() if item["provider"] == "PANGLE_DRAMA")

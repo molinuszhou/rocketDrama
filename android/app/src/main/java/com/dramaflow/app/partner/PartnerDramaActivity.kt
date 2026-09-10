@@ -106,10 +106,8 @@ class PartnerDramaActivity : FragmentActivity() {
     private var lastSwipeNextAtMillis = 0L
     private var fullscreenAdInProgress = false
     private var episodeTransitionInProgress = false
-    private var pendingTimedInterstitial = false
     private var resumeAfterFullscreenAd = false
-    private val interstitialTimerHandler = Handler(Looper.getMainLooper())
-    private val interstitialTimer = Runnable { onInterstitialTimerElapsed() }
+    private var pauseNativeAdInProgress = false
     private var episodePickerDialog: AlertDialog? = null
     private val unlockedEpisodeKeys = mutableSetOf<String>()
     // 奖励服务不可达时仅保留本次进程内播放权益；不会伪造为已持久化的服务器权益。
@@ -142,13 +140,11 @@ class PartnerDramaActivity : FragmentActivity() {
         // 退后台时必须停止画面、音频与播放时钟，返回应用后不自动续播。
         exoPlayer?.pause()
         playerIsPaused = true
-        cancelInterstitialTimer()
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         super.onStop()
     }
 
     override fun onDestroy() {
-        cancelInterstitialTimer()
         releasePlayer()
         super.onDestroy()
     }
@@ -1401,15 +1397,8 @@ class PartnerDramaActivity : FragmentActivity() {
                 playerIsPaused = !isPlaying && player.playbackState == Player.STATE_READY
                 if (isPlaying) {
                     window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                    if (pendingTimedInterstitial) {
-                        pendingTimedInterstitial = false
-                        showTimedInterstitial()
-                    } else {
-                        scheduleInterstitialTimerIfEligible()
-                    }
                 } else {
                     window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                    cancelInterstitialTimer()
                 }
             }
 
@@ -1430,7 +1419,6 @@ class PartnerDramaActivity : FragmentActivity() {
                 logStatus("局域网视频播放失败：$diagnostic ${error.message.orEmpty()}")
                 playerIsPaused = true
                 episodeTransitionInProgress = false
-                cancelInterstitialTimer()
                 window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 playerProgressSeekBar?.isEnabled = false
                 val userMessage = when (httpFailure?.responseCode) {
@@ -1874,7 +1862,6 @@ class PartnerDramaActivity : FragmentActivity() {
                 player.play()
                 episodeTransitionInProgress = false
                 window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                scheduleInterstitialTimerIfEligible()
             } },
             onFailure = { message -> runOnUiThread {
                 episodeTransitionInProgress = false
@@ -1898,65 +1885,79 @@ class PartnerDramaActivity : FragmentActivity() {
             if (userInitiated) toast("已经是最后一集") else toast("本剧已播放完成")
             return
         }
-        episodeTransitionInProgress = true
         if (needsUnlock(nextIndex)) {
-            episodeTransitionInProgress = false
-            showNextEpisodeUnlockDialog(nextIndex)
+            unlockEpisodeThenAutoPlay(nextIndex)
         } else {
+            episodeTransitionInProgress = true
             if (!userInitiated) toast("正在进入第 ${nextIndex + 1} 集")
             selectEpisode(nextIndex)
         }
     }
 
-    private fun showNextEpisodeUnlockDialog(nextIndex: Int) {
-        val drama = selectedDrama ?: return
-        if (nextIndex !in drama.episodes.indices) return
-        AlertDialog.Builder(this)
-            .setTitle("继续观看下一集？")
-            .setMessage("第 ${nextIndex + 1} 集需要完整观看一条广告解锁。广告完成后将自动开始播放；本集看完后可领取宝石奖励。")
-            .setNegativeButton("稍后再看") { _, _ ->
-                episodeTransitionInProgress = false
-                updateEpisodeStatus()
-            }
-            .setPositiveButton("看广告解锁") { _, _ ->
-                episodeTransitionInProgress = true
-                unlockEpisodeThenAutoPlay(nextIndex)
-            }
-            .show()
-    }
-
+    /** 第四集起，锁定下一集开始前自动尝试插屏。展示并关闭后才向内容服务申请本集解锁。 */
     private fun unlockEpisodeThenAutoPlay(index: Int) {
         val episode = selectedDrama?.episodes?.getOrNull(index) ?: run {
             episodeTransitionInProgress = false
             return
         }
+        val snapshot = rewardsSnapshot
         if (consentStore.read() != PangleConsent.GRANTED) {
             episodeTransitionInProgress = false
             toast("下一集需要广告解锁，请在广告设置中启用后继续")
             return
         }
-        if (!rewardsApi.isConfigured) {
-            showRewardedSessionUnlock(index)
+        if (snapshot != null && !snapshot.unlock.nextEpisodeInterstitialEnabled) {
+            episodeTransitionInProgress = false
+            toast("下一集插屏解锁当前未启用")
             return
         }
-        toast("观看广告解锁第 ${index + 1} 集…")
-        val unlockAndPlay = {
-            settleEpisodeUnlockAfterAd(index) { selectEpisode(index) }
-        }
-        requestRewardedAction(
-            placementId = "rv_episode_pass",
-            targetId = episode.id,
-            episodeIndex = index + 1,
-            onSettled = {
-                unlockAndPlay()
-                toast("广告完成，第 ${index + 1} 集已解锁并开始播放。看完本集可领取宝石。")
-            },
-            onSettlementUnavailable = { message ->
-                logStatus("广告解锁奖励暂未同步：$message")
-                unlockAndPlay()
-                toast("广告完成，第 ${index + 1} 集已解锁并开始播放；奖励状态稍后同步。")
-            },
-        )
+        val episodeKey = episodeKey(index)
+        if (!interstitialRequestedEpisodeKeys.add(episodeKey)) return
+        episodeTransitionInProgress = true
+        fullscreenAdInProgress = true
+        pauseForFullscreenAd()
+        pangleAds.showInterstitialForEpisodeUnlock(this) { result -> runOnUiThread {
+            fullscreenAdInProgress = false
+            when (result) {
+                PangleAdsManager.FullscreenResult.Shown -> {
+                    val unlockAndPlay = {
+                        settleEpisodeUnlockAfterAd(index, unlockMethod = "AD_INTERSTITIAL") {
+                            selectEpisode(index)
+                            offerExtraEpisodeUnlock(index)
+                        }
+                    }
+                    if (rewardsApi.isConfigured) {
+                        rewardsApi.recordInterstitial(
+                            anonymousInstallationId(),
+                            "int_next_episode_unlock",
+                            onSuccess = { updated -> runOnUiThread {
+                                applyRewardsSnapshot(updated)
+                                unlockAndPlay()
+                            } },
+                            onFailure = { message -> runOnUiThread {
+                                // 广告已实际展示时，奖励服务短暂不可用不应阻断内容续播。
+                                logStatus("下一集插屏频控记录未同步：$message")
+                                unlockAndPlay()
+                            } },
+                        )
+                    } else {
+                        unlockAndPlay()
+                    }
+                }
+                is PangleAdsManager.FullscreenResult.Skipped -> {
+                    episodeTransitionInProgress = false
+                    interstitialRequestedEpisodeKeys.remove(episodeKey)
+                    resumeAfterFullscreenAdIfNeeded()
+                    toast("下一集插屏暂不可用：${result.reason}")
+                }
+                is PangleAdsManager.FullscreenResult.Failed -> {
+                    episodeTransitionInProgress = false
+                    interstitialRequestedEpisodeKeys.remove(episodeKey)
+                    resumeAfterFullscreenAdIfNeeded()
+                    toast("下一集插屏加载失败（${result.code}），请稍后重试")
+                }
+            }
+        } }
     }
 
     private fun handleEpisodeCompleted(index: Int) {
@@ -1966,55 +1967,88 @@ class PartnerDramaActivity : FragmentActivity() {
         updateEpisodeStatus()
         updatePlayerProgress(playerDurationSeconds, playerDurationSeconds)
         recordCompletedEpisodeForRewards(index)
-        // 插屏改为播放中的独立定时器触发；剧集自然结束时直接进入串行化的下一集流程。
-        cancelInterstitialTimer()
         startNextEpisodeAutomatically(index)
     }
 
-    private fun showRewardedSessionUnlock(index: Int) {
+    /** 用户主动看激励广告后，额外解锁紧随其后的一个锁集，不强制切换当前播放分集。 */
+    private fun offerExtraEpisodeUnlock(unlockedIndex: Int) {
+        val drama = selectedDrama ?: return
+        val extraIndex = unlockedIndex + 1
+        if (extraIndex !in drama.episodes.indices || !needsUnlock(extraIndex)) return
+        if (rewardsSnapshot?.unlock?.extraEpisodeUnlockEnabled == false) return
+        AlertDialog.Builder(this)
+            .setTitle("再多解锁 1 集？")
+            .setMessage("第 ${extraIndex + 1} 集仍可主动观看一条激励广告提前解锁。现在不操作也不影响继续观看当前剧集。")
+            .setNegativeButton("暂不需要", null)
+            .setPositiveButton("看广告多解锁 1 集") { _, _ -> unlockExtraEpisodeWithRewardedAd(extraIndex) }
+            .show()
+    }
+
+    private fun unlockExtraEpisodeWithRewardedAd(index: Int) {
+        val episode = selectedDrama?.episodes?.getOrNull(index) ?: return
+        val unlockExtra = {
+            settleEpisodeUnlockAfterAd(index, unlockMethod = "AD_REWARD") {
+                resumeAfterFullscreenAdIfNeeded()
+                toast("第 ${index + 1} 集已提前解锁")
+            }
+        }
+        if (!rewardsApi.isConfigured) {
+            showRewardedSessionUnlock(index, onUnlocked = unlockExtra)
+            return
+        }
+        requestRewardedAction(
+            placementId = "rv_episode_pass",
+            targetId = episode.id,
+            episodeIndex = index + 1,
+            onSettled = { unlockExtra() },
+            onSettlementUnavailable = { message ->
+                logStatus("额外解锁广告结算未同步：$message")
+                unlockExtra()
+            },
+        )
+    }
+
+    private fun showRewardedSessionUnlock(index: Int, onUnlocked: () -> Unit) {
         if (fullscreenAdInProgress) return
         fullscreenAdInProgress = true
         pauseForFullscreenAd()
         pangleAds.showRewarded(this) { result -> runOnUiThread {
             fullscreenAdInProgress = false
             when (result) {
-                PangleAdsManager.RewardedResult.RewardEarned -> {
-                    settleEpisodeUnlockAfterAd(index) { selectEpisode(index) }
-                    toast("广告完成。本次会话已解锁第 ${index + 1} 集；积分服务离线，未发放宝石")
-                }
+                PangleAdsManager.RewardedResult.RewardEarned -> onUnlocked()
                 PangleAdsManager.RewardedResult.Cancelled -> {
-                    episodeTransitionInProgress = false
                     resumeAfterFullscreenAdIfNeeded()
-                    toast("广告未完整观看，下一集未解锁")
+                    toast("广告未完整观看，未额外解锁下一集")
                 }
                 is PangleAdsManager.RewardedResult.Unavailable -> {
-                    episodeTransitionInProgress = false
                     resumeAfterFullscreenAdIfNeeded()
-                    toast("解锁广告暂不可用：${result.reason}")
+                    toast("额外解锁广告暂不可用：${result.reason}")
                 }
                 is PangleAdsManager.RewardedResult.Failed -> {
-                    episodeTransitionInProgress = false
                     resumeAfterFullscreenAdIfNeeded()
-                    toast("解锁广告加载失败（${result.code}）")
+                    toast("额外解锁广告加载失败（${result.code}）")
                 }
             }
         } }
     }
 
-    private fun settleEpisodeUnlockAfterAd(index: Int, onUnlocked: () -> Unit = {}) {
+    private fun settleEpisodeUnlockAfterAd(index: Int, unlockMethod: String, onUnlocked: () -> Unit = {}) {
         val episode = selectedDrama?.episodes?.getOrNull(index) ?: return
         localDramaApi.unlockEpisode(
             baseUrl = localContentBaseUrl(),
             episodeId = episode.id,
             region = CONTENT_REGION,
             userId = anonymousInstallationId(),
+            unlockMethod = unlockMethod,
             onSuccess = { runOnUiThread {
-                unlockEpisodeForCurrentSession(index, "解锁成功，开始播放第 ${index + 1} 集")
+                unlockEpisodeForCurrentSession(index, "第 ${index + 1} 集已解锁")
                 onUnlocked()
             } },
             onFailure = { message -> runOnUiThread {
                 episodeTransitionInProgress = false
+                if (unlockMethod == "AD_INTERSTITIAL") interstitialRequestedEpisodeKeys.remove(episodeKey(index))
                 logStatus("自有剧解锁失败：$message")
+                resumeAfterFullscreenAdIfNeeded()
                 toast("解锁服务暂不可用：$message")
             } },
         )
@@ -2022,7 +2056,6 @@ class PartnerDramaActivity : FragmentActivity() {
 
     private fun unlockEpisodeForCurrentSession(index: Int, message: String) {
         sessionUnlockedEpisodeKeys.add(episodeKey(index))
-        currentEpisodeIndex = index
         pendingUnlockIndex = -1
         updateEpisodeStatus()
         toast(message)
@@ -2049,73 +2082,50 @@ class PartnerDramaActivity : FragmentActivity() {
         )
     }
 
-    private fun scheduleInterstitialTimerIfEligible() {
-        cancelInterstitialTimer()
-        val snapshot = rewardsSnapshot ?: return
-        val player = exoPlayer ?: return
-        val freeEpisodes = snapshot.unlock.freeEpisodesDefault
-        if (!playerShown || !player.isPlaying || currentEpisodeIndex + 1 <= freeEpisodes || fullscreenAdInProgress) return
-        val delayMillis = snapshot.interstitial.cooldownSeconds.coerceAtLeast(15).toLong() * 1_000L
-        interstitialTimerHandler.postDelayed(interstitialTimer, delayMillis)
-    }
-
-    private fun cancelInterstitialTimer() {
-        interstitialTimerHandler.removeCallbacks(interstitialTimer)
-    }
-
-    private fun onInterstitialTimerElapsed() {
-        if (!playerShown || fullscreenAdInProgress) return
-        if (exoPlayer?.isPlaying != true) {
-            pendingTimedInterstitial = true
-            return
-        }
-        showTimedInterstitial()
-    }
-
-    private fun showTimedInterstitial() {
-        if (currentEpisodeIndex + 1 <= (rewardsSnapshot?.unlock?.freeEpisodesDefault ?: FREE_EPISODES)) return
-        showInterstitialPreservingPlayback("int_timer", resumeWhenDismissed = true)
-    }
-
+    /**
+     * 暂停时仅在锁集阶段、达到最低有效播放时长且服务端允许时请求 Native 暂停广告。
+     * 该卡片由应用提供“返回播放”按钮，因此用户可随时关闭，并从暂停前位置继续。
+     */
     private fun requestPauseInterstitialIfEligible() {
         val snapshot = rewardsSnapshot ?: return
-        if (currentEpisodeIndex + 1 <= snapshot.unlock.freeEpisodesDefault || fullscreenAdInProgress) return
-        showInterstitialPreservingPlayback("int_pause", resumeWhenDismissed = false)
-    }
+        val policy = snapshot.interstitial
+        if (!playerShown || fullscreenAdInProgress || pauseNativeAdInProgress) return
+        if (currentEpisodeIndex + 1 <= snapshot.unlock.freeEpisodesDefault) return
+        if (!policy.pauseAdEnabled || playerProgressSeconds < policy.pauseAdMinPlaySeconds) return
+        if (consentStore.read() != PangleConsent.GRANTED) return
 
-    private fun showInterstitialPreservingPlayback(placementId: String, resumeWhenDismissed: Boolean) {
-        if (fullscreenAdInProgress || consentStore.read() != PangleConsent.GRANTED) return
-        fullscreenAdInProgress = true
-        cancelInterstitialTimer()
-        val wasPlaying = exoPlayer?.isPlaying == true
-        pauseForFullscreenAd()
-        pangleAds.showInterstitialAtNaturalBreak(this) { result ->
-            runOnUiThread {
-                fullscreenAdInProgress = false
-                when (result) {
-                    PangleAdsManager.FullscreenResult.Shown -> {
-                        logStatus("插屏已关闭：$placementId")
-                        if (rewardsApi.isConfigured) {
-                            rewardsApi.recordInterstitial(
-                                anonymousInstallationId(),
-                                placementId,
-                                onSuccess = { snapshot -> runOnUiThread { applyRewardsSnapshot(snapshot) } },
-                                onFailure = { message -> logStatus("插屏展示记录未写入：$message") },
-                            )
-                        }
+        pauseNativeAdInProgress = true
+        pangleAds.showPauseNativeAd(
+            activity = this,
+            overlayHost = root,
+            onShown = {
+                if (rewardsApi.isConfigured) {
+                    rewardsApi.recordInterstitial(
+                        anonymousInstallationId(),
+                        "int_pause_native",
+                        onSuccess = { updated -> runOnUiThread { applyRewardsSnapshot(updated) } },
+                        onFailure = { message -> logStatus("暂停广告展示记录未写入：$message") },
+                    )
+                }
+            },
+            onClosed = {
+                runOnUiThread {
+                    pauseNativeAdInProgress = false
+                    if (!isFinishing && !isDestroyed) {
+                        exoPlayer?.play()
+                        playerIsPaused = false
+                        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                     }
-                    is PangleAdsManager.FullscreenResult.Skipped -> logStatus("插屏跳过：${result.reason}")
-                    is PangleAdsManager.FullscreenResult.Failed -> logStatus("插屏加载失败：${result.code} ${result.message}")
                 }
-                if (resumeWhenDismissed && wasPlaying && !isFinishing && !isDestroyed) {
-                    exoPlayer?.play()
-                    playerIsPaused = false
-                    window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            },
+            onUnavailable = { message ->
+                runOnUiThread {
+                    pauseNativeAdInProgress = false
+                    logStatus("暂停广告未展示：$message")
+                    // 无填充或未配置 Native 广告位时，仍保持用户主动暂停状态，不强制恢复播放。
                 }
-                resumeAfterFullscreenAd = false
-                if (exoPlayer?.isPlaying == true) scheduleInterstitialTimerIfEligible()
-            }
-        }
+            },
+        )
     }
 
     private fun needsUnlock(index: Int): Boolean {
@@ -2360,7 +2370,6 @@ class PartnerDramaActivity : FragmentActivity() {
         ?: BuildConfig.LOCAL_CONTENT_API_BASE_URL.trim().trimEnd('/')
 
     private fun releasePlayer() {
-        cancelInterstitialTimer()
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         progressHandler.removeCallbacks(progressTicker)
         playerView?.player = null

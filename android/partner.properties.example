@@ -14,6 +14,9 @@ PANGLE_REWARDED_SLOT_ID=
 PANGLE_INTERSTITIAL_SLOT_ID=
 PANGLE_APP_OPEN_SLOT_ID=
 
+# 暂停广告使用 Native 广告位，以便应用提供“返回播放”按钮；未配置时暂停广告会自动跳过。
+PANGLE_PAUSE_NATIVE_SLOT_ID=
+
 # TopOn 聚合广告未来预留。拿到完整 App ID + App Key 后才可启用；当前版本不读取这些字段。
 TOPON_APP_ID=
 TOPON_APP_KEY=

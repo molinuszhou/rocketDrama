@@ -13,8 +13,12 @@ def apply_runtime_migrations(settings: Settings) -> None:
     PostgreSQL 官方镜像仅会在数据卷首次创建时执行 initdb 目录中的 SQL；
     已存在的本地测试账本需由此函数非破坏性地应用后续 schema 版本。
     """
-    sql_path = Path(__file__).resolve().parent.parent / "sql" / "003_rewards_v4.sql"
-    sql = sql_path.read_text(encoding="utf-8")
+    sql_directory = Path(__file__).resolve().parent.parent / "sql"
+    migration_paths = (
+        sql_directory / "003_rewards_v4.sql",
+        sql_directory / "004_ad_flow_v5.sql",
+    )
     with psycopg.connect(settings.database_url, autocommit=True) as connection:
         with connection.cursor() as cursor:
-            cursor.execute(sql)
+            for sql_path in migration_paths:
+                cursor.execute(sql_path.read_text(encoding="utf-8"))

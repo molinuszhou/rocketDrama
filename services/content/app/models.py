@@ -29,6 +29,9 @@ class EntitlementState(str, Enum):
 
 
 class UnlockMethod(str, Enum):
+    # 下一集自动插屏完成后使用；生产环境必须由服务端广告展示回调或签名替换开发证明。
+    AD_INTERSTITIAL = "AD_INTERSTITIAL"
+    # 用户主动观看激励广告，用于额外解锁后一集。
     AD_REWARD = "AD_REWARD"
     COIN = "COIN"
 

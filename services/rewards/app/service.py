@@ -323,13 +323,7 @@ class RewardsService:
         self._verify_admin_token(authorization)
         with self._transaction() as connection:
             policy = self._policy(connection)
-            return {
-                "decay_alpha": float(policy["decay_alpha"]),
-                "r0_gems": int(policy["r0_gems"]),
-                "floor_gems": int(policy["floor_gems"]),
-                "ten_round_size": int(policy["ten_round_size"]),
-                "updated_at": policy["updated_at"].isoformat(),
-            }
+            return self._admin_policy_payload(policy)
 
     def update_damping(self, authorization: str | None, decay_alpha: float) -> dict[str, Any]:
         self._verify_admin_token(authorization)
@@ -348,13 +342,7 @@ class RewardsService:
                 ("dashboard", old_value, new_value),
             )
             updated = self._policy(connection)
-            return {
-                "decay_alpha": float(updated["decay_alpha"]),
-                "r0_gems": int(updated["r0_gems"]),
-                "floor_gems": int(updated["floor_gems"]),
-                "ten_round_size": int(updated["ten_round_size"]),
-                "updated_at": updated["updated_at"].isoformat(),
-            }
+            return self._admin_policy_payload(updated)
 
     def exchange_gems(self, user_id: str, gems: int, reference_id: str) -> dict[str, Any]:
         with self._transaction() as connection:
@@ -414,27 +402,71 @@ class RewardsService:
             policy = self._policy(connection)
             counters = self._daily_counter(connection, user_id, business_date, lock=True)
             now = self._now()
-            if placement_id == "int_timer" and counters["last_rv_at"] and now - counters["last_rv_at"] < timedelta(seconds=policy["interstitial_cooldown_seconds"]):
-                raise ServiceError(2001, "激励广告后冷却期内不展示插屏", 409)
-            if counters["last_interstitial_at"] and now - counters["last_interstitial_at"] < timedelta(seconds=policy["interstitial_cooldown_seconds"]):
-                raise ServiceError(2002, "插屏冷却期未结束", 409)
-            hourly = self._one(
-                connection,
-                "SELECT COUNT(*) AS count FROM interstitial_events WHERE user_id = %s AND shown_at >= NOW() - INTERVAL '1 hour'",
-                (user_id,),
-            )["count"]
-            if hourly >= policy["interstitial_hourly_limit"]:
-                raise ServiceError(2003, "本小时插屏展示已达上限", 429)
+
+            if placement_id == "int_next_episode_unlock":
+                if not bool(policy["next_episode_interstitial_enabled"]):
+                    raise ServiceError(2004, "下一集插屏解锁当前未启用", 409)
+                hourly = self._one(
+                    connection,
+                    """SELECT COUNT(*) AS count FROM interstitial_events
+                    WHERE user_id = %s AND placement_id = 'int_next_episode_unlock'
+                    AND shown_at >= NOW() - INTERVAL '1 hour'""",
+                    (user_id,),
+                )["count"]
+                if hourly >= int(policy["next_episode_interstitial_hourly_limit"]):
+                    raise ServiceError(2005, "本小时下一集插屏解锁已达上限", 429)
+                last = self._one(
+                    connection,
+                    """SELECT shown_at FROM interstitial_events
+                    WHERE user_id = %s AND placement_id = 'int_next_episode_unlock'
+                    ORDER BY shown_at DESC LIMIT 1""",
+                    (user_id,),
+                )
+                if last and now - last["shown_at"] < timedelta(seconds=int(policy["next_episode_interstitial_cooldown_seconds"])):
+                    raise ServiceError(2006, "下一集插屏解锁冷却期未结束", 409)
+            elif placement_id == "int_pause_native":
+                if not bool(policy["pause_ad_enabled"]):
+                    raise ServiceError(2007, "暂停广告当前未启用", 409)
+                if int(counters["pause_interstitial_count"]) >= int(policy["pause_interstitial_hourly_limit"]):
+                    raise ServiceError(2008, "本小时暂停广告已达上限", 429)
+                last = self._one(
+                    connection,
+                    """SELECT shown_at FROM interstitial_events
+                    WHERE user_id = %s AND placement_id = 'int_pause_native'
+                    ORDER BY shown_at DESC LIMIT 1""",
+                    (user_id,),
+                )
+                if last and now - last["shown_at"] < timedelta(seconds=int(policy["pause_ad_cooldown_seconds"])):
+                    raise ServiceError(2009, "暂停广告冷却期未结束", 409)
+            else:
+                # 兼容旧版 int_timer / int_pause 事件；新客户端不再主动触发 int_timer。
+                if counters["last_interstitial_at"] and now - counters["last_interstitial_at"] < timedelta(seconds=int(policy["interstitial_cooldown_seconds"])):
+                    raise ServiceError(2002, "插屏冷却期未结束", 409)
+                hourly = self._one(
+                    connection,
+                    "SELECT COUNT(*) AS count FROM interstitial_events WHERE user_id = %s AND shown_at >= NOW() - INTERVAL '1 hour'",
+                    (user_id,),
+                )["count"]
+                if hourly >= int(policy["interstitial_hourly_limit"]):
+                    raise ServiceError(2003, "本小时插屏展示已达上限", 429)
+
             self._execute(
                 connection,
                 "INSERT INTO interstitial_events (event_id, user_id, business_date, placement_id) VALUES (%s, %s, %s, %s)",
                 (event_id, user_id, business_date, placement_id),
             )
-            self._execute(
-                connection,
-                "UPDATE daily_counters SET interstitial_count = interstitial_count + 1, last_interstitial_at = NOW() WHERE user_id = %s AND business_date = %s",
-                (user_id, business_date),
-            )
+            if placement_id == "int_pause_native":
+                self._execute(
+                    connection,
+                    "UPDATE daily_counters SET pause_interstitial_count = pause_interstitial_count + 1 WHERE user_id = %s AND business_date = %s",
+                    (user_id, business_date),
+                )
+            else:
+                self._execute(
+                    connection,
+                    "UPDATE daily_counters SET interstitial_count = interstitial_count + 1, last_interstitial_at = NOW() WHERE user_id = %s AND business_date = %s",
+                    (user_id, business_date),
+                )
             return {"idempotent": False, "snapshot": self._snapshot(connection, user_id)}
 
     def withdrawal_preflight(self, user_id: str) -> dict[str, Any]:
@@ -864,12 +896,20 @@ class RewardsService:
             "crown_progress": self._crown_progress(connection, user_id),
             "episode_unlock": {
                 "free_episodes_count": policy["free_episodes_count"],
-                "placement_id": "rv_episode_pass",
+                "placement_id": "int_next_episode_unlock",
+                "next_episode_interstitial_enabled": bool(policy["next_episode_interstitial_enabled"]),
+                "extra_episode_unlock_enabled": bool(policy["extra_episode_unlock_enabled"]),
                 "valid_watch_seconds": policy["valid_watch_seconds"],
             },
             "interstitial": {
                 "cooldown_seconds": policy["interstitial_cooldown_seconds"],
                 "hourly_limit": policy["interstitial_hourly_limit"],
+                "next_episode_enabled": bool(policy["next_episode_interstitial_enabled"]),
+                "next_episode_hourly_limit": int(policy["next_episode_interstitial_hourly_limit"]),
+                "pause_ad_enabled": bool(policy["pause_ad_enabled"]),
+                "pause_ad_min_play_seconds": int(policy["pause_ad_min_play_seconds"]),
+                "pause_ad_cooldown_seconds": int(policy["pause_ad_cooldown_seconds"]),
+                "pause_ad_hourly_limit": int(policy["pause_interstitial_hourly_limit"]),
                 "last_rv_at": counters["last_rv_at"].isoformat() if counters["last_rv_at"] else None,
                 "last_interstitial_at": counters["last_interstitial_at"].isoformat() if counters["last_interstitial_at"] else None,
             },
@@ -1088,6 +1128,24 @@ class RewardsService:
         if not policy:
             raise ServiceError(1502, "数据库未初始化奖励规则，请执行 sql/001_init.sql", 503)
         return policy
+
+    @staticmethod
+    def _admin_policy_payload(policy: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "decay_alpha": float(policy["decay_alpha"]),
+            "r0_gems": int(policy["r0_gems"]),
+            "floor_gems": int(policy["ten_round_bonus_floor_gems"]),
+            "ten_round_size": int(policy["ten_round_size"]),
+            "next_episode_interstitial_enabled": bool(policy["next_episode_interstitial_enabled"]),
+            "next_episode_interstitial_hourly_limit": int(policy["next_episode_interstitial_hourly_limit"]),
+            "next_episode_interstitial_cooldown_seconds": int(policy["next_episode_interstitial_cooldown_seconds"]),
+            "extra_episode_unlock_enabled": bool(policy["extra_episode_unlock_enabled"]),
+            "pause_ad_enabled": bool(policy["pause_ad_enabled"]),
+            "pause_ad_min_play_seconds": int(policy["pause_ad_min_play_seconds"]),
+            "pause_ad_cooldown_seconds": int(policy["pause_ad_cooldown_seconds"]),
+            "pause_ad_hourly_limit": int(policy["pause_interstitial_hourly_limit"]),
+            "updated_at": policy["updated_at"].isoformat(),
+        }
 
     def _verify_admin_token(self, authorization: str | None) -> None:
         token = self.settings.admin_dashboard_token

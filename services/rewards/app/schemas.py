@@ -15,7 +15,7 @@ RewardedPlacement = Literal[
     "rv_signin_double",
     "rv_release_boost",
 ]
-InterstitialPlacement = Literal["int_timer", "int_pause"]
+InterstitialPlacement = Literal["int_timer", "int_pause", "int_next_episode_unlock", "int_pause_native"]
 
 
 class BootstrapRequest(BaseModel):

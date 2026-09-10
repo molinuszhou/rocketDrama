@@ -112,17 +112,21 @@ class ContentOrchestrator:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Pangle 内容必须通过合作方 SDK 与服务端回调确认权益，不能由本服务直接解锁")
         if episode.entitlement == EntitlementState.FREE:
             return UnlockResponse(episode_id=episode_id, unlocked=True, entitlement=EntitlementState.FREE, message="该分集已经可播放")
-        if method == UnlockMethod.AD_REWARD and not proof:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="广告解锁需要服务端验证的奖励证明；测试环境可传入 TEST_REWARD_PROOF")
-        if method == UnlockMethod.AD_REWARD and proof != "TEST_REWARD_PROOF":
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="奖励证明无效；生产环境应由广告服务端回调完成验签")
+        expected_debug_proof = {
+            UnlockMethod.AD_INTERSTITIAL: "TEST_INTERSTITIAL_PROOF",
+            UnlockMethod.AD_REWARD: "TEST_REWARD_PROOF",
+        }.get(method)
+        if expected_debug_proof and not proof:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="广告解锁需要服务端验证的广告证明")
+        if expected_debug_proof and proof != expected_debug_proof:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="广告证明无效；生产环境应由广告服务端回调完成验签")
 
         self._free_drama.mark_unlocked(user_id, episode_id)
         return UnlockResponse(
             episode_id=episode_id,
             unlocked=True,
             entitlement=EntitlementState.FREE,
-            message="自有剧测试权益已记录；生产环境请替换为事务化权益账本与服务端奖励验签。",
+            message="自有剧测试权益已记录；生产环境请替换为事务化权益账本与服务端广告展示验签。",
         )
 
     def provider_health(self) -> list[ProviderHealth]:

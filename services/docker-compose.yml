@@ -15,6 +15,7 @@ services:
       - ./rewards/sql/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
       - ./rewards/sql/002_monetization_v3.sql:/docker-entrypoint-initdb.d/002_monetization_v3.sql:ro
       - ./rewards/sql/003_rewards_v4.sql:/docker-entrypoint-initdb.d/003_rewards_v4.sql:ro
+      - ./rewards/sql/004_ad_flow_v5.sql:/docker-entrypoint-initdb.d/004_ad_flow_v5.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s

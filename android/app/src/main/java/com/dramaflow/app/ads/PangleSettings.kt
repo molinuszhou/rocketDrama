@@ -7,7 +7,8 @@ data class PangleSettings(
     val appId: String,
     val rewardedPlacementId: String,
     val interstitialPlacementId: String,
-    val appOpenPlacementId: String
+    val appOpenPlacementId: String,
+    val pauseNativePlacementId: String
 ) {
     val isConfigured: Boolean
         get() = appId.isNotBlank() && rewardedPlacementId.isNotBlank()
@@ -21,12 +22,17 @@ data class PangleSettings(
     val canShowAppOpen: Boolean
         get() = appId.isNotBlank() && appOpenPlacementId.isNotBlank()
 
+    /** 暂停广告采用原生卡片，可由应用自己的“返回播放”按钮随时关闭。 */
+    val canShowPauseNative: Boolean
+        get() = appId.isNotBlank() && pauseNativePlacementId.isNotBlank()
+
     companion object {
         fun fromBuildConfig(): PangleSettings = PangleSettings(
             appId = BuildConfig.PANGLE_APP_ID.trim(),
             rewardedPlacementId = BuildConfig.PANGLE_REWARDED_SLOT_ID.trim(),
             interstitialPlacementId = BuildConfig.PANGLE_INTERSTITIAL_SLOT_ID.trim(),
-            appOpenPlacementId = BuildConfig.PANGLE_APP_OPEN_SLOT_ID.trim()
+            appOpenPlacementId = BuildConfig.PANGLE_APP_OPEN_SLOT_ID.trim(),
+            pauseNativePlacementId = BuildConfig.PANGLE_PAUSE_NATIVE_SLOT_ID.trim()
         )
     }
 }

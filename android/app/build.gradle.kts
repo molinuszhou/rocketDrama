@@ -17,6 +17,7 @@ val pangleAppId = integrationValue("PANGLE_APP_ID")
 val pangleRewardedSlotId = integrationValue("PANGLE_REWARDED_SLOT_ID")
 val pangleInterstitialSlotId = integrationValue("PANGLE_INTERSTITIAL_SLOT_ID")
 val pangleAppOpenSlotId = integrationValue("PANGLE_APP_OPEN_SLOT_ID")
+val panglePauseNativeSlotId = integrationValue("PANGLE_PAUSE_NATIVE_SLOT_ID")
 val localContentApiBaseUrl = integrationValue("LOCAL_CONTENT_API_BASE_URL").ifBlank { "http://10.0.2.2:8000" }
 val rewardsApiBaseUrl = integrationValue("REWARDS_API_BASE_URL").ifBlank { "http://10.0.2.2:8100" }
 
@@ -46,6 +47,7 @@ android {
         buildConfigField("String", "PANGLE_REWARDED_SLOT_ID", "\"${escapeBuildConfig(pangleRewardedSlotId)}\"")
         buildConfigField("String", "PANGLE_INTERSTITIAL_SLOT_ID", "\"${escapeBuildConfig(pangleInterstitialSlotId)}\"")
         buildConfigField("String", "PANGLE_APP_OPEN_SLOT_ID", "\"${escapeBuildConfig(pangleAppOpenSlotId)}\"")
+        buildConfigField("String", "PANGLE_PAUSE_NATIVE_SLOT_ID", "\"${escapeBuildConfig(panglePauseNativeSlotId)}\"")
         buildConfigField("String", "LOCAL_CONTENT_API_BASE_URL", "\"${escapeBuildConfig(localContentApiBaseUrl)}\"")
         buildConfigField("String", "REWARDS_API_BASE_URL", "\"${escapeBuildConfig(rewardsApiBaseUrl)}\"")
     }

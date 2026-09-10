@@ -30,7 +30,16 @@ def run() -> None:
     assert initial["episode_unlock"]["free_episodes_count"] == 3
     assert [item["code"] for item in initial["crown_progress"]] == ["BRONZE", "SILVER", "GOLD", "DIAMOND", "CROWN"]
     assert initial["crown_progress"][0]["rounds"]["target"] == 150
+    assert initial["episode_unlock"]["placement_id"] == "int_next_episode_unlock"
+    assert initial["episode_unlock"]["next_episode_interstitial_enabled"] is True
+    assert initial["episode_unlock"]["extra_episode_unlock_enabled"] is True
+    assert initial["interstitial"]["pause_ad_enabled"] is True
     assert initial["ring"]["claimable"] is False
+
+    next_interstitial = service.record_interstitial(user_id, event_id("next-interstitial"), "int_next_episode_unlock")
+    assert next_interstitial["idempotent"] is False
+    pause_native = service.record_interstitial(user_id, event_id("pause-native"), "int_pause_native")
+    assert pause_native["idempotent"] is False
 
     welcome = service.claim_welcome_bonus(user_id)
     assert welcome["result"]["gems_added"] == 150000

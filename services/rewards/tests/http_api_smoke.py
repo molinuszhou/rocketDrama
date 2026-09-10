@@ -38,6 +38,20 @@ def run() -> None:
     assert initial["data"]["welcome"]["available"] is True
     assert initial["data"]["checkin"]["today_streak"] == 1
     assert initial["data"]["episode_unlock"]["free_episodes_count"] == 3
+    assert initial["data"]["episode_unlock"]["placement_id"] == "int_next_episode_unlock"
+    assert initial["data"]["interstitial"]["pause_ad_enabled"] is True
+
+    # 下一集插屏解锁与暂停原生广告的频控事件采用独立 placement。
+    _, next_interstitial = post(
+        "/v2/interstitials/shown",
+        {"user_id": USER_ID, "event_id": event_id("next-interstitial"), "placement_id": "int_next_episode_unlock"},
+    )
+    assert next_interstitial["data"]["idempotent"] is False
+    _, pause_native = post(
+        "/v2/interstitials/shown",
+        {"user_id": USER_ID, "event_id": event_id("pause-native"), "placement_id": "int_pause_native"},
+    )
+    assert pause_native["data"]["idempotent"] is False
 
     # 前 3 集免费；服务端拒绝把免费集广告误记为内容解锁。
     _, free_rejection = post(

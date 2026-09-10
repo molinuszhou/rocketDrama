@@ -2,7 +2,15 @@ package com.dramaflow.app.ads
 
 import android.app.Activity
 import android.content.Context
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.util.Log
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.TextView
 import com.dramaflow.app.BuildConfig
 import com.bytedance.sdk.openadsdk.api.init.PAGConfig
 import com.bytedance.sdk.openadsdk.api.init.PAGSdk
@@ -14,6 +22,10 @@ import com.bytedance.sdk.openadsdk.api.open.PAGAppOpenAd
 import com.bytedance.sdk.openadsdk.api.open.PAGAppOpenAdInteractionListener
 import com.bytedance.sdk.openadsdk.api.open.PAGAppOpenAdLoadListener
 import com.bytedance.sdk.openadsdk.api.open.PAGAppOpenRequest
+import com.bytedance.sdk.openadsdk.api.nativeAd.PAGNativeAd
+import com.bytedance.sdk.openadsdk.api.nativeAd.PAGNativeAdInteractionListener
+import com.bytedance.sdk.openadsdk.api.nativeAd.PAGNativeAdLoadListener
+import com.bytedance.sdk.openadsdk.api.nativeAd.PAGNativeRequest
 import com.bytedance.sdk.openadsdk.api.reward.PAGRewardItem
 import com.bytedance.sdk.openadsdk.api.reward.PAGRewardedAd
 import com.bytedance.sdk.openadsdk.api.reward.PAGRewardedAdInteractionListener
@@ -35,6 +47,12 @@ class PangleAdsManager(
         applicationContext,
         key = "interstitial_last_show",
         minIntervalMillis = if (BuildConfig.DEBUG) 10_000L else 60_000L
+    ),
+    // 锁集解锁采用独立频控：每个锁定分集都应尝试请求一次；最终频控由服务端与广告平台承担。
+    private val episodeUnlockInterstitialPolicy: FullscreenAdPolicy = FullscreenAdPolicy(
+        applicationContext,
+        key = "episode_unlock_interstitial_last_show",
+        minIntervalMillis = 0L
     ),
     // 每次冷启动均尝试请求开屏广告；实际展示仍由 Pangle 填充、其服务端策略和设备网络决定。
     // 避免在客户端额外设置六小时频控，导致测试或正常冷启动没有请求机会。
@@ -67,6 +85,7 @@ class PangleAdsManager(
     private var rewardedRequestInFlight = false
     private var interstitialRequestInFlight = false
     private var appOpenRequestInFlight = false
+    private var pauseNativeRequestInFlight = false
     private var initCallbacks = mutableListOf<(Initialization) -> Unit>()
 
     fun initialize(onResult: (Initialization) -> Unit) {
@@ -127,8 +146,22 @@ class PangleAdsManager(
         }
     }
 
-    /** 仅应在看完一集等自然内容断点调用；失败或限频时必须继续内容播放。 */
-    fun showInterstitialAtNaturalBreak(activity: Activity, onResult: (FullscreenResult) -> Unit) {
+    /** 仅用于非解锁型的自然内容断点；保留旧 60 秒本地冷却。 */
+    fun showInterstitialAtNaturalBreak(activity: Activity, onResult: (FullscreenResult) -> Unit) =
+        showInterstitial(activity, interstitialPolicy, onResult)
+
+    /**
+     * 每个锁定分集开始前调用。此路径不使用普通中途插屏的本地冷却，以保证第 4 集起
+     * 每一集都可按产品规则尝试广告解锁；服务端与 Pangle 平台仍可拒绝或限制展示。
+     */
+    fun showInterstitialForEpisodeUnlock(activity: Activity, onResult: (FullscreenResult) -> Unit) =
+        showInterstitial(activity, episodeUnlockInterstitialPolicy, onResult)
+
+    private fun showInterstitial(
+        activity: Activity,
+        policy: FullscreenAdPolicy,
+        onResult: (FullscreenResult) -> Unit,
+    ) {
         if (!settings.canShowInterstitial) {
             onResult(FullscreenResult.Skipped("未配置 Pangle 插屏广告位"))
             return
@@ -137,7 +170,7 @@ class PangleAdsManager(
             onResult(FullscreenResult.Skipped("插屏广告请求正在进行中"))
             return
         }
-        if (!interstitialPolicy.canShow()) {
+        if (!policy.canShow()) {
             onResult(FullscreenResult.Skipped("插屏广告频控中"))
             return
         }
@@ -163,7 +196,7 @@ class PangleAdsManager(
                                 return
                             }
                             ad.setAdInteractionListener(object : PAGInterstitialAdInteractionListener {
-                                override fun onAdShowed() = interstitialPolicy.recordShown()
+                                override fun onAdShowed() = policy.recordShown()
                                 override fun onAdClicked() = Unit
                                 override fun onAdDismissed() = deliver(FullscreenResult.Shown)
                             })
@@ -173,6 +206,61 @@ class PangleAdsManager(
                 )
                 Initialization.NotConfigured -> deliver(FullscreenResult.Skipped("尚未配置 Pangle 广告参数"))
                 is Initialization.Failed -> deliver(FullscreenResult.Failed(init.code, init.message))
+            }
+        }
+    }
+
+    /**
+     * 暂停广告采用 Native 卡片而非全屏插屏。关闭按钮属于应用 UI，因此用户可以随时返回原播放进度；
+     * 若未配置 Native 广告位或无填充，调用方保持普通暂停状态，不会阻塞继续播放。
+     */
+    fun showPauseNativeAd(
+        activity: Activity,
+        overlayHost: ViewGroup,
+        onShown: () -> Unit,
+        onClosed: () -> Unit,
+        onUnavailable: (String) -> Unit,
+    ) {
+        if (!settings.canShowPauseNative) {
+            onUnavailable("未配置 Pangle 暂停原生广告位")
+            return
+        }
+        if (pauseNativeRequestInFlight) {
+            onUnavailable("暂停广告请求正在进行中")
+            return
+        }
+        pauseNativeRequestInFlight = true
+        var delivered = false
+        fun unavailable(reason: String) {
+            if (delivered) return
+            delivered = true
+            pauseNativeRequestInFlight = false
+            onUnavailable(reason)
+        }
+        initialize { init ->
+            when (init) {
+                Initialization.Ready -> PAGNativeAd.loadAd(
+                    settings.pauseNativePlacementId,
+                    PAGNativeRequest(),
+                    object : PAGNativeAdLoadListener {
+                        override fun onError(code: Int, message: String) = unavailable("暂停广告加载失败（$code）：$message")
+                        override fun onAdLoaded(ad: PAGNativeAd?) {
+                            activity.runOnUiThread {
+                                if (ad == null) {
+                                    unavailable("Pangle 未返回可展示的暂停原生广告")
+                                } else if (activity.isFinishing || activity.isDestroyed) {
+                                    unavailable("当前页面已关闭，无法展示暂停广告")
+                                } else {
+                                    renderPauseNativeAd(ad, activity, overlayHost, onShown, onClosed)
+                                    delivered = true
+                                    pauseNativeRequestInFlight = false
+                                }
+                            }
+                        }
+                    }
+                )
+                Initialization.NotConfigured -> unavailable("尚未配置 Pangle 广告参数")
+                is Initialization.Failed -> unavailable("Pangle 初始化失败：${init.code}")
             }
         }
     }
@@ -227,6 +315,107 @@ class PangleAdsManager(
         }
     }
 
+    private fun renderPauseNativeAd(
+        ad: PAGNativeAd,
+        activity: Activity,
+        overlayHost: ViewGroup,
+        onShown: () -> Unit,
+        onClosed: () -> Unit,
+    ) {
+        val data = ad.nativeAdData
+        val overlay = FrameLayout(activity).apply {
+            setBackgroundColor(0xC9000000.toInt())
+            isClickable = true
+        }
+        val card = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(activity, 18), dp(activity, 18), dp(activity, 18), dp(activity, 16))
+            background = roundedBackground(0xFF211B2D.toInt(), dp(activity, 22))
+        }
+        val label = TextView(activity).apply {
+            text = "赞助内容"
+            textSize = 12f
+            setTextColor(0xFFFFDB6A.toInt())
+        }
+        val title = TextView(activity).apply {
+            text = data.title.orEmpty().ifBlank { "推荐内容" }
+            textSize = 19f
+            setTextColor(Color.WHITE)
+            setPadding(0, dp(activity, 7), 0, dp(activity, 4))
+        }
+        val description = TextView(activity).apply {
+            text = data.description.orEmpty()
+            textSize = 14f
+            setTextColor(0xFFCDC3DA.toInt())
+            setPadding(0, 0, 0, dp(activity, 12))
+        }
+        val mediaHost = FrameLayout(activity).apply {
+            background = roundedBackground(0xFF14101D.toInt(), dp(activity, 14))
+        }
+        data.mediaView?.let { mediaView ->
+            (mediaView.parent as? ViewGroup)?.removeView(mediaView)
+            mediaHost.addView(mediaView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 180)))
+        }
+        val action = TextView(activity).apply {
+            text = data.buttonText.orEmpty().ifBlank { "查看详情" }
+            gravity = Gravity.CENTER
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            setPadding(dp(activity, 14), dp(activity, 11), dp(activity, 14), dp(activity, 11))
+            background = roundedBackground(0xFFFF5D69.toInt(), dp(activity, 14))
+        }
+        val close = TextView(activity).apply {
+            text = "返回播放"
+            gravity = Gravity.CENTER
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            setPadding(dp(activity, 14), dp(activity, 11), dp(activity, 14), dp(activity, 11))
+            background = roundedBackground(0xFF3A3049.toInt(), dp(activity, 14))
+        }
+        val buttons = LinearLayout(activity).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            addView(close, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(activity, 8) })
+            addView(action, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        }
+        card.addView(label)
+        data.adLogoView?.let { logo ->
+            (logo.parent as? ViewGroup)?.removeView(logo)
+            card.addView(logo, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        data.adChoicesView?.let { choices ->
+            (choices.parent as? ViewGroup)?.removeView(choices)
+            card.addView(choices, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        card.addView(title)
+        if (description.text.isNotBlank()) card.addView(description)
+        card.addView(mediaHost, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 180)))
+        card.addView(buttons, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(activity, 14) })
+        overlay.addView(card, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER).apply {
+            marginStart = dp(activity, 18)
+            marginEnd = dp(activity, 18)
+        })
+        overlayHost.addView(overlay, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        var closed = false
+        fun closeCard() {
+            if (closed) return
+            closed = true
+            overlayHost.removeView(overlay)
+            onClosed()
+        }
+        close.setOnClickListener { closeCard() }
+        ad.registerViewForInteraction(
+            card,
+            listOf(action, mediaHost),
+            emptyList(),
+            mediaHost,
+            object : PAGNativeAdInteractionListener {
+                override fun onAdShowed() = onShown()
+                override fun onAdClicked() = Unit
+                override fun onAdDismissed() = closeCard()
+            }
+        )
+    }
+
     private fun loadAndShowRewarded(activity: Activity, deliver: (RewardedResult) -> Unit) {
         PAGRewardedAd.loadAd(
             settings.rewardedPlacementId,
@@ -271,6 +460,13 @@ class PangleAdsManager(
         activity.runOnUiThread {
             if (!activity.isFinishing && !activity.isDestroyed) show() else onInactive("当前页面已关闭，无法展示广告")
         }
+    }
+
+    private fun dp(context: Context, value: Int): Int = (value * context.resources.displayMetrics.density).toInt()
+
+    private fun roundedBackground(color: Int, radiusPx: Int): GradientDrawable = GradientDrawable().apply {
+        setColor(color)
+        cornerRadius = radiusPx.toFloat()
     }
 
     private fun dispatchInitialization(result: Initialization) {
