@@ -9,32 +9,6 @@ from threading import Lock
 from fastapi import HTTPException, status
 
 
-class LocalCoverStore:
-    """开发阶段提供自有剧封面的局域网静态访问。"""
-
-    _ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
-
-    def __init__(self, root: str) -> None:
-        cover_root = Path(root).expanduser().resolve()
-        if not cover_root.is_dir():
-            raise RuntimeError(f"LOCAL_COVER_ROOT 不存在或不是目录：{cover_root}")
-        self._root = cover_root
-
-    def resolve(self, relative_path: str) -> Path:
-        requested = Path(relative_path.replace("\\", "/"))
-        if requested.is_absolute() or ".." in requested.parts or not requested.parts:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="本地封面路径必须是封面根目录下的相对路径",
-            )
-        resolved = (self._root / requested).resolve()
-        if self._root not in resolved.parents or not resolved.is_file():
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="本地封面文件不存在")
-        if resolved.suffix.lower() not in self._ALLOWED_EXTENSIONS:
-            raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="本地封面格式不受支持")
-        return resolved
-
-
 class LocalMediaStore:
     """仅开发环境使用的本地媒体访问保护层。
 

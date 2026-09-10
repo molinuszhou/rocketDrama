@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from urllib.parse import quote
 from pathlib import Path
 
 from pydantic import AliasChoices, BaseModel, Field
@@ -43,20 +42,6 @@ class OwnedCatalogInput(BaseModel):
     dramas: list[OwnedDramaInput] = Field(min_length=1)
 
 
-def normalize_cover_url(raw_url: str) -> str:
-    value = raw_url.strip()
-    if not value:
-        return ""
-    if value.startswith(("http://", "https://")):
-        return value
-    if value.startswith("/v1/covers/"):
-        return value
-    relative = value.replace("\\", "/").lstrip("/")
-    if relative.startswith("covers/"):
-        relative = relative[len("covers/"):]
-    return "/v1/covers/" + quote(relative, safe="/@:+-._~")
-
-
 def load_owned_catalog(path: str) -> tuple[FreeDramaRecord, ...]:
     """从经审核的本地 JSON 元数据加载自有剧。
 
@@ -78,7 +63,7 @@ def load_owned_catalog(path: str) -> tuple[FreeDramaRecord, ...]:
                 index=episode.index,
                 title=episode.title,
                 duration_seconds=episode.durationSeconds,
-                cover_url=normalize_cover_url(episode.posterUrl),
+                cover_url=episode.posterUrl,
                 entitlement=EntitlementState.FREE if episode.index <= item.freeEpisodes else EntitlementState.AD_UNLOCK,
                 playback_mode=PlaybackMode.SIGNED_URL,
                 media_asset_id=episode.videoAssetId,
@@ -91,7 +76,7 @@ def load_owned_catalog(path: str) -> tuple[FreeDramaRecord, ...]:
             source=ContentSource.FREE_DRAMA,
             title=item.title,
             summary=item.summary,
-            cover_url=normalize_cover_url(fallback_cover),
+            cover_url=fallback_cover,
             genre=item.genres,
             language=item.language,
             origin_regions=item.originRegions,
