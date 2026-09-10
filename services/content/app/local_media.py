@@ -25,18 +25,25 @@ class LocalMediaStore:
         self._root = media_root
 
     def resolve(self, relative_path: str) -> Path:
-        requested = Path(relative_path)
-        if requested.is_absolute() or ".." in requested.parts:
+        normalized = relative_path.replace("\\", "/").strip()
+        requested = Path(normalized)
+        if not normalized or requested.is_absolute() or ".." in requested.parts:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="本地媒体路径必须是媒体根目录下的相对路径",
             )
 
-        # 片单历史上同时存在两种安全布局：
+        # 片单历史上同时存在多种安全布局：
         # 1) <LOCAL_MEDIA_ROOT>/<剧目录>/ep01.mp4
         # 2) <LOCAL_MEDIA_ROOT>/owned/<剧目录>/ep01.mp4
-        # Windows 测试包兼容二者，避免目录能加载但首次播放因缺少一层 owned 而 404。
+        # 3) videoAssetId 带有 media/ 或 content/media/ 前缀。
+        # Windows 测试包兼容这些写法，避免目录能加载但播放时因路径前缀重复而 404。
         candidates = [requested]
+        parts = requested.parts
+        if len(parts) >= 2 and parts[0].lower() == "content" and parts[1].lower() == "media":
+            candidates.append(Path(*parts[2:]))
+        elif parts and parts[0].lower() == "media":
+            candidates.append(Path(*parts[1:]))
         if requested.parts and requested.parts[0].lower() != "owned":
             candidates.append(Path("owned") / requested)
         elif len(requested.parts) > 1:

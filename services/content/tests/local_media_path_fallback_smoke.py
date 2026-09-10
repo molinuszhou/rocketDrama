@@ -29,6 +29,9 @@ def run() -> None:
         assert store.resolve("Love in Cyberpunk 2077/ep01.mp4") == flat_file.resolve()
         assert store.resolve("Wasteland Wolf King/ep01.mp4") == owned_file.resolve()
         assert store.resolve("owned/Wasteland Wolf King/ep01.mp4") == owned_file.resolve()
+        assert store.resolve("media/Love in Cyberpunk 2077/ep01.mp4") == flat_file.resolve()
+        assert store.resolve("content/media/Love in Cyberpunk 2077/ep01.mp4") == flat_file.resolve()
+        assert store.resolve("Love in Cyberpunk 2077\\ep01.mp4") == flat_file.resolve()
 
     print("local media path fallback smoke test passed")
 

@@ -26,10 +26,11 @@ docker compose up -d --build
 docker compose ps
 ```
 
-`services/content/media/` 用于放置本地 MP4，且不会被 Git 跟踪。默认片单为 `services/content/content/owned_catalog.three-test-dramas.json`；如需使用自有片单，可创建未提交的 `services/content/content/owned_catalog.local-media.json`，并在 `services/.env` 中设置：
+Docker 会把 `.env` 中的 Windows 主机路径映射到容器内部固定路径：`LOCAL_MEDIA_ROOT` 映射到 `/app/media`，`OWNED_CATALOG_PATH` 映射到 `/app/content/owned_catalog.json`。请确保这两个 Windows 路径真实存在，且 MP4 文件名与片单中的 `videoAssetId` 一致。示例：
 
 ```dotenv
-OWNED_CATALOG_FILE=owned_catalog.local-media.json
+LOCAL_MEDIA_ROOT=D:/gworkspace/JoyeDrama/services/content/media
+OWNED_CATALOG_PATH=D:/gworkspace/JoyeDrama/services/content/content/owned_catalog.local-media.json
 ```
 
 启动成功后，使用电脑的局域网 IPv4 地址在 Android App 中分别设置：

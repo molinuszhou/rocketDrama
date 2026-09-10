@@ -59,12 +59,18 @@ services:
       FREE_DRAMA_DATABASE_URL: ${FREE_DRAMA_DATABASE_URL:-}
       FREE_DRAMA_CDN_BASE_URL: ${FREE_DRAMA_CDN_BASE_URL:-}
       PLAYBACK_SIGNING_KEY: ${PLAYBACK_SIGNING_KEY:?Set PLAYBACK_SIGNING_KEY in .env}
-      OWNED_CATALOG_PATH: /app/content/${OWNED_CATALOG_FILE:-owned_catalog.three-test-dramas.json}
+      OWNED_CATALOG_PATH: /app/content/owned_catalog.json
       LOCAL_MEDIA_ENABLED: ${LOCAL_MEDIA_ENABLED:-true}
       LOCAL_MEDIA_ROOT: /app/media
     volumes:
-      - ./content/content:/app/content:ro
-      - ./content/media:/app/media:ro
+      - type: bind
+        source: ${OWNED_CATALOG_PATH:-./content/content/owned_catalog.three-test-dramas.json}
+        target: /app/content/owned_catalog.json
+        read_only: true
+      - type: bind
+        source: ${LOCAL_MEDIA_ROOT:-./content/media}
+        target: /app/media
+        read_only: true
     ports:
       - "${CONTENT_PORT:-8000}:8000"
     healthcheck:

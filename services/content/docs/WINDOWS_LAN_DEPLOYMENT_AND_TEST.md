@@ -121,6 +121,7 @@ notepad .\.env
 ENVIRONMENT=development
 PANGLE_CONTENT_ENABLED=false
 LOCAL_MEDIA_ENABLED=true
+# Docker 模式：以下是 Windows 主机路径，Compose 会分别映射到 /app/media 和 /app/content/owned_catalog.json。
 LOCAL_MEDIA_ROOT=C:/DramaFlow/dramaflow_content_server/media
 OWNED_CATALOG_PATH=C:/DramaFlow/dramaflow_content_server/content/owned_catalog.local-media.json
 ```
@@ -130,8 +131,8 @@ OWNED_CATALOG_PATH=C:/DramaFlow/dramaflow_content_server/content/owned_catalog.l
 | `ENVIRONMENT` | `development` | 本地媒体模式的强制安全开关；其他值会拒绝启动本地媒体服务 |
 | `PANGLE_CONTENT_ENABLED` | `false` | 关闭尚未配置的外部短剧内容源；不影响 Pangle 广告 SDK |
 | `LOCAL_MEDIA_ENABLED` | `true` | 开启本地 MP4 和短时播放 URL |
-| `LOCAL_MEDIA_ROOT` | 你的 `media` 绝对路径 | 服务端读取 MP4 的根目录 |
-| `OWNED_CATALOG_PATH` | 你的片单绝对路径 | 供 Android 展示的自有剧目录 |
+| `LOCAL_MEDIA_ROOT` | Windows 主机上的 `media` 绝对路径 | Docker Compose 映射到容器 `/app/media` |
+| `OWNED_CATALOG_PATH` | Windows 主机上的片单绝对路径 | Docker Compose 映射到容器 `/app/content/owned_catalog.json` |
 
 `.env`、`media`、`runtime` 下的账本文件和实际片单不应上传到 Git、网盘公开链接或源码压缩包。
 
@@ -230,7 +231,7 @@ http://192.168.1.25:8000
 | 激活 `.ps1` 被禁止 | 执行本手册的 `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`，无需永久改变系统策略 |
 | 手机无法加载目录 | 使用实际 Wi-Fi/以太网 IPv4 地址；服务必须带 `--host 0.0.0.0`；确认防火墙端口和同一局域网 |
 | 服务启动时报本地媒体只能在开发环境启用 | 将 `.env` 中的 `ENVIRONMENT` 改为 `development`，然后重启服务 |
-| 播放接口返回 404 或 App 显示 `ERROR_CODE_IO_BAD_HTTP_STATUS` | 片单和文件布局不一致。若首页显示三部测试剧，请使用 `owned_catalog.three-test-dramas.json` 作为 `owned_catalog.local-media.json`，并按本节的 `Love in Cyberpunk 2077/ep01.mp4` 等路径放置文件；修改后重启服务。 |
+| 播放接口返回 404 或 App 显示 `ERROR_CODE_IO_BAD_HTTP_STATUS` | 先执行 `docker compose config`，确认 `LOCAL_MEDIA_ROOT` 和 `OWNED_CATALOG_PATH` 指向 Windows 主机上真实存在的目录/文件；再确认容器内 `/app/media` 下存在与 `videoAssetId` 对应的 MP4。若首页显示三部测试剧，请按本节的 `Love in Cyberpunk 2077/ep01.mp4` 等路径放置文件，然后重建服务。 |
 | 播放接口返回 402 | 当前分集超过免费集数；先完成激励广告解锁流程 |
 | 播放接口返回 403 | 播放 URL 已过期或服务重启；在 App 中重新进入该集以获取新会话 |
 | Android 显示明文网络错误 | 必须使用本次 Debug APK；Release 默认禁止 HTTP 局域网地址 |
