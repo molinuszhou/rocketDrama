@@ -141,7 +141,7 @@ class LocalDramaApiClient {
                             index = item.optInt("index", index + 1),
                             title = item.optString("title", "第 ${index + 1} 集"),
                             durationSeconds = item.optInt("duration_seconds", 1).coerceAtLeast(1),
-                            coverUrl = resolveMediaUrl(baseUrl, item.optString("cover_url").ifBlank { item.optString("coverUrl") }),
+                            coverUrl = resolveMediaUrl(baseUrl, item.optString("cover_url")),
                             entitlement = item.optString("entitlement", "FREE"),
                         )
                     )
@@ -153,7 +153,7 @@ class LocalDramaApiClient {
             id = json.getString("id"),
             title = json.optString("title", "精彩短剧"),
             desc = json.optString("summary"),
-            coverImage = resolveMediaUrl(baseUrl, json.optString("cover_url").ifBlank { json.optString("coverUrl") }),
+            coverImage = resolveMediaUrl(baseUrl, json.optString("cover_url")),
             total = json.optInt("total_episodes", episodes.size.coerceAtLeast(1)).coerceAtLeast(1),
             freeEpisodes = json.optInt("free_episodes", 3).coerceAtLeast(0),
             genres = buildList {

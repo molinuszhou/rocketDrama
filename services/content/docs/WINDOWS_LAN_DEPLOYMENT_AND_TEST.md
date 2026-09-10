@@ -133,7 +133,7 @@ OWNED_CATALOG_PATH=C:/DramaFlow/dramaflow_content_server/content/owned_catalog.l
 | `LOCAL_MEDIA_ROOT` | 你的 `media` 绝对路径 | 服务端读取 MP4 的根目录 |
 | `OWNED_CATALOG_PATH` | 你的片单绝对路径 | 供 Android 展示的自有剧目录 |
 
-`.env`、`media`、`runtime` 下的账本文件和实际片单不应上传到 Git、网盘公开链接或源码压缩包。测试片单中的每集封面使用 `posterUrl`；请确保图片地址能被 Android 手机直接访问。
+`.env`、`media`、`runtime` 下的账本文件和实际片单不应上传到 Git、网盘公开链接或源码压缩包。
 
 ## 5. 备用方案：手动启动服务与本机验证
 
@@ -157,7 +157,7 @@ Invoke-RestMethod http://127.0.0.1:8000/health
 Invoke-RestMethod "http://127.0.0.1:8000/v1/feed?region=SG"
 ```
 
-健康检查应显示 `status` 为 `ok`，并且 `local_media` 为 `enabled`。也可打开浏览器访问 `http://127.0.0.1:8000/docs` 查看 API 文档。若封面仍不显示，请从 `/v1/feed` 复制 `cover_url`，用手机浏览器直接访问；如果手机浏览器也无法打开，应检查 `posterUrl` 是否为完整地址、图片服务器是否允许移动网络访问。
+健康检查应显示 `status` 为 `ok`，并且 `local_media` 为 `enabled`。也可打开浏览器访问 `http://127.0.0.1:8000/docs` 查看 API 文档。
 
 ## 6. 获取 Windows 局域网 IP 并配置防火墙
 

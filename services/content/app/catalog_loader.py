@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from pydantic import AliasChoices, BaseModel, Field
+from pydantic import BaseModel, Field
 
 from app.models import Availability, ContentSource, DramaCard, Episode, EntitlementState, PlaybackMode
 from app.providers import FreeDramaRecord
@@ -15,7 +15,7 @@ class OwnedEpisodeInput(BaseModel):
     index: int = Field(ge=1)
     title: str
     durationSeconds: int = Field(ge=1)
-    posterUrl: str = Field(validation_alias=AliasChoices("posterUrl", "poster_url", "poster", "coverUrl", "cover_url", "cover"))
+    posterUrl: str
     videoProvider: str
     videoAssetId: str
     subtitleLanguages: list[str] = Field(default_factory=list)
@@ -25,7 +25,7 @@ class OwnedDramaInput(BaseModel):
     id: str
     title: str
     summary: str
-    coverUrl: str | None = Field(default=None, validation_alias=AliasChoices("coverUrl", "cover_url", "cover"))
+    coverUrl: str
     genres: list[str] = Field(default_factory=list)
     language: str
     originRegions: list[str] = Field(default_factory=list)
@@ -54,8 +54,6 @@ def load_owned_catalog(path: str) -> tuple[FreeDramaRecord, ...]:
     payload = OwnedCatalogInput.model_validate(json.loads(catalog_file.read_text(encoding="utf-8")))
     records: list[FreeDramaRecord] = []
     for item in payload.dramas:
-        sorted_episodes = sorted(item.episodes, key=lambda entry: entry.index)
-        fallback_cover = item.coverUrl or (sorted_episodes[0].posterUrl if sorted_episodes else "")
         episodes = tuple(
             Episode(
                 id=episode.id,
@@ -69,14 +67,14 @@ def load_owned_catalog(path: str) -> tuple[FreeDramaRecord, ...]:
                 media_asset_id=episode.videoAssetId,
                 media_provider=episode.videoProvider,
             )
-            for episode in sorted_episodes
+            for episode in sorted(item.episodes, key=lambda entry: entry.index)
         )
         card = DramaCard(
             id=item.id,
             source=ContentSource.FREE_DRAMA,
             title=item.title,
             summary=item.summary,
-            cover_url=fallback_cover,
+            cover_url=item.coverUrl,
             genre=item.genres,
             language=item.language,
             origin_regions=item.originRegions,
