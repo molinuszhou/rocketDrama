@@ -281,7 +281,7 @@ class RewardsApiClient(
         onSuccess: (RewardAction) -> Unit,
         onFailure: (String) -> Unit,
     ) {
-        val adEventId = "pangle-${UUID.randomUUID()}"
+        val adEventId = "topon-${UUID.randomUUID()}"
         val payload = JSONObject().put("user_id", userId).put("ad_event_id", adEventId)
             .put("placement_id", placementId).put("proof", proof).put("timestamp_ms", System.currentTimeMillis())
         if (!targetId.isNullOrBlank()) payload.put("target_id", targetId)

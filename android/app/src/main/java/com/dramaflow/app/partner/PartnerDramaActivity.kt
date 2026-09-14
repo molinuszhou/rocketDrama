@@ -40,10 +40,10 @@ import androidx.media3.datasource.HttpDataSource
 import androidx.media3.ui.PlayerView
 import coil.load
 import com.dramaflow.app.BuildConfig
-import com.dramaflow.app.ads.PangleAdsManager
-import com.dramaflow.app.ads.PangleConsent
-import com.dramaflow.app.ads.PangleConsentStore
-import com.dramaflow.app.ads.PangleSettings
+import com.dramaflow.app.ads.AdConsent
+import com.dramaflow.app.ads.AdConsentStore
+import com.dramaflow.app.ads.TopOnAdsManager
+import com.dramaflow.app.ads.TopOnSettings
 import com.dramaflow.app.local.LocalDrama
 import com.dramaflow.app.local.LocalDramaApiClient
 import com.dramaflow.app.local.LocalEpisode
@@ -61,6 +61,8 @@ class PartnerDramaActivity : FragmentActivity() {
     private lateinit var root: FrameLayout
     private var catalogPage: View? = null
     private var catalogItems: List<LocalDrama> = emptyList()
+    /** 当前测试由 Local Content API 提供；字段与合作方短剧 SDK 的 title/cover/summary/genres 模型对齐。 */
+    private var selectedCatalogGenre: String? = null
     private var activeTab: MainTab = MainTab.HOME
     private var rewardsSnapshot: RewardsApiClient.Snapshot? = null
     private var rewardsLoading = false
@@ -127,8 +129,8 @@ class PartnerDramaActivity : FragmentActivity() {
     private val favorites by lazy { getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE) }
     private val playbackHistory by lazy { getSharedPreferences(PLAYBACK_HISTORY_PREFERENCES, Context.MODE_PRIVATE) }
 
-    private val consentStore by lazy { PangleConsentStore(applicationContext) }
-    private val pangleAds by lazy { PangleAdsManager(applicationContext, PangleSettings.fromBuildConfig()) }
+    private val consentStore by lazy { AdConsentStore(applicationContext) }
+    private val topOnAds by lazy { TopOnAdsManager(applicationContext, TopOnSettings.fromBuildConfig()) }
     private val rewardsApi by lazy { RewardsApiClient(baseUrlProvider = { rewardsBaseUrl() }) }
     private val localDramaApi by lazy { LocalDramaApiClient() }
     private val serverPreferences by lazy { getSharedPreferences(SERVER_PREFERENCES, Context.MODE_PRIVATE) }
@@ -165,8 +167,8 @@ class PartnerDramaActivity : FragmentActivity() {
      */
     private fun beginStartupExperience() {
         if (startupContentInitializationStarted) return
-        if (consentStore.read() == PangleConsent.UNKNOWN) {
-            consentStore.save(PangleConsent.GRANTED)
+        if (consentStore.read() == AdConsent.UNKNOWN) {
+            consentStore.save(AdConsent.GRANTED)
         }
         startupCheckinPromptRequested = true
         startupCheckinPromptShown = false
@@ -177,16 +179,16 @@ class PartnerDramaActivity : FragmentActivity() {
     private fun maybeShowAppOpenAd() {
         if (appOpenAttempted) return
         appOpenAttempted = true
-        if (consentStore.read() != PangleConsent.GRANTED) {
+        if (consentStore.read() != AdConsent.GRANTED) {
             finishStartupAfterAppOpen("用户已关闭广告")
             return
         }
         // 立即请求，不再等待固定延迟；每次 Activity 冷启动都会进入该请求链路。
-        pangleAds.showAppOpenIfEligible(this) { result ->
+        topOnAds.showAppOpenIfEligible(this) { result ->
             when (result) {
-                PangleAdsManager.FullscreenResult.Shown -> logStatus("开屏广告已关闭")
-                is PangleAdsManager.FullscreenResult.Failed -> logStatus("开屏广告加载失败：${result.code} ${result.message}")
-                is PangleAdsManager.FullscreenResult.Skipped -> logStatus("开屏广告未展示：${result.reason}")
+                TopOnAdsManager.FullscreenResult.Shown -> logStatus("开屏广告已关闭")
+                is TopOnAdsManager.FullscreenResult.Failed -> logStatus("开屏广告加载失败：${result.code} ${result.message}")
+                is TopOnAdsManager.FullscreenResult.Skipped -> logStatus("开屏广告未展示：${result.reason}")
             }
             runOnUiThread { finishStartupAfterAppOpen(result.javaClass.simpleName) }
         }
@@ -247,21 +249,41 @@ class PartnerDramaActivity : FragmentActivity() {
     }
 
     private fun createHomePage(): View = scrollPage { content ->
+        val filtered = filteredCatalogItems()
+        val recommended = recommendedCatalogItems()
+        val primaryItems = if (selectedCatalogGenre == null) recommended else filtered
+
         content.addView(createBalanceMissionCard(), matchParams(bottom = 12))
         rewardsSnapshot?.takeIf { it.welcome.available }?.let { content.addView(createWelcomeRewardCard(it), matchParams(bottom = 16)) }
         content.addView(createCategoryTabs(), matchParams(bottom = 16))
-        catalogItems.firstOrNull()?.let { content.addView(createHeroBanner(it), matchParams(bottom = 22)) }
-        content.addView(createSectionHeader("精选好剧", "高能剧情，随时开追"), matchParams(bottom = 12))
-        content.addView(createHorizontalDramaShelf(catalogItems.take(6)), matchParams(bottom = 22))
-        content.addView(createSectionHeader("热门短剧", "正在热播的故事"), matchParams(bottom = 12))
-        addDramaGrid(content, catalogItems)
+        primaryItems.firstOrNull()?.let { content.addView(createHeroBanner(it), matchParams(bottom = 22)) }
+        content.addView(createSectionHeader(
+            if (selectedCatalogGenre == null) "为你推荐" else "$selectedCatalogGenre 短剧",
+            if (hasCatalogPreferenceSignals()) "根据追剧与收藏优先排序" else "按内容标签为你整理",
+        ), matchParams(bottom = 12))
+        if (primaryItems.isNotEmpty()) {
+            content.addView(createHorizontalDramaShelf(primaryItems.take(SHELF_ITEM_LIMIT)), matchParams(bottom = 22))
+        } else {
+            content.addView(createInlineNotice("当前题材暂时没有可播放内容。"), matchParams(bottom = 22))
+        }
+        content.addView(createSectionHeader(
+            if (selectedCatalogGenre == null) "全部短剧" else "更多 $selectedCatalogGenre 短剧",
+            "${filtered.size} 部内容可看",
+        ), matchParams(bottom = 12))
+        addDramaGrid(content, filtered)
     }
 
     private fun createDiscoverPage(): View = scrollPage { content ->
-        content.addView(createSectionHeader("发现好剧", "沉浸追剧，解锁更多精彩"), matchParams(bottom = 14))
+        val recommended = recommendedCatalogItems()
+        content.addView(createSectionHeader("发现好剧", "分类浏览，快速找到想看的剧情"), matchParams(bottom = 14))
         if (rewardsSnapshot?.ring?.enabled == true) content.addView(createRingCard(), matchParams(bottom = 18))
-        catalogItems.forEach { drama ->
-            content.addView(createDiscoverDramaCard(drama), matchParams(bottom = 14))
+        if (recommended.isNotEmpty()) {
+            content.addView(createSectionHeader("推荐追剧", if (hasCatalogPreferenceSignals()) "根据你的追剧和收藏生成" else "优先展示精选内容"), matchParams(bottom = 12))
+            content.addView(createHorizontalDramaShelf(recommended.take(SHELF_ITEM_LIMIT)), matchParams(bottom = 20))
+        }
+        catalogGenreGroups().forEach { (genre, dramas) ->
+            content.addView(createSectionHeader("$genre 短剧", "${dramas.size} 部可看"), matchParams(bottom = 12))
+            content.addView(createHorizontalDramaShelf(dramas.take(SHELF_ITEM_LIMIT)), matchParams(bottom = 20))
         }
     }
 
@@ -375,17 +397,57 @@ class PartnerDramaActivity : FragmentActivity() {
     private fun createCategoryTabs(): View = android.widget.HorizontalScrollView(this).apply {
         isHorizontalScrollBarEnabled = false
         val row = LinearLayout(this@PartnerDramaActivity).apply { orientation = LinearLayout.HORIZONTAL }
-        listOf("精选", "热门", "最新", "男频", "女频").forEachIndexed { index, label ->
+        (listOf(ALL_CATEGORIES_LABEL) + catalogGenreGroups().map { it.first }).forEachIndexed { index, label ->
+            val selected = if (label == ALL_CATEGORIES_LABEL) selectedCatalogGenre == null else label == selectedCatalogGenre
             row.addView(TextView(this@PartnerDramaActivity).apply {
                 text = label
                 textSize = 14f
                 gravity = Gravity.CENTER
-                setTextColor(if (index == 0) Color.WHITE else COLOR_TEXT_MUTED)
+                setTextColor(if (selected) Color.WHITE else COLOR_TEXT_MUTED)
                 setPadding(dp(16), dp(9), dp(16), dp(9))
-                background = roundedDrawable(if (index == 0) COLOR_ACCENT else COLOR_SURFACE, 16)
+                background = roundedDrawable(if (selected) COLOR_ACCENT else COLOR_SURFACE, 16)
+                isClickable = true
+                setOnClickListener {
+                    selectedCatalogGenre = label.takeUnless { it == ALL_CATEGORIES_LABEL }
+                    renderActiveTab()
+                }
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { if (index > 0) marginStart = dp(8) })
         }
         addView(row)
+    }
+
+    /** 分类、推荐与排序均读取统一内容模型；未来 PSSDK 接通后仅替换 catalogItems 的数据来源。 */
+    private fun catalogGenreGroups(): List<Pair<String, List<LocalDrama>>> = catalogItems
+        .flatMap { drama -> drama.genres.mapNotNull { genre -> genre.trim().takeIf(String::isNotBlank)?.let { it to drama } } }
+        .groupBy({ it.first }, { it.second })
+        .map { (genre, dramas) -> genre to dramas.distinctBy { it.id } }
+        .sortedByDescending { it.second.size }
+        .take(MAX_CATALOG_GENRES)
+
+    private fun filteredCatalogItems(): List<LocalDrama> {
+        val genre = selectedCatalogGenre ?: return catalogItems
+        return catalogItems.filter { drama -> drama.genres.any { it.equals(genre, ignoreCase = true) } }
+    }
+
+    private fun hasCatalogPreferenceSignals(): Boolean = catalogItems.any { drama ->
+        favorites.getBoolean("favorite_${drama.id}", false) || playbackHistory.contains(resumePreferenceKey(drama.id, "episode"))
+    }
+
+    private fun recommendedCatalogItems(): List<LocalDrama> {
+        val preferredGenres = catalogItems
+            .filter { drama -> favorites.getBoolean("favorite_${drama.id}", false) || playbackHistory.contains(resumePreferenceKey(drama.id, "episode")) }
+            .flatMap { it.genres }
+            .map { it.trim().lowercase(Locale.ROOT) }
+            .filter { it.isNotBlank() }
+            .toSet()
+        return catalogItems.sortedBy { drama ->
+            when {
+                favorites.getBoolean("favorite_${drama.id}", false) -> 0
+                playbackHistory.contains(resumePreferenceKey(drama.id, "episode")) -> 1
+                drama.genres.any { it.trim().lowercase(Locale.ROOT) in preferredGenres } -> 2
+                else -> 3
+            }
+        }
     }
 
     private fun createHeroBanner(drama: LocalDrama): View = FrameLayout(this).apply {
@@ -1247,7 +1309,7 @@ class PartnerDramaActivity : FragmentActivity() {
         })
     }
 
-    /** 全屏广告展示时暂停原视频；Pangle 回调已保证在广告关闭后才会进入这里的结果分支。 */
+    /** 全屏广告展示时暂停原视频；TopOn 回调已保证在广告关闭后才会进入这里的结果分支。 */
     private fun requestRewardedAction(
         placementId: String,
         targetId: String? = null,
@@ -1256,13 +1318,13 @@ class PartnerDramaActivity : FragmentActivity() {
         onSettlementUnavailable: ((String) -> Unit)? = null,
     ) {
         if (fullscreenAdInProgress) { toast("广告正在展示，请稍候"); return }
-        if (consentStore.read() != PangleConsent.GRANTED) { toast("请先在广告设置中启用广告"); return }
+        if (consentStore.read() != AdConsent.GRANTED) { toast("请先在广告与隐私中启用广告"); return }
         if (!rewardsApi.isConfigured) { toast("独立积分服务尚未配置，广告奖励无法结算"); return }
         fullscreenAdInProgress = true
         pauseForFullscreenAd()
-        pangleAds.showRewarded(this) { result ->
+        topOnAds.showRewarded(this) { result ->
             when (result) {
-                PangleAdsManager.RewardedResult.RewardEarned -> {
+                TopOnAdsManager.RewardedResult.RewardEarned -> {
                     rewardsApi.completeRewarded(
                         userId = anonymousInstallationId(),
                         placementId = placementId,
@@ -1292,19 +1354,19 @@ class PartnerDramaActivity : FragmentActivity() {
                         } },
                     )
                 }
-                PangleAdsManager.RewardedResult.Cancelled -> {
+                TopOnAdsManager.RewardedResult.Cancelled -> {
                     fullscreenAdInProgress = false
                     episodeTransitionInProgress = false
                     resumeAfterFullscreenAdIfNeeded()
                     toast("广告未完整观看，未获得奖励或解锁权益")
                 }
-                is PangleAdsManager.RewardedResult.Unavailable -> {
+                is TopOnAdsManager.RewardedResult.Unavailable -> {
                     fullscreenAdInProgress = false
                     episodeTransitionInProgress = false
                     resumeAfterFullscreenAdIfNeeded()
                     toast("奖励广告暂不可用：${result.reason}")
                 }
-                is PangleAdsManager.RewardedResult.Failed -> {
+                is TopOnAdsManager.RewardedResult.Failed -> {
                     fullscreenAdInProgress = false
                     episodeTransitionInProgress = false
                     resumeAfterFullscreenAdIfNeeded()
@@ -1336,13 +1398,13 @@ class PartnerDramaActivity : FragmentActivity() {
         onUnavailable: (String) -> Unit,
     ) {
         if (fullscreenAdInProgress) { onUnavailable("广告正在展示"); return }
-        if (consentStore.read() != PangleConsent.GRANTED) { onUnavailable("请先在广告设置中启用广告"); return }
+        if (consentStore.read() != AdConsent.GRANTED) { onUnavailable("请先在广告与隐私中启用广告"); return }
         fullscreenAdInProgress = true
         pauseForFullscreenAd()
-        pangleAds.showInterstitialForPlaybackAction(this) { result -> runOnUiThread {
+        topOnAds.showInterstitialForPlaybackAction(this) { result -> runOnUiThread {
             fullscreenAdInProgress = false
             when (result) {
-                PangleAdsManager.FullscreenResult.Shown -> {
+                TopOnAdsManager.FullscreenResult.Shown -> {
                     val settled = {
                         onShown()
                     }
@@ -1353,8 +1415,8 @@ class PartnerDramaActivity : FragmentActivity() {
                         )
                     } else settled()
                 }
-                is PangleAdsManager.FullscreenResult.Skipped -> onUnavailable(result.reason)
-                is PangleAdsManager.FullscreenResult.Failed -> onUnavailable("加载失败（${result.code}）")
+                is TopOnAdsManager.FullscreenResult.Skipped -> onUnavailable(result.reason)
+                is TopOnAdsManager.FullscreenResult.Failed -> onUnavailable("加载失败（${result.code}）")
             }
         } }
     }
@@ -2221,10 +2283,10 @@ class PartnerDramaActivity : FragmentActivity() {
         if (!playerShown || fullscreenAdInProgress || pauseNativeAdInProgress) return
         if (currentEpisodeIndex + 1 <= snapshot.unlock.freeEpisodesDefault) return
         if (!policy.pauseAdEnabled || playerProgressSeconds < policy.pauseAdMinPlaySeconds) return
-        if (consentStore.read() != PangleConsent.GRANTED) return
+        if (consentStore.read() != AdConsent.GRANTED) return
 
         pauseNativeAdInProgress = true
-        pangleAds.showPauseNativeAd(
+        topOnAds.showPauseNativeAd(
             activity = this,
             overlayHost = root,
             onShown = {
@@ -2338,12 +2400,12 @@ class PartnerDramaActivity : FragmentActivity() {
     }
 
     private fun showAdPrivacySettings() {
-        val granted = consentStore.read() == PangleConsent.GRANTED
+        val granted = consentStore.read() == AdConsent.GRANTED
         AlertDialog.Builder(this)
             .setTitle("广告设置")
             .setMessage(if (granted) "你已同意广告。开屏和插屏可能在合适时机展示；锁定剧集可通过激励广告解锁。" else "你当前未同意广告。免费内容可正常观看，但广告解锁不可用。")
             .setPositiveButton(if (granted) "关闭广告" else "启用广告") { _, _ ->
-                consentStore.save(if (granted) PangleConsent.DECLINED else PangleConsent.GRANTED)
+                consentStore.save(if (granted) AdConsent.DECLINED else AdConsent.GRANTED)
                 appOpenAttempted = false
                 if (!granted) maybeShowAppOpenAd()
                 toast(if (granted) "已关闭广告" else "已启用广告")
@@ -2388,7 +2450,7 @@ class PartnerDramaActivity : FragmentActivity() {
             background = gradientDrawable(intArrayOf(COLOR_ACCENT, COLOR_PURPLE), 28)
         }, LinearLayout.LayoutParams(dp(88), dp(88)).apply { gravity = Gravity.CENTER_HORIZONTAL })
         column.addView(TextView(this).apply {
-            text = "JoyeDrama"
+            text = getString(com.dramaflow.app.R.string.app_name)
             textSize = 28f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
@@ -2481,7 +2543,7 @@ class PartnerDramaActivity : FragmentActivity() {
     }
 
     /** 仅用于开发环境联调；正式构建必须由广告服务端回调/验签替代。 */
-    private fun testRewardProof(): String = if (BuildConfig.DEBUG) "TEST_PANGLE_REWARD" else ""
+    private fun testRewardProof(): String = if (BuildConfig.DEBUG) "TEST_TOPON_REWARD" else ""
 
     private fun rewardsBaseUrl(): String = serverPreferences
         .getString(REWARDS_SERVER_BASE_URL_KEY, null)
@@ -2581,6 +2643,9 @@ class PartnerDramaActivity : FragmentActivity() {
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     companion object {
+        private const val ALL_CATEGORIES_LABEL = "全部"
+        private const val MAX_CATALOG_GENRES = 6
+        private const val SHELF_ITEM_LIMIT = 6
         private const val FREE_EPISODES = 3
         private const val CONTENT_REGION = "SG"
         private const val REWARDS_REGION = CONTENT_REGION

@@ -1,0 +1,44 @@
+# JoyeDrama v1.6 白包测试参数模板
+# 复制为 android/local.properties 或以 Gradle -P 参数、环境变量提供。实际 local.properties 不提交。
+
+# 白包基础
+WHITE_LABEL_APP_NAME=JoyeDrama
+# versionCode/versionName 已固定为 16 / 1.6；正式发包按应用商店策略递增。
+
+# TopOn 聚合广告。测试阶段允许 TOPON_APP_KEY 留空：应用会安全跳过广告请求，本地视频仍可正常测试。
+# 注意：要让 TopOn 真实初始化、加载并展示测试广告，SDK 仍必须获得合作方下发的 TOPON_APP_KEY。
+TOPON_APP_ID=h6a880d76bf897
+TOPON_APP_KEY=
+TOPON_INTERSTITIAL_PLACEMENT_ID=n6a880e948c456
+TOPON_REWARDED_PLACEMENT_ID=n6a880eaaa1a1e
+TOPON_SPLASH_PLACEMENT_ID=n6a880ebb7fb00
+ADMOB_APP_ID=ca-app-pub-4636975460860893~1434961000
+
+# AppsFlyer：收入仅在 TopOn paid impression 回调中上报。默认值已与合作方指南一致。
+APPSFLYER_DEV_KEY=DdWbxT9VRELdEsZiAcnGea
+APPSFLYER_SINGLE_REVENUE_EVENT_NAME=ad_impression
+APPSFLYER_CUMULATIVE_REVENUE_EVENT_NAME=ad_impression_001
+
+# Firebase：将与当前包名 com.dramaflow.app 匹配的 Dramaflow-google-services.json
+# 放入 android/app/google-services.json（该文件已被 Git 忽略）。
+FIREBASE_REWARDED_EVENT_NAME=rewarded_ad_completed
+
+# 炫羽测试服务器。当前文档定义 /event/w_ad_show，使用 AppsFlyer UID、版本、包名和 TopOn 广告信息。
+XUANYU_EVENT_BASE_URL=https://api.eventtrack.top
+
+# 仅测试联调开启。上线前关闭，TopOn 网络日志、AppsFlyer/Firebase 调试均不应在生产常开。
+ANALYTICS_DEBUG=true
+
+# 现有自有短剧和 v8 积分服务。
+LOCAL_CONTENT_API_BASE_URL=http://10.0.2.2:8000
+REWARDS_API_BASE_URL=http://10.0.2.2:8100
+
+# 合作方短剧 SDK（已恢复历史 PSSDK 1.8.0.0 依赖和分类/热门/最新读取能力）。
+# 当前测试固定使用 Local Content API + 本地视频：保持 false，不会初始化外部 SDK 或请求外部内容。
+# 未来填入已授权参数并改为 true 后，应用会初始化 PSSDK，读取热门、最新、分类和分类内容；
+# 外部播放器切换须在内容方确认当前包名和签名白名单后启用。
+SHORT_DRAMA_SDK_ENABLED=false
+SHORT_DRAMA_APP_ID=
+SHORT_DRAMA_VOD_APP_ID=
+SHORT_DRAMA_LICENSE_ASSET=license/l-1153247249-ch-vod-a-1053223.lic
+SHORT_DRAMA_SECURITY_KEY=

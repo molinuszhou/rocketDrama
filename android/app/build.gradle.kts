@@ -13,11 +13,24 @@ fun integrationValue(name: String): String =
 
 fun escapeBuildConfig(value: String): String = value.replace("\\", "\\\\").replace("\"", "\\\"")
 
-val pangleAppId = integrationValue("PANGLE_APP_ID")
-val pangleRewardedSlotId = integrationValue("PANGLE_REWARDED_SLOT_ID")
-val pangleInterstitialSlotId = integrationValue("PANGLE_INTERSTITIAL_SLOT_ID")
-val pangleAppOpenSlotId = integrationValue("PANGLE_APP_OPEN_SLOT_ID")
-val panglePauseNativeSlotId = integrationValue("PANGLE_PAUSE_NATIVE_SLOT_ID")
+val topOnAppId = integrationValue("TOPON_APP_ID").ifBlank { "h6a880d76bf897" }
+val topOnAppKey = integrationValue("TOPON_APP_KEY")
+val topOnRewardedPlacementId = integrationValue("TOPON_REWARDED_PLACEMENT_ID").ifBlank { "n6a880eaaa1a1e" }
+val topOnInterstitialPlacementId = integrationValue("TOPON_INTERSTITIAL_PLACEMENT_ID").ifBlank { "n6a880e948c456" }
+val topOnSplashPlacementId = integrationValue("TOPON_SPLASH_PLACEMENT_ID").ifBlank { "n6a880ebb7fb00" }
+val topOnAdmobAppId = integrationValue("ADMOB_APP_ID").ifBlank { "ca-app-pub-4636975460860893~1434961000" }
+val appsFlyerDevKey = integrationValue("APPSFLYER_DEV_KEY").ifBlank { "DdWbxT9VRELdEsZiAcnGea" }
+val appsFlyerSingleRevenueEventName = integrationValue("APPSFLYER_SINGLE_REVENUE_EVENT_NAME").ifBlank { "ad_impression" }
+val appsFlyerCumulativeRevenueEventName = integrationValue("APPSFLYER_CUMULATIVE_REVENUE_EVENT_NAME").ifBlank { "ad_impression_001" }
+val firebaseRewardedEventName = integrationValue("FIREBASE_REWARDED_EVENT_NAME").ifBlank { "rewarded_ad_completed" }
+val xuanyuEventBaseUrl = integrationValue("XUANYU_EVENT_BASE_URL").ifBlank { "https://api.eventtrack.top" }
+val shortDramaSdkEnabled = integrationValue("SHORT_DRAMA_SDK_ENABLED").trim().equals("true", ignoreCase = true)
+val shortDramaAppId = integrationValue("SHORT_DRAMA_APP_ID")
+val shortDramaVodAppId = integrationValue("SHORT_DRAMA_VOD_APP_ID")
+val shortDramaLicenseAsset = integrationValue("SHORT_DRAMA_LICENSE_ASSET")
+val shortDramaSecurityKey = integrationValue("SHORT_DRAMA_SECURITY_KEY")
+val whiteLabelAppName = integrationValue("WHITE_LABEL_APP_NAME").ifBlank { "JoyeDrama" }
+val analyticsDebug = integrationValue("ANALYTICS_DEBUG").trim().equals("true", ignoreCase = true)
 val localContentApiBaseUrl = integrationValue("LOCAL_CONTENT_API_BASE_URL").ifBlank { "http://10.0.2.2:8000" }
 val rewardsApiBaseUrl = integrationValue("REWARDS_API_BASE_URL").ifBlank { "http://10.0.2.2:8100" }
 
@@ -38,18 +51,31 @@ android {
         applicationId = "com.dramaflow.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 16
+        versionName = "1.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
-        buildConfigField("String", "PANGLE_APP_ID", "\"${escapeBuildConfig(pangleAppId)}\"")
-        buildConfigField("String", "PANGLE_REWARDED_SLOT_ID", "\"${escapeBuildConfig(pangleRewardedSlotId)}\"")
-        buildConfigField("String", "PANGLE_INTERSTITIAL_SLOT_ID", "\"${escapeBuildConfig(pangleInterstitialSlotId)}\"")
-        buildConfigField("String", "PANGLE_APP_OPEN_SLOT_ID", "\"${escapeBuildConfig(pangleAppOpenSlotId)}\"")
-        buildConfigField("String", "PANGLE_PAUSE_NATIVE_SLOT_ID", "\"${escapeBuildConfig(panglePauseNativeSlotId)}\"")
+        buildConfigField("String", "TOPON_APP_ID", "\"${escapeBuildConfig(topOnAppId)}\"")
+        buildConfigField("String", "TOPON_APP_KEY", "\"${escapeBuildConfig(topOnAppKey)}\"")
+        buildConfigField("String", "TOPON_REWARDED_PLACEMENT_ID", "\"${escapeBuildConfig(topOnRewardedPlacementId)}\"")
+        buildConfigField("String", "TOPON_INTERSTITIAL_PLACEMENT_ID", "\"${escapeBuildConfig(topOnInterstitialPlacementId)}\"")
+        buildConfigField("String", "TOPON_SPLASH_PLACEMENT_ID", "\"${escapeBuildConfig(topOnSplashPlacementId)}\"")
+        buildConfigField("String", "APPSFLYER_DEV_KEY", "\"${escapeBuildConfig(appsFlyerDevKey)}\"")
+        buildConfigField("String", "APPSFLYER_SINGLE_REVENUE_EVENT_NAME", "\"${escapeBuildConfig(appsFlyerSingleRevenueEventName)}\"")
+        buildConfigField("String", "APPSFLYER_CUMULATIVE_REVENUE_EVENT_NAME", "\"${escapeBuildConfig(appsFlyerCumulativeRevenueEventName)}\"")
+        buildConfigField("String", "FIREBASE_REWARDED_EVENT_NAME", "\"${escapeBuildConfig(firebaseRewardedEventName)}\"")
+        buildConfigField("String", "XUANYU_EVENT_BASE_URL", "\"${escapeBuildConfig(xuanyuEventBaseUrl)}\"")
+        buildConfigField("boolean", "SHORT_DRAMA_SDK_ENABLED", shortDramaSdkEnabled.toString())
+        buildConfigField("String", "SHORT_DRAMA_APP_ID", "\"${escapeBuildConfig(shortDramaAppId)}\"")
+        buildConfigField("String", "SHORT_DRAMA_VOD_APP_ID", "\"${escapeBuildConfig(shortDramaVodAppId)}\"")
+        buildConfigField("String", "SHORT_DRAMA_LICENSE_ASSET", "\"${escapeBuildConfig(shortDramaLicenseAsset)}\"")
+        buildConfigField("String", "SHORT_DRAMA_SECURITY_KEY", "\"${escapeBuildConfig(shortDramaSecurityKey)}\"")
+        buildConfigField("boolean", "ANALYTICS_DEBUG", analyticsDebug.toString())
+        resValue("string", "app_name", whiteLabelAppName)
         buildConfigField("String", "LOCAL_CONTENT_API_BASE_URL", "\"${escapeBuildConfig(localContentApiBaseUrl)}\"")
         buildConfigField("String", "REWARDS_API_BASE_URL", "\"${escapeBuildConfig(rewardsApiBaseUrl)}\"")
+        manifestPlaceholders["ADMOB_APP_ID"] = topOnAdmobAppId
     }
 
     buildTypes {
@@ -92,7 +118,21 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
-    implementation("com.pangle.global:ads-sdk:6.5.1.2")
+
+    // White-label test stack: TopOn mediation, AppsFlyer attribution and Firebase Analytics.
+    implementation("com.anythink.sdk:core-tpn:6.5.73.3")
+    implementation("com.anythink.sdk:adapter-tpn-sdm:6.5.68.1.1")
+    implementation("com.smartdigimkttech.sdk:smartdigimkttech-sdk:6.5.68")
+    implementation("com.anythink.sdk:adapter-tpn-admob:6.5.36")
+    implementation("com.google.android.gms:play-services-ads:24.6.0")
+    implementation("com.appsflyer:af-android-sdk:6.17.5")
+    implementation(platform("com.google.firebase:firebase-bom:33.10.0"))
+    implementation("com.google.firebase:firebase-analytics")
+
+    // 合作方短剧 SDK：默认由 SHORT_DRAMA_SDK_ENABLED=false 保持本地视频测试链路；
+    // 需要外部短剧目录和鉴权时再填入合作方参数并开启该开关。
+    implementation("com.bytedance.dramaverse:pssdk:1.8.0.0")
+
     implementation("androidx.media3:media3-exoplayer:1.5.1")
     implementation("androidx.media3:media3-ui:1.5.1")
     implementation("io.coil-kt:coil:2.7.0")

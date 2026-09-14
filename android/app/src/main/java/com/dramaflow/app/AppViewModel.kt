@@ -3,10 +3,10 @@ package com.dramaflow.app
 import android.app.Activity
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
-import com.dramaflow.app.ads.PangleAdsManager
-import com.dramaflow.app.ads.PangleConsent
-import com.dramaflow.app.ads.PangleConsentStore
-import com.dramaflow.app.ads.PangleSettings
+import com.dramaflow.app.ads.AdConsent
+import com.dramaflow.app.ads.AdConsentStore
+import com.dramaflow.app.ads.TopOnAdsManager
+import com.dramaflow.app.ads.TopOnSettings
 import com.dramaflow.app.data.AppRoute
 import com.dramaflow.app.data.AppUiState
 import com.dramaflow.app.data.CacheFirstDramaRepository
@@ -25,9 +25,9 @@ import kotlinx.coroutines.flow.update
 class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = CacheFirstDramaRepository(application)
     private val searchHistoryStore = com.dramaflow.app.data.SearchHistoryStore(application)
-    private val pangleSettings = PangleSettings.fromBuildConfig()
-    private val adConsentStore = PangleConsentStore(application)
-    private val pangleAdsManager = PangleAdsManager(application, pangleSettings)
+    private val pangleSettings = TopOnSettings.fromBuildConfig()
+    private val adConsentStore = AdConsentStore(application)
+    private val pangleAdsManager = TopOnAdsManager(application, pangleSettings)
 
     private val _uiState = MutableStateFlow(AppUiState())
     val uiState: StateFlow<AppUiState> = _uiState.asStateFlow()
@@ -47,7 +47,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             cashTiers = repository.cashTiers(user),
             pangleConsent = consent,
             pangleConfigured = pangleSettings.isConfigured,
-            pangleAdsReady = consent == PangleConsent.GRANTED && pangleSettings.isConfigured,
+            pangleAdsReady = consent == AdConsent.GRANTED && pangleSettings.isConfigured,
             milestones = defaultMilestones(),
             withdrawalEligibility = withdrawalEligibilityFor(user)
         )
@@ -60,8 +60,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(snackMessage = "短剧目录已更新：${dramas.size} 部内容可用") }
     }
 
-    fun recordPangleConsent(granted: Boolean) {
-        val consent = if (granted) PangleConsent.GRANTED else PangleConsent.DECLINED
+    fun recordAdConsent(granted: Boolean) {
+        val consent = if (granted) AdConsent.GRANTED else AdConsent.DECLINED
         adConsentStore.save(consent)
         _uiState.update {
             it.copy(
@@ -69,18 +69,24 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 pangleAdsReady = granted && pangleSettings.isConfigured,
                 snackMessage = when {
                     granted && pangleSettings.isConfigured -> "已同意广告隐私说明；开屏、插屏和激励广告会在对应场景按需加载"
-                    granted -> "已记录同意；请先配置 Pangle App ID 与广告位 ID"
+                    granted -> "已记录同意；请先配置 TopOn App ID 与广告位 ID"
                     else -> "已拒绝广告隐私说明；开屏、插屏、激励广告和广告解锁将不可用"
                 }
             )
         }
     }
 
-    fun requestPangleConsentChoice() {
+    /** 旧 Compose 页面兼容入口；主运行链路使用通用广告同意状态。 */
+    fun recordPangleConsent(granted: Boolean) = recordAdConsent(granted)
+
+    /** 旧 Compose 页面兼容入口。 */
+    fun requestPangleConsentChoice() = requestAdConsentChoice()
+
+    fun requestAdConsentChoice() {
         adConsentStore.clear()
         _uiState.update {
             it.copy(
-                pangleConsent = PangleConsent.UNKNOWN,
+                pangleConsent = AdConsent.UNKNOWN,
                 pangleAdsReady = false,
                 snackMessage = "请重新选择广告隐私偏好"
             )
@@ -134,13 +140,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun watchAdToUnlock(activity: Activity?) {
         val drama = selectedDrama() ?: return
         if (!canRequestAd(activity)) return
-        _uiState.update { it.copy(showUnlockDialog = false, snackMessage = "正在加载 Pangle 激励广告…") }
+        _uiState.update { it.copy(showUnlockDialog = false, snackMessage = "正在加载 TopOn 激励广告…") }
         pangleAdsManager.showRewarded(requireNotNull(activity)) { result ->
             when (result) {
-                PangleAdsManager.RewardedResult.RewardEarned -> unlockEpisodeAfterReward(drama)
-                PangleAdsManager.RewardedResult.Cancelled -> postAdMessage("广告未完整观看，未解锁剧集")
-                is PangleAdsManager.RewardedResult.Unavailable -> postAdMessage(result.reason)
-                is PangleAdsManager.RewardedResult.Failed -> postAdMessage("广告加载失败（${result.code}）：${result.message.ifBlank { "请稍后重试" }}")
+                TopOnAdsManager.RewardedResult.RewardEarned -> unlockEpisodeAfterReward(drama)
+                TopOnAdsManager.RewardedResult.Cancelled -> postAdMessage("广告未完整观看，未解锁剧集")
+                is TopOnAdsManager.RewardedResult.Unavailable -> postAdMessage(result.reason)
+                is TopOnAdsManager.RewardedResult.Failed -> postAdMessage("广告加载失败（${result.code}）：${result.message.ifBlank { "请稍后重试" }}")
             }
         }
     }
@@ -256,13 +262,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun watchAdForDoubleTaskReward(activity: Activity?, taskId: String) {
         if (!canRequestAd(activity)) return
-        _uiState.update { it.copy(showRewardDialog = false, snackMessage = "正在加载 Pangle 双倍奖励广告…") }
+        _uiState.update { it.copy(showRewardDialog = false, snackMessage = "正在加载 TopOn 双倍奖励广告…") }
         pangleAdsManager.showRewarded(requireNotNull(activity)) { result ->
             when (result) {
-                PangleAdsManager.RewardedResult.RewardEarned -> claimTask(taskId, doubled = true)
-                PangleAdsManager.RewardedResult.Cancelled -> postAdMessage("广告未完整观看，未领取双倍奖励")
-                is PangleAdsManager.RewardedResult.Unavailable -> postAdMessage(result.reason)
-                is PangleAdsManager.RewardedResult.Failed -> postAdMessage("广告加载失败（${result.code}）：${result.message.ifBlank { "请稍后重试" }}")
+                TopOnAdsManager.RewardedResult.RewardEarned -> claimTask(taskId, doubled = true)
+                TopOnAdsManager.RewardedResult.Cancelled -> postAdMessage("广告未完整观看，未领取双倍奖励")
+                is TopOnAdsManager.RewardedResult.Unavailable -> postAdMessage(result.reason)
+                is TopOnAdsManager.RewardedResult.Failed -> postAdMessage("广告加载失败（${result.code}）：${result.message.ifBlank { "请稍后重试" }}")
             }
         }
     }
@@ -320,8 +326,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val state = _uiState.value
         val message = when {
             activity == null -> "无法获取当前页面，暂不能展示广告"
-            state.pangleConsent != PangleConsent.GRANTED -> "请先同意广告隐私说明后再使用广告解锁"
-            !pangleSettings.isConfigured -> "Pangle 尚未配置 App ID 或激励广告位 ID"
+            state.pangleConsent != AdConsent.GRANTED -> "请先同意广告隐私说明后再使用广告解锁"
+            !pangleSettings.isConfigured -> "TopOn 尚未配置 App ID 或激励广告位 ID"
             else -> null
         }
         if (message != null) {

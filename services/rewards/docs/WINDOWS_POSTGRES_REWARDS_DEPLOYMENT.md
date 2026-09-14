@@ -40,7 +40,8 @@ REWARDS_PORT=8100
 ENVIRONMENT=development
 TIMEZONE=Asia/Shanghai
 
-# 仅 Android Debug/Pangle 测试环境允许。
+# 仅 Android Debug 的 Pangle/TopOn 测试环境允许；生产环境必须关闭。
+# Debug 客户端可使用 TEST_PANGLE_REWARD 或 TEST_TOPON_REWARD；真实广告完成仍以 SDK 回调为前提。
 ALLOW_DEBUG_AD_PROOF=true
 PANGLE_CALLBACK_SECRET=
 
@@ -189,7 +190,7 @@ docker compose start rewards-api
 
 ## 9. 开发与生产边界
 
-`ALLOW_DEBUG_AD_PROOF=true` 只用于 Android Debug 包和 Pangle 测试环境。正式上架前必须改为 `false`，配置 `PANGLE_CALLBACK_SECRET` 并接入广告平台服务端回调/验签。提现当前只提供透明的余额与资格预检；开放真实支付前应独立建设身份校验、反作弊、支付通道、限额、人工审核、争议处理、对账及合规流程。
+`ALLOW_DEBUG_AD_PROOF=true` 只用于 Android Debug 的 Pangle/TopOn 测试环境。正式上架前必须改为 `false`，并接入聚合广告或广告平台的服务端回调/验签；不能使用客户端测试证明。提现当前只提供透明的余额与资格预检；开放真实支付前应独立建设身份校验、反作弊、支付通道、限额、人工审核、争议处理、对账及合规流程。
 
 ## References
 

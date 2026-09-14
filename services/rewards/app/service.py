@@ -1576,7 +1576,9 @@ class RewardsService:
             raise ServiceError(1902, "管理员令牌无效", 401)
 
     def _verify_ad_proof(self, proof: str | None) -> None:
-        if self.settings.allow_debug_ad_proof and proof == "TEST_PANGLE_REWARD":
+        # 仅 development + ALLOW_DEBUG_AD_PROOF 环境接受客户端测试证明。兼容历史
+        # Pangle 联调和当前 TopOn 白包迁移；生产仍必须使用服务端回调/签名验证。
+        if self.settings.allow_debug_ad_proof and proof in {"TEST_PANGLE_REWARD", "TEST_TOPON_REWARD"}:
             return
         if self.settings.pangle_callback_secret and proof == self.settings.pangle_callback_secret:
             return
