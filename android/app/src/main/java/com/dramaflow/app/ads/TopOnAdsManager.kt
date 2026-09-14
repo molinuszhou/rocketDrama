@@ -2,6 +2,8 @@ package com.dramaflow.app.ads
 
 import android.app.Activity
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -10,7 +12,9 @@ import com.dramaflow.app.analytics.PartnerAnalytics
 import com.secmtp.sdk.core.api.ATAdInfo
 import com.secmtp.sdk.core.api.ATAdRevenueListener
 import com.secmtp.sdk.core.api.ATNetworkConfirmInfo
+import com.secmtp.sdk.core.api.ATNetworkConfig
 import com.secmtp.sdk.core.api.ATSDK
+import com.secmtp.sdk.core.api.ATSDKInitListener
 import com.secmtp.sdk.core.api.AdError
 import com.secmtp.sdk.interstitial.api.ATInterstitial
 import com.secmtp.sdk.interstitial.api.ATInterstitialExListener
@@ -74,21 +78,63 @@ class TopOnAdsManager(
     private var rewardedRequestInFlight = false
     private var interstitialRequestInFlight = false
     private var splashRequestInFlight = false
+    private var topOnInitialized = false
+    private var topOnInitializationInFlight = false
+    private val pendingInitializationCallbacks = mutableListOf<(Initialization) -> Unit>()
+    private val initializationLock = Any()
+    private val mainHandler = Handler(Looper.getMainLooper())
 
+    /**
+     * TopOn 初始化会异步拉取聚合配置。必须等 [ATSDKInitListener.onSuccess] 后再请求开屏，
+     * 否则冷启动时可能在配置尚未就绪前出现无填充或不展示。
+     */
     fun initialize(onResult: (Initialization) -> Unit) {
         if (!settings.isConfigured) {
             onResult(Initialization.NotConfigured)
             return
         }
+
+        var startInitialization = false
+        synchronized(initializationLock) {
+            if (topOnInitialized) {
+                mainHandler.post { onResult(Initialization.Ready) }
+                return
+            }
+            pendingInitializationCallbacks += onResult
+            if (!topOnInitializationInFlight) {
+                topOnInitializationInFlight = true
+                startInitialization = true
+            }
+        }
+        if (!startInitialization) return
+
         runCatching {
             ATSDK.setNetworkLogDebug(settings.enableNetworkDebug)
-            ATSDK.init(applicationContext, settings.appId, settings.appKey)
-        }.onSuccess {
-            onResult(Initialization.Ready)
+            ATSDK.init(
+                applicationContext,
+                settings.appId,
+                settings.appKey,
+                ATNetworkConfig(),
+                object : ATSDKInitListener {
+                    override fun onSuccess() = completeInitialization(Initialization.Ready)
+
+                    override fun onFail(errorMessage: String) =
+                        completeInitialization(Initialization.Failed(-1, errorMessage))
+                },
+            )
         }.onFailure {
-            Log.w(TAG, "TopOn initialization failed", it)
-            onResult(Initialization.Failed(-1, it.message.orEmpty()))
+            Log.w(TAG, "TopOn initialization invocation failed", it)
+            completeInitialization(Initialization.Failed(-1, it.message.orEmpty()))
         }
+    }
+
+    private fun completeInitialization(result: Initialization) {
+        val callbacks = synchronized(initializationLock) {
+            topOnInitialized = result is Initialization.Ready
+            topOnInitializationInFlight = false
+            pendingInitializationCallbacks.toList().also { pendingInitializationCallbacks.clear() }
+        }
+        mainHandler.post { callbacks.forEach { it(result) } }
     }
 
     fun showRewarded(activity: Activity, onResult: (RewardedResult) -> Unit) {
@@ -151,6 +197,7 @@ class TopOnAdsManager(
             return
         }
         splashRequestInFlight = true
+        Log.i(TAG, "Splash request started: mode=${if (settings.isDemoMode) "official-demo" else "partner-config"}, placement=${settings.splashPlacementId}")
         var delivered = false
         fun deliver(result: FullscreenResult, host: FrameLayout? = null) {
             if (delivered) return
@@ -167,28 +214,39 @@ class TopOnAdsManager(
                     var host: FrameLayout? = null
                     splash = ATSplashAd(activity, settings.splashPlacementId, object : ATSplashExListener {
                         override fun onAdLoaded(isTimeout: Boolean) {
+                            val ready = splash?.isAdReady == true
+                            Log.i(TAG, "Splash loaded: isTimeout=$isTimeout, ready=$ready")
                             host = splashHost(activity)
-                            if (host == null || splash == null || !splash!!.isAdReady) {
+                            if (host == null || splash == null || !ready) {
+                                Log.w(TAG, "Splash cannot show: host=${host != null}, ad=${splash != null}, ready=$ready")
                                 deliver(FullscreenResult.Skipped("TopOn 未返回可展示的开屏广告"), host)
                                 return
                             }
                             splash!!.show(activity, host)
                         }
 
-                        override fun onAdLoadTimeout() = deliver(FullscreenResult.Skipped("TopOn 开屏广告加载超时"))
+                        override fun onAdLoadTimeout() {
+                            Log.w(TAG, "Splash load timed out after ${SPLASH_TIMEOUT_MS}ms")
+                            deliver(FullscreenResult.Skipped("TopOn 开屏广告加载超时"))
+                        }
 
-                        override fun onNoAdError(adError: AdError) =
+                        override fun onNoAdError(adError: AdError) {
+                            Log.w(TAG, "Splash no-ad error: ${adError.fullErrorInfo}")
                             deliver(FullscreenResult.Failed(errorCode(adError), adError.fullErrorInfo.orEmpty()))
+                        }
 
                         override fun onAdShow(entity: ATAdInfo) {
+                            Log.i(TAG, "Splash shown: ${entity.adNetworkType}/${entity.adsourceId}")
                             splashPolicy.recordShown()
                             analytics.reportTopOnImpression("splash", settings.splashPlacementId, entity)
                         }
 
                         override fun onAdClick(entity: ATAdInfo) = Unit
 
-                        override fun onAdDismiss(entity: ATAdInfo, splashAdExtraInfo: ATSplashAdExtraInfo) =
+                        override fun onAdDismiss(entity: ATAdInfo, splashAdExtraInfo: ATSplashAdExtraInfo) {
+                            Log.i(TAG, "Splash dismissed")
                             deliver(FullscreenResult.Shown, host)
+                        }
 
                         override fun onDeeplinkCallback(adInfo: ATAdInfo, isSuccess: Boolean) = Unit
 

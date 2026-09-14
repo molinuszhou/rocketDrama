@@ -58,7 +58,7 @@ TopOn 测试真机应具备 Google 服务并能够取得 GAID。测试期 `ANALY
 
 | 步骤 | App 操作 | 预期应用结果 | 应核查的数据 |
 |---:|---|---|---|
-| 1 | 先确认 `TOPON_DEMO_MODE=true`，冷启动应用 | Logcat 出现 `mode=official-demo`，尝试展示 TopOn 官方 Demo 开屏；关闭后进入首页 | Logcat 标签 `secmtp` 显示请求/展示；`onAdShow` 触发炫羽展示；如 Demo 产生 paid impression，`onAdRevenuePaid` 触发 AppsFlyer/Firebase 收入事件 |
+| 1 | 先确认 `TOPON_DEMO_MODE=true`，彻底结束 App 后冷启动 | Logcat 出现 `mode=official-demo`、`Splash request started`、`Splash loaded`、`Splash shown`；关闭后进入首页 | Logcat 标签 `TopOnAdsManager` / `secmtp` 显示初始化、请求、展示；`onAdShow` 触发炫羽展示；如 Demo 产生 paid impression，`onAdRevenuePaid` 触发 AppsFlyer/Firebase 收入事件 |
 | 2 | 点击欢迎奖励或签到 | 展示激励广告；完整观看后 Rewards API 结算宝石 | paid impression 触发 AppsFlyer/Firebase 收入事件；完整奖励回调触发 Firebase `rewarded_ad_completed` |
 | 3 | 播放第 4 集并选择解锁 | 激励广告完整观看后解锁并自动继续播放 | 同步骤 2，且 Rewards API 解锁成功 |
 | 4 | 播放至 30 秒 | 触发剧中插屏；关闭后原播放继续 | `int_episode_midroll` 的炫羽展示和 paid impression 收入事件 |
@@ -107,4 +107,4 @@ cd android
 .\gradlew.bat :app:assembleRelease
 ```
 
-当前沙盒已完成开启 `TOPON_DEMO_MODE=true` 的 `:app:assembleDebug`，以及强制关闭 Demo 模式的 `:app:assembleRelease` 构建验证；生成的 Debug `BuildConfig.TOPON_DEMO_MODE=true`，Release 为 `false`。已验证 PSSDK、TopOn、AppsFlyer、Firebase 与炫羽上报依赖可共同打包。真机使用带 Google Play 服务的设备，Logcat 可按 `secmtp` 查看 TopOn 日志；Demo 测试通过后，仍需在合作方认可的网络、账号和正式参数环境中验证真实填充、归因及服务器监控。
+当前沙盒已完成开启 `TOPON_DEMO_MODE=true` 的 `:app:assembleDebug`，以及强制关闭 Demo 模式的 `:app:assembleRelease` 构建验证；生成的 Debug `BuildConfig.TOPON_DEMO_MODE=true`，Release 为 `false`。开屏请求已修正为：先在 `onPostResume` 等待 Activity 窗口进入前台，再等待 TopOn 异步初始化回调成功，最后加载/展示开屏；Demo 模式还会使用官方 Demo 的 AdMob App ID。已验证 PSSDK、TopOn、AppsFlyer、Firebase 与炫羽上报依赖可共同打包。真机使用带 Google Play 服务的设备，Logcat 可按 `TopOnAdsManager` 与 `secmtp` 查看 TopOn 日志；Demo 测试通过后，仍需在合作方认可的网络、账号和正式参数环境中验证真实填充、归因及服务器监控。

@@ -8,8 +8,10 @@ WHITE_LABEL_APP_NAME=JoyeDrama
 # TopOn 聚合广告。
 # 1) 当前无合作方 App Key 时，在 Debug 包设为 true：自动使用 TopOn 官方 Demo App/广告位测试开屏、激励和插屏。
 # 2) 接入合作方参数时改为 false，并填写 App ID、App Key 和三个广告位 ID。
-# 3) Release 包会强制关闭 Demo 模式，防止官方 Demo 凭据进入正式投放。
+# 3) Demo 模式同时自动使用官方 Demo 的 AdMob App ID；无需填写以下合作方 ID。
+# 4) Release 包会强制关闭 Demo 模式，防止官方 Demo 凭据进入正式投放。
 TOPON_DEMO_MODE=true
+# 以下为合作方参数表中的有效 TopOn/AdMob ID；仅在 TOPON_DEMO_MODE=false 且取得 TopOn App Key 后生效。
 TOPON_APP_ID=h6a880d76bf897
 TOPON_APP_KEY=
 TOPON_INTERSTITIAL_PLACEMENT_ID=n6a880e948c456

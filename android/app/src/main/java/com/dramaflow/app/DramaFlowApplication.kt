@@ -5,7 +5,6 @@ import android.util.Log
 import com.dramaflow.app.ads.TopOnSettings
 import com.dramaflow.app.analytics.PartnerAnalytics
 import com.dramaflow.app.content.ShortDramaSdkManager
-import com.secmtp.sdk.core.api.ATSDK
 
 /**
  * 白包应用级入口。
@@ -20,12 +19,11 @@ class DramaFlowApplication : Application() {
 
         val settings = TopOnSettings.fromBuildConfig()
         if (settings.isConfigured) {
-            ATSDK.setNetworkLogDebug(settings.enableNetworkDebug)
-            ATSDK.init(this, settings.appId, settings.appKey)
             val mode = if (settings.isDemoMode) "official-demo" else "partner-config"
-            Log.i(TAG, "TopOn initialization requested for white-label build ${BuildConfig.VERSION_NAME}, mode=$mode")
+            // 真正初始化由 TopOnAdsManager 异步完成；它会等待 SDK 回调成功后才加载开屏广告。
+            Log.i(TAG, "TopOn configuration ready for white-label build ${BuildConfig.VERSION_NAME}, mode=$mode")
         } else {
-            Log.w(TAG, "TopOn is not initialized: TOPON_APP_ID or TOPON_APP_KEY is missing; enable TOPON_DEMO_MODE for official demo testing")
+            Log.w(TAG, "TopOn is not configured: TOPON_APP_ID or TOPON_APP_KEY is missing; enable TOPON_DEMO_MODE for official demo testing")
         }
 
         ShortDramaSdkManager.get(this).initializeIfEnabled { result ->

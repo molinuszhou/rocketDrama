@@ -147,6 +147,15 @@ class PartnerDramaActivity : FragmentActivity() {
         beginStartupExperience()
     }
 
+    /**
+     * TopOn 开屏必须在 Activity 已进入前台后展示；在 onCreate 中立即展示会导致部分真机
+     * 将广告请求视为不可展示，尤其是冷启动的 Demo/测试广告。
+     */
+    override fun onPostResume() {
+        super.onPostResume()
+        if (!startupContentInitializationStarted) maybeShowAppOpenAd()
+    }
+
     override fun onStop() {
         // 退后台时必须停止画面、音频与播放时钟，返回应用后不自动续播。
         persistPlaybackProgress()
@@ -173,7 +182,7 @@ class PartnerDramaActivity : FragmentActivity() {
         startupCheckinPromptRequested = true
         startupCheckinPromptShown = false
         renderStartupLoading()
-        maybeShowAppOpenAd()
+        // 等待 onPostResume 后再发起开屏请求，确保窗口已就绪。
     }
 
     private fun maybeShowAppOpenAd() {
@@ -183,7 +192,7 @@ class PartnerDramaActivity : FragmentActivity() {
             finishStartupAfterAppOpen("用户已关闭广告")
             return
         }
-        // 立即请求，不再等待固定延迟；每次 Activity 冷启动都会进入该请求链路。
+        // Activity 已进入前台后请求；TopOnAdsManager 会等待 SDK 初始化成功回调再加载开屏。
         topOnAds.showAppOpenIfEligible(this) { result ->
             when (result) {
                 TopOnAdsManager.FullscreenResult.Shown -> logStatus("开屏广告已关闭")

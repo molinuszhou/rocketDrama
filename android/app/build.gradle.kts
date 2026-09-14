@@ -25,7 +25,9 @@ val topOnAppKey = if (topOnDemoMode) topOnDemoAppKey else integrationValue("TOPO
 val topOnRewardedPlacementId = if (topOnDemoMode) topOnDemoRewardedPlacementId else integrationValue("TOPON_REWARDED_PLACEMENT_ID").ifBlank { "n6a880eaaa1a1e" }
 val topOnInterstitialPlacementId = if (topOnDemoMode) topOnDemoInterstitialPlacementId else integrationValue("TOPON_INTERSTITIAL_PLACEMENT_ID").ifBlank { "n6a880e948c456" }
 val topOnSplashPlacementId = if (topOnDemoMode) topOnDemoSplashPlacementId else integrationValue("TOPON_SPLASH_PLACEMENT_ID").ifBlank { "n6a880ebb7fb00" }
-val topOnAdmobAppId = integrationValue("ADMOB_APP_ID").ifBlank { "ca-app-pub-4636975460860893~1434961000" }
+// Demo 模式与官方 Demo 清单保持一致；合作方模式继续使用参数表提供的 AdMob App ID。
+val topOnDemoAdmobAppId = "ca-app-pub-9488501426181082~6354662111"
+val topOnAdmobAppId = if (topOnDemoMode) topOnDemoAdmobAppId else integrationValue("ADMOB_APP_ID").ifBlank { "ca-app-pub-4636975460860893~1434961000" }
 val appsFlyerDevKey = integrationValue("APPSFLYER_DEV_KEY").ifBlank { "DdWbxT9VRELdEsZiAcnGea" }
 val appsFlyerSingleRevenueEventName = integrationValue("APPSFLYER_SINGLE_REVENUE_EVENT_NAME").ifBlank { "ad_impression" }
 val appsFlyerCumulativeRevenueEventName = integrationValue("APPSFLYER_CUMULATIVE_REVENUE_EVENT_NAME").ifBlank { "ad_impression_001" }
