@@ -5,8 +5,11 @@
 WHITE_LABEL_APP_NAME=JoyeDrama
 # versionCode/versionName 已固定为 16 / 1.6；正式发包按应用商店策略递增。
 
-# TopOn 聚合广告。测试阶段允许 TOPON_APP_KEY 留空：应用会安全跳过广告请求，本地视频仍可正常测试。
-# 注意：要让 TopOn 真实初始化、加载并展示测试广告，SDK 仍必须获得合作方下发的 TOPON_APP_KEY。
+# TopOn 聚合广告。
+# 1) 当前无合作方 App Key 时，在 Debug 包设为 true：自动使用 TopOn 官方 Demo App/广告位测试开屏、激励和插屏。
+# 2) 接入合作方参数时改为 false，并填写 App ID、App Key 和三个广告位 ID。
+# 3) Release 包会强制关闭 Demo 模式，防止官方 Demo 凭据进入正式投放。
+TOPON_DEMO_MODE=true
 TOPON_APP_ID=h6a880d76bf897
 TOPON_APP_KEY=
 TOPON_INTERSTITIAL_PLACEMENT_ID=n6a880e948c456

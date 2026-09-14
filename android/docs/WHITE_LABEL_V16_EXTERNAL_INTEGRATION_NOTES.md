@@ -91,3 +91,17 @@ TopOn 测试要点：测试真机应具备 Google 服务并可获取 GAID；开�
 - `https://artifact.byteplus.com/repository/public/`
 
 PSSDK 已在 v1.6 工程作为可选依赖恢复，并验证与 TopOn、AppsFlyer、Firebase、Media3 本地视频共同 Debug/Release 构建。可选内容管理器在开关开启和参数齐全后使用 `PSSDK.requestPopularDrama`、`requestNewDrama`、`requestCategoryList` 和 `requestFeedListByCategoryIds` 读取热门、最新、分类和分类内容。当前 `SHORT_DRAMA_SDK_ENABLED=false`，本地 Content API 和本地视频播放保持不变。
+
+## TopOn 官方 Demo 与测试模式
+
+TopOn 的 SDK 日志开关应在 Debug 测试中打开，上线前关闭。Logcat 可按 `secmtp` 查看初始化、请求、展示、点击与关闭等链路。TopOn 测试工具和在线 ID 测试本身仍要求 SDK 已用 App ID 与 App Key 初始化；其作用是检查 SDK/adapter 集成或调试已在 TopOn 后台配置的广告位，不能替代应用内的广告流程回归。[1]
+
+为在没有合作方 App Key 的阶段测试当前应用的广告逻辑，v1.6 已内置 **仅 Debug 可用** 的 `TOPON_DEMO_MODE`。设为 `true` 时，Gradle 自动使用 TopOn 官方 Android Demo `placementId.json` 中的公开 Demo App ID、App Key，以及 Rewarded / Interstitial / Splash 测试广告位。Demo 测试可验证 `ATSDK.init`、广告加载、展示、关闭、v8 权益结算和旁路事件调用；其广告源、填充和收入不能视为合作方真实数据。Release 变体强制让 `BuildConfig.TOPON_DEMO_MODE=false`，防止 Demo 凭据被带入正式包。
+
+| 配置场景 | `TOPON_DEMO_MODE` | App Key 来源 | 适用范围 |
+|---|---:|---|---|
+| 当前开发验证 | `true` | TopOn 官方 Demo | SDK 初始化、三类广告展示和应用流程回归 |
+| 合作方测试/真实数据联调 | `false` | 合作方 TopOn 账户 | 实际广告位、AppsFlyer/Firebase/炫羽数据核验 |
+| Release / 上线 | 强制 `false` | 合作方正式账户 | 正式投放 |
+
+[1]: https://help.toponad.net/docs/How-to-test-ads "TopOn — How to Test"

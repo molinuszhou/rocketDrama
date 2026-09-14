@@ -15,6 +15,7 @@ data class TopOnSettings(
     val rewardedPlacementId: String,
     val interstitialPlacementId: String,
     val splashPlacementId: String,
+    val isDemoMode: Boolean,
     val enableNetworkDebug: Boolean,
 ) {
     val isConfigured: Boolean
@@ -36,6 +37,7 @@ data class TopOnSettings(
             rewardedPlacementId = BuildConfig.TOPON_REWARDED_PLACEMENT_ID.trim(),
             interstitialPlacementId = BuildConfig.TOPON_INTERSTITIAL_PLACEMENT_ID.trim(),
             splashPlacementId = BuildConfig.TOPON_SPLASH_PLACEMENT_ID.trim(),
+            isDemoMode = BuildConfig.TOPON_DEMO_MODE,
             enableNetworkDebug = BuildConfig.DEBUG || BuildConfig.ANALYTICS_DEBUG,
         )
     }

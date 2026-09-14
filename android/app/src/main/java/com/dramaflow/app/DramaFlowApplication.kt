@@ -22,9 +22,10 @@ class DramaFlowApplication : Application() {
         if (settings.isConfigured) {
             ATSDK.setNetworkLogDebug(settings.enableNetworkDebug)
             ATSDK.init(this, settings.appId, settings.appKey)
-            Log.i(TAG, "TopOn initialization requested for white-label build ${BuildConfig.VERSION_NAME}")
+            val mode = if (settings.isDemoMode) "official-demo" else "partner-config"
+            Log.i(TAG, "TopOn initialization requested for white-label build ${BuildConfig.VERSION_NAME}, mode=$mode")
         } else {
-            Log.w(TAG, "TopOn is not initialized: TOPON_APP_ID or TOPON_APP_KEY is missing")
+            Log.w(TAG, "TopOn is not initialized: TOPON_APP_ID or TOPON_APP_KEY is missing; enable TOPON_DEMO_MODE for official demo testing")
         }
 
         ShortDramaSdkManager.get(this).initializeIfEnabled { result ->

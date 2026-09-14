@@ -13,11 +13,18 @@ fun integrationValue(name: String): String =
 
 fun escapeBuildConfig(value: String): String = value.replace("\\", "\\\\").replace("\"", "\\\"")
 
-val topOnAppId = integrationValue("TOPON_APP_ID").ifBlank { "h6a880d76bf897" }
-val topOnAppKey = integrationValue("TOPON_APP_KEY")
-val topOnRewardedPlacementId = integrationValue("TOPON_REWARDED_PLACEMENT_ID").ifBlank { "n6a880eaaa1a1e" }
-val topOnInterstitialPlacementId = integrationValue("TOPON_INTERSTITIAL_PLACEMENT_ID").ifBlank { "n6a880e948c456" }
-val topOnSplashPlacementId = integrationValue("TOPON_SPLASH_PLACEMENT_ID").ifBlank { "n6a880ebb7fb00" }
+// TopOn 官方 Android Demo 的公开测试凭据，仅允许 Debug 测试模式使用；不可用于正式投放。
+val topOnDemoMode = integrationValue("TOPON_DEMO_MODE").trim().equals("true", ignoreCase = true)
+val topOnDemoAppId = "a5aa1f9deda26d"
+val topOnDemoAppKey = "4f7b9ac17decb9babec83aac078742c7"
+val topOnDemoRewardedPlacementId = "b5b449fb3d89d7"
+val topOnDemoInterstitialPlacementId = "b5baca53984692"
+val topOnDemoSplashPlacementId = "b5bea7cc9a4497"
+val topOnAppId = if (topOnDemoMode) topOnDemoAppId else integrationValue("TOPON_APP_ID").ifBlank { "h6a880d76bf897" }
+val topOnAppKey = if (topOnDemoMode) topOnDemoAppKey else integrationValue("TOPON_APP_KEY")
+val topOnRewardedPlacementId = if (topOnDemoMode) topOnDemoRewardedPlacementId else integrationValue("TOPON_REWARDED_PLACEMENT_ID").ifBlank { "n6a880eaaa1a1e" }
+val topOnInterstitialPlacementId = if (topOnDemoMode) topOnDemoInterstitialPlacementId else integrationValue("TOPON_INTERSTITIAL_PLACEMENT_ID").ifBlank { "n6a880e948c456" }
+val topOnSplashPlacementId = if (topOnDemoMode) topOnDemoSplashPlacementId else integrationValue("TOPON_SPLASH_PLACEMENT_ID").ifBlank { "n6a880ebb7fb00" }
 val topOnAdmobAppId = integrationValue("ADMOB_APP_ID").ifBlank { "ca-app-pub-4636975460860893~1434961000" }
 val appsFlyerDevKey = integrationValue("APPSFLYER_DEV_KEY").ifBlank { "DdWbxT9VRELdEsZiAcnGea" }
 val appsFlyerSingleRevenueEventName = integrationValue("APPSFLYER_SINGLE_REVENUE_EVENT_NAME").ifBlank { "ad_impression" }
@@ -61,6 +68,7 @@ android {
         buildConfigField("String", "TOPON_REWARDED_PLACEMENT_ID", "\"${escapeBuildConfig(topOnRewardedPlacementId)}\"")
         buildConfigField("String", "TOPON_INTERSTITIAL_PLACEMENT_ID", "\"${escapeBuildConfig(topOnInterstitialPlacementId)}\"")
         buildConfigField("String", "TOPON_SPLASH_PLACEMENT_ID", "\"${escapeBuildConfig(topOnSplashPlacementId)}\"")
+        buildConfigField("boolean", "TOPON_DEMO_MODE", topOnDemoMode.toString())
         buildConfigField("String", "APPSFLYER_DEV_KEY", "\"${escapeBuildConfig(appsFlyerDevKey)}\"")
         buildConfigField("String", "APPSFLYER_SINGLE_REVENUE_EVENT_NAME", "\"${escapeBuildConfig(appsFlyerSingleRevenueEventName)}\"")
         buildConfigField("String", "APPSFLYER_CUMULATIVE_REVENUE_EVENT_NAME", "\"${escapeBuildConfig(appsFlyerCumulativeRevenueEventName)}\"")
@@ -79,7 +87,12 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Debug 使用 TOPON_DEMO_MODE 的构建参数；默认 false，显式开启后自动使用官方 Demo 凭据。
+        }
         release {
+            // 防止错误把官方 Demo 凭据带入正式白包。
+            buildConfigField("boolean", "TOPON_DEMO_MODE", "false")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

@@ -21,10 +21,11 @@
 
 ```properties
 sdk.dir=C:\\Users\\<用户名>\\AppData\\Local\\Android\\Sdk
+# 无合作方 App Key 时：Debug 包填 true，自动使用 TopOn 官方 Demo App/广告位。
+# TopOn 官方 Demo 仅用于验证初始化、加载、展示与应用广告链路，不代表合作方真实瀑布流或收入。
+TOPON_DEMO_MODE=true
 TOPON_APP_ID=h6a880d76bf897
-# 可暂时留空以编译并测试本地视频；留空时 TopOn 广告会安全跳过。
-# 要进行真实开屏、激励和插屏测试时，必须填入合作方提供的测试 App Key。
-TOPON_APP_KEY=<合作方提供的测试 App Key>
+TOPON_APP_KEY=<合作方提供的测试 App Key；Demo 模式下可留空>
 TOPON_INTERSTITIAL_PLACEMENT_ID=n6a880e948c456
 TOPON_REWARDED_PLACEMENT_ID=n6a880eaaa1a1e
 TOPON_SPLASH_PLACEMENT_ID=n6a880ebb7fb00
@@ -57,7 +58,7 @@ TopOn 测试真机应具备 Google 服务并能够取得 GAID。测试期 `ANALY
 
 | 步骤 | App 操作 | 预期应用结果 | 应核查的数据 |
 |---:|---|---|---|
-| 1 | 冷启动应用 | 尝试展示 TopOn 开屏；关闭或无填充后进入首页 | `onAdShow` 触发炫羽展示；`onAdRevenuePaid` 触发 AppsFlyer `ad_impression` 与 Firebase `ad_impression` |
+| 1 | 先确认 `TOPON_DEMO_MODE=true`，冷启动应用 | Logcat 出现 `mode=official-demo`，尝试展示 TopOn 官方 Demo 开屏；关闭后进入首页 | Logcat 标签 `secmtp` 显示请求/展示；`onAdShow` 触发炫羽展示；如 Demo 产生 paid impression，`onAdRevenuePaid` 触发 AppsFlyer/Firebase 收入事件 |
 | 2 | 点击欢迎奖励或签到 | 展示激励广告；完整观看后 Rewards API 结算宝石 | paid impression 触发 AppsFlyer/Firebase 收入事件；完整奖励回调触发 Firebase `rewarded_ad_completed` |
 | 3 | 播放第 4 集并选择解锁 | 激励广告完整观看后解锁并自动继续播放 | 同步骤 2，且 Rewards API 解锁成功 |
 | 4 | 播放至 30 秒 | 触发剧中插屏；关闭后原播放继续 | `int_episode_midroll` 的炫羽展示和 paid impression 收入事件 |
@@ -89,7 +90,7 @@ GET https://api.eventtrack.top/event/w_ad_show
 
 | 缺失项 | 为什么必须提供 |
 |---|---|
-| TopOn `App Key` | 可先留空以测试本地视频、内容与非广告逻辑；但 `ATSDK.init` 需要 App ID 与 App Key，因此真实加载测试广告前仍必须提供 |
+| TopOn `App Key` | **官方 Demo 测试不需要合作方 App Key**：设 `TOPON_DEMO_MODE=true` 即可使用官方 Demo 凭据。切换到合作方广告位、真实瀑布流和真实广告收入联调时，仍必须提供合作方 App Key。 |
 | 无 | 已收到《AppsFlyer 收入事件接入指南》并实现：paid impression 单次 `ad_impression`，累计达到 $0.01 后 `ad_impression_001` |
 | Firebase 标准事件和自定义事件最终定义 | 当前基线为 `ad_impression` 与 `rewarded_ad_completed`；可按合作方文档通过配置/代码调整 |
 | 短剧 SDK AAR/Maven 坐标 | 已从历史版本恢复 `com.bytedance.dramaverse:pssdk:1.8.0.0` 及 Maven 仓库；已验证可与本地视频、TopOn、AppsFlyer、Firebase 共同构建 |
@@ -106,4 +107,4 @@ cd android
 .\gradlew.bat :app:assembleRelease
 ```
 
-当前沙盒已完成 `:app:compileDebugKotlin` 和 `:app:assembleRelease` 的构建验证，且已验证 PSSDK、TopOn、AppsFlyer、Firebase 与炫羽上报依赖可共同打包。正式测试仍必须在合作方认可的真机、网络和账号环境中验证广告填充、归因及服务器监控。
+当前沙盒已完成开启 `TOPON_DEMO_MODE=true` 的 `:app:assembleDebug`，以及强制关闭 Demo 模式的 `:app:assembleRelease` 构建验证；生成的 Debug `BuildConfig.TOPON_DEMO_MODE=true`，Release 为 `false`。已验证 PSSDK、TopOn、AppsFlyer、Firebase 与炫羽上报依赖可共同打包。真机使用带 Google Play 服务的设备，Logcat 可按 `secmtp` 查看 TopOn 日志；Demo 测试通过后，仍需在合作方认可的网络、账号和正式参数环境中验证真实填充、归因及服务器监控。
