@@ -115,6 +115,7 @@ class PartnerDramaActivity : FragmentActivity() {
     private var episodeTransitionInProgress = false
     private var resumeAfterFullscreenAd = false
     private var pauseNativeAdInProgress = false
+    private lateinit var navigationBackCallback: OnBackPressedCallback
     private var episodePickerDialog: AlertDialog? = null
     private val unlockedEpisodeKeys = mutableSetOf<String>()
     // 奖励服务不可达时仅保留本次进程内播放权益；不会伪造为已持久化的服务器权益。
@@ -139,11 +140,12 @@ class PartnerDramaActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         root = FrameLayout(this).apply { setBackgroundColor(COLOR_BACKGROUND) }
         setContentView(root)
-        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+        navigationBackCallback = object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (playerShown) showCatalog() else finish()
             }
-        })
+        }
+        onBackPressedDispatcher.addCallback(this, navigationBackCallback)
         beginStartupExperience()
     }
 
@@ -1387,12 +1389,15 @@ class PartnerDramaActivity : FragmentActivity() {
 
     private fun pauseForFullscreenAd() {
         resumeAfterFullscreenAd = exoPlayer?.isPlaying == true
+        // TopOn 的全屏广告应自行处理系统返回键和广告关闭按钮；宿主导航回调不能抢占该事件。
+        if (::navigationBackCallback.isInitialized) navigationBackCallback.isEnabled = false
         exoPlayer?.pause()
         playerIsPaused = true
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
 
     private fun resumeAfterFullscreenAdIfNeeded() {
+        if (::navigationBackCallback.isInitialized) navigationBackCallback.isEnabled = true
         if (resumeAfterFullscreenAd && !isFinishing && !isDestroyed) {
             exoPlayer?.play()
             playerIsPaused = false
@@ -1415,6 +1420,8 @@ class PartnerDramaActivity : FragmentActivity() {
             when (result) {
                 TopOnAdsManager.FullscreenResult.Shown -> {
                     val settled = {
+                        // TopOn 已通过 onInterstitialAdClose 回调确认广告关闭；此时恢复播放器与宿主导航。
+                        resumeAfterFullscreenAdIfNeeded()
                         onShown()
                     }
                     if (rewardsApi.isConfigured) {
@@ -1424,8 +1431,14 @@ class PartnerDramaActivity : FragmentActivity() {
                         )
                     } else settled()
                 }
-                is TopOnAdsManager.FullscreenResult.Skipped -> onUnavailable(result.reason)
-                is TopOnAdsManager.FullscreenResult.Failed -> onUnavailable("加载失败（${result.code}）")
+                is TopOnAdsManager.FullscreenResult.Skipped -> {
+                    resumeAfterFullscreenAdIfNeeded()
+                    onUnavailable(result.reason)
+                }
+                is TopOnAdsManager.FullscreenResult.Failed -> {
+                    resumeAfterFullscreenAdIfNeeded()
+                    onUnavailable("加载失败（${result.code}）")
+                }
             }
         } }
     }

@@ -21,11 +21,11 @@
 
 ```properties
 sdk.dir=C:\\Users\\<用户名>\\AppData\\Local\\Android\\Sdk
-# 无合作方 App Key 时：Debug 包填 true，自动使用 TopOn 官方 Demo App/广告位。
-# TopOn 官方 Demo 仅用于验证初始化、加载、展示与应用广告链路，不代表合作方真实瀑布流或收入。
-TOPON_DEMO_MODE=true
+# 当前已收到合作方测试 App Key：关闭官方 Demo，使用合作方应用和广告位。
+# Demo 模式仅在缺少合作方 App Key 时使用；真实广告位联调必须设为 false。
+TOPON_DEMO_MODE=false
 TOPON_APP_ID=h6a880d76bf897
-TOPON_APP_KEY=<合作方提供的测试 App Key；Demo 模式下可留空>
+TOPON_APP_KEY=<合作方提供的测试 App Key>
 TOPON_INTERSTITIAL_PLACEMENT_ID=n6a880e948c456
 TOPON_REWARDED_PLACEMENT_ID=n6a880eaaa1a1e
 TOPON_SPLASH_PLACEMENT_ID=n6a880ebb7fb00
@@ -58,12 +58,16 @@ TopOn 测试真机应具备 Google 服务并能够取得 GAID。测试期 `ANALY
 
 | 步骤 | App 操作 | 预期应用结果 | 应核查的数据 |
 |---:|---|---|---|
-| 1 | 先确认 `TOPON_DEMO_MODE=true`，彻底结束 App 后冷启动 | Logcat 出现 `mode=official-demo`、`Splash request started`、`Splash loaded`、`Splash shown`；关闭后进入首页 | Logcat 标签 `TopOnAdsManager` / `secmtp` 显示初始化、请求、展示；`onAdShow` 触发炫羽展示；如 Demo 产生 paid impression，`onAdRevenuePaid` 触发 AppsFlyer/Firebase 收入事件 |
-| 2 | 点击欢迎奖励或签到 | 展示激励广告；完整观看后 Rewards API 结算宝石 | paid impression 触发 AppsFlyer/Firebase 收入事件；完整奖励回调触发 Firebase `rewarded_ad_completed` |
+| 1 | 确认 `TOPON_DEMO_MODE=false`，彻底结束 App 后冷启动 | Logcat 出现 `mode=partner-config`、`Splash request started`、`Splash loaded`、`Splash shown`；关闭后进入首页 | TopOn 使用合作方测试开屏位；`onAdShow` 触发炫羽展示；paid impression 触发 AppsFlyer/Firebase 收入事件 |
+| 2 | 点击欢迎奖励或签到 | 展示激励广告，完整观看后 Rewards API 结算宝石 | paid impression 触发 AppsFlyer/Firebase 收入事件；完整奖励回调触发 Firebase `rewarded_ad_completed` |
 | 3 | 播放第 4 集并选择解锁 | 激励广告完整观看后解锁并自动继续播放 | 同步骤 2，且 Rewards API 解锁成功 |
-| 4 | 播放至 30 秒 | 触发剧中插屏；关闭后原播放继续 | `int_episode_midroll` 的炫羽展示和 paid impression 收入事件 |
-| 5 | 拖拽进度条或调整倍速 | 每次对应操作可按 v8 规则触发插屏 | TopOn 插屏展示；Rewards API 插屏展示记录；paid impression 收入事件 |
+| 4 | 播放至 30 秒 | 触发剧中插屏；按广告素材自身关闭规则出现关闭按钮或可使用系统返回键；关闭后原播放继续 | `TopOnAdsManager` 依次出现 `Interstitial shown`、`Interstitial closed`；随后记录 `int_episode_midroll` |
+| 5 | 拖拽进度条或调整倍速 | 每次对应操作可按 v8 规则触发插屏；关闭后继续原播放 | TopOn 插屏展示/关闭、Rewards API 插屏展示记录及 paid impression 收入事件 |
 | 6 | 本集翻倍、随机宝箱、皇冠加速、钱包加速 | 都使用激励广告；关闭后由 Rewards API 更新快照 | paid impression 收入事件、Firebase 完整观看事件与对应账本变化 |
+
+### 插屏关闭异常的排查边界
+
+插屏的“×”关闭按钮、出现时机和最短可关闭时长由 TopOn 实际选中的广告源及素材控制，应用不应覆盖或自行伪造关闭按钮。应用侧已在全屏广告期间让出系统返回键，并在 TopOn `onInterstitialAdClose` 回调后恢复播放器与宿主导航。若广告页面持续无法关闭，请提供从 `Interstitial request started` 至 `Interstitial closed` 或 `Interstitial load failed` 的完整 `TopOnAdsManager` 与 `secmtp` 日志；若没有 `Interstitial closed`，应由合作方根据广告网络、素材和广告位策略排查。
 
 ## 5. 炫羽事件校验
 

@@ -294,6 +294,7 @@ class TopOnAdsManager(
             return
         }
         interstitialRequestInFlight = true
+        Log.i(TAG, "Interstitial request started: logical=$logicalPlacement, placement=${settings.interstitialPlacementId}")
         var delivered = false
         fun deliver(result: FullscreenResult) {
             if (delivered) return
@@ -309,22 +310,29 @@ class TopOnAdsManager(
                     ad.setAdRevenueListener(TopOnRevenueListener(logicalPlacement, settings.interstitialPlacementId, analytics))
                     ad.setAdListener(object : ATInterstitialExListener {
                         override fun onInterstitialAdLoaded() {
+                            Log.i(TAG, "Interstitial loaded: logical=$logicalPlacement, ready=${ad.isAdReady}")
                             showOnActiveActivity(activity, { deliver(FullscreenResult.Skipped(it)) }) {
                                 ad.show(activity)
                             }
                         }
 
-                        override fun onInterstitialAdLoadFail(adError: AdError) =
+                        override fun onInterstitialAdLoadFail(adError: AdError) {
+                            Log.w(TAG, "Interstitial load failed: logical=$logicalPlacement, error=${adError.fullErrorInfo}")
                             deliver(FullscreenResult.Failed(errorCode(adError), adError.fullErrorInfo.orEmpty()))
+                        }
 
                         override fun onInterstitialAdClicked(entity: ATAdInfo) = Unit
 
                         override fun onInterstitialAdShow(entity: ATAdInfo) {
+                            Log.i(TAG, "Interstitial shown: logical=$logicalPlacement, network=${entity.adNetworkType}")
                             policy.recordShown()
                             analytics.reportTopOnImpression(logicalPlacement, settings.interstitialPlacementId, entity)
                         }
 
-                        override fun onInterstitialAdClose(entity: ATAdInfo) = deliver(FullscreenResult.Shown)
+                        override fun onInterstitialAdClose(entity: ATAdInfo) {
+                            Log.i(TAG, "Interstitial closed: logical=$logicalPlacement")
+                            deliver(FullscreenResult.Shown)
+                        }
 
                         override fun onInterstitialAdVideoStart(entity: ATAdInfo) = Unit
                         override fun onInterstitialAdVideoEnd(entity: ATAdInfo) = Unit
