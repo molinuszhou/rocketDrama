@@ -206,11 +206,11 @@ class TopOnAdsManager(
         splashRequestInFlight = true
         Log.i(TAG, "Splash request started: mode=${if (settings.isDemoMode) "official-demo" else "partner-config"}, placement=${settings.splashPlacementId}")
         var delivered = false
-        fun deliver(result: FullscreenResult, host: FrameLayout? = null) {
+        fun deliver(result: FullscreenResult, host: SplashHost? = null) {
             if (delivered) return
             delivered = true
             splashRequestInFlight = false
-            host?.let { (it.parent as? ViewGroup)?.removeView(it) }
+            host?.root?.let { (it.parent as? ViewGroup)?.removeView(it) }
             onResult(result)
         }
 
@@ -218,7 +218,7 @@ class TopOnAdsManager(
             when (init) {
                 Initialization.Ready -> {
                     var splash: ATSplashAd? = null
-                    var host: FrameLayout? = null
+                    var host: SplashHost? = null
                     splash = ATSplashAd(activity, settings.splashPlacementId, object : ATSplashExListener {
                         override fun onAdLoaded(isTimeout: Boolean) {
                             val ready = splash?.isAdReady == true
@@ -229,7 +229,9 @@ class TopOnAdsManager(
                                 deliver(FullscreenResult.Skipped("TopOn 未返回可展示的开屏广告"), host)
                                 return
                             }
-                            val skipView = createSplashSkipView(activity, host!!)
+                            // 必须与广告展示容器分离：部分广告源会替换传入的展示容器子视图。
+                            // 将 Skip 放在同层顶端覆盖层，才能保持在广告素材上方并接收 TopOn 绑定的点击事件。
+                            val skipView = createSplashSkipView(activity, host!!.root)
                             val skipInfo = ATSplashSkipInfo(
                                 skipView,
                                 SPLASH_TIMEOUT_MS.toLong(),
@@ -241,12 +243,22 @@ class TopOnAdsManager(
 
                                     override fun isSupportCustomSkipView(isSupport: Boolean) {
                                         Log.i(TAG, "Splash custom skip supported=$isSupport")
-                                        skipView.visibility = if (isSupport) View.VISIBLE else View.GONE
+                                        if (isSupport) {
+                                            skipView.text = formatSkipText(SPLASH_TIMEOUT_MS.toLong())
+                                            skipView.isEnabled = true
+                                            skipView.alpha = 1f
+                                        } else {
+                                            // 不隐藏状态提示，避免用户误以为应用卡死；但不能由应用强制关闭
+                                            // 不支持自定义 Skip 的广告素材，仍必须遵守广告源自身的关闭规则。
+                                            skipView.text = "广告播放中"
+                                            skipView.isEnabled = false
+                                            skipView.alpha = 0.72f
+                                        }
                                     }
                                 },
                             )
                             Log.i(TAG, "Splash show with custom skip view")
-                            splash!!.show(activity, host, skipInfo)
+                            splash!!.show(activity, host!!.adContainer, skipInfo)
                         }
 
                         override fun onAdLoadTimeout() {
@@ -430,13 +442,17 @@ class TopOnAdsManager(
         ad.load()
     }
 
-    private fun splashHost(activity: Activity): FrameLayout? {
+    private fun splashHost(activity: Activity): SplashHost? {
         if (activity.isFinishing || activity.isDestroyed) return null
-        val root = activity.findViewById<ViewGroup>(android.R.id.content) ?: return null
-        return FrameLayout(activity).also {
+        val contentRoot = activity.findViewById<ViewGroup>(android.R.id.content) ?: return null
+        val overlayRoot = FrameLayout(activity).also {
             it.setBackgroundColor(Color.TRANSPARENT)
-            root.addView(it, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            contentRoot.addView(it, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         }
+        val adContainer = FrameLayout(activity).also {
+            overlayRoot.addView(it, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        }
+        return SplashHost(root = overlayRoot, adContainer = adContainer)
     }
 
     private fun createSplashSkipView(activity: Activity, host: FrameLayout): TextView {
@@ -448,7 +464,9 @@ class TopOnAdsManager(
             gravity = Gravity.CENTER
             isClickable = true
             isFocusable = true
-            visibility = View.GONE
+            // 初始可见以避免广告源异步回调未及时到达时“没有 Skip”的体验；SDK 会在
+            // isSupportCustomSkipView 回调中绑定或禁用点击行为。
+            visibility = View.VISIBLE
             setPadding(
                 (12 * density).toInt(),
                 (6 * density).toInt(),
@@ -471,6 +489,11 @@ class TopOnAdsManager(
         host.addView(skipView, params)
         return skipView
     }
+
+    private data class SplashHost(
+        val root: FrameLayout,
+        val adContainer: FrameLayout,
+    )
 
     private fun formatSkipText(remainderMillis: Long): String {
         val seconds = ((remainderMillis + 999L) / 1_000L).coerceAtLeast(0L)

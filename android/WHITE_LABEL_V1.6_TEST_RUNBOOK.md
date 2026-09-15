@@ -131,7 +131,7 @@ cd android
 
 ## 9. 开屏 Skip 与炫羽网络异常说明
 
-开屏现在使用 TopOn 官方 `ATSplashSkipInfo` 自定义 Skip 入口，右上角显示倒计时和“跳过”按钮。真机日志应出现 `Splash show with custom skip view` 和 `Splash custom skip supported=true`；点击后应收到 `Splash dismissed`，并进入首页。若日志显示 `custom skip supported=false`，则说明当前广告源不支持自定义 Skip，仍由广告源自身的 Skip/关闭控件控制。
+开屏现在使用 TopOn 官方 `ATSplashSkipInfo` 自定义 Skip 入口。右上角 Skip 与广告展示容器处于**同一顶层覆盖层**而非广告容器内部，避免广告素材替换子视图后把 Skip 遮住。它会先显示“跳过 5s”倒计时；真机日志应出现 `Splash show with custom skip view` 和 `Splash custom skip supported=true`。支持时，TopOn SDK 绑定 Skip 点击；点击后应收到 `Splash dismissed`，并进入首页。若日志显示 `custom skip supported=false`，右上角将保留“广告播放中”状态提示，关闭时机仍由当前广告源素材控制。
 
 合作方测试参数中的开屏广告源日志可能出现 `close_button=0`、`allows_skip=1`、`countdown=5`。这表示是否显示关闭按钮、最短可跳过时间和 Skip 行为仍由 TopOn 实际选中的广告源配置决定；应用不能覆盖广告源的关闭策略。若自定义 Skip 支持开启，则优先使用应用右上角自定义 Skip；若不支持，则应按广告素材自身的可跳过规则操作。
 
