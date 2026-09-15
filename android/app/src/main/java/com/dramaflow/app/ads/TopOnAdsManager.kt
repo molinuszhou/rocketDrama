@@ -373,8 +373,10 @@ class TopOnAdsManager(
                 showOnActiveActivity(activity, { deliver(RewardedResult.Unavailable(it)) }) { ad.show(activity) }
             }
 
-            override fun onRewardedVideoAdFailed(adError: AdError) =
+            override fun onRewardedVideoAdFailed(adError: AdError) {
+                Log.w(TAG, "Rewarded no-ad error: ${adError.fullErrorInfo}")
                 deliver(RewardedResult.Failed(errorCode(adError), adError.fullErrorInfo.orEmpty()))
+            }
 
             override fun onRewardedVideoAdPlayStart(entity: ATAdInfo) {
                 latestInfo = entity
