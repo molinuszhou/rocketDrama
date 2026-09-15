@@ -378,6 +378,7 @@ class TopOnAdsManager(
 
             override fun onRewardedVideoAdPlayStart(entity: ATAdInfo) {
                 latestInfo = entity
+                Log.i(TAG, "Rewarded shown: ${entity.adNetworkType}/${entity.adsourceId}")
                 rewardedPolicy.recordShown()
                 analytics.reportTopOnImpression("rewarded", settings.rewardedPlacementId, entity)
             }
@@ -401,6 +402,7 @@ class TopOnAdsManager(
             override fun onReward(entity: ATAdInfo) {
                 completed = true
                 latestInfo = entity
+                Log.i(TAG, "Rewarded completed: ${entity.adNetworkType}/${entity.adsourceId}")
                 analytics.reportRewardedCompleted("rewarded", settings.rewardedPlacementId, latestInfo)
             }
 
