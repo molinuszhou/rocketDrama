@@ -8,6 +8,7 @@ import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -1140,6 +1141,8 @@ class PartnerDramaActivity : FragmentActivity() {
     private fun refreshRewardsSnapshot() {
         if (!rewardsApi.isConfigured || rewardsLoading) return
         rewardsLoading = true
+        val endpoint = rewardsBaseUrl()
+        logStatus("正在同步奖励服务：$endpoint")
         rewardsApi.bootstrap(anonymousInstallationId(), REWARDS_REGION, { snapshot ->
             runOnUiThread {
                 rewardsLoading = false
@@ -1148,7 +1151,7 @@ class PartnerDramaActivity : FragmentActivity() {
         }, { message ->
             runOnUiThread {
                 rewardsLoading = false
-                logStatus("奖励服务同步失败：$message")
+                logStatus("奖励服务同步失败（$endpoint）：$message")
                 if (catalogItems.isNotEmpty()) renderActiveTab()
                 showStartupCheckinWhenReady()
             }
@@ -2455,7 +2458,7 @@ class PartnerDramaActivity : FragmentActivity() {
         }
         AlertDialog.Builder(this)
             .setTitle("独立积分与奖励服务")
-            .setMessage("请输入运行 PostgreSQL 奖励服务的电脑局域网地址。它与短剧内容服务使用不同端口，默认示例为 8100。")
+            .setMessage("请输入运行 PostgreSQL 奖励服务的电脑局域网地址。它与短剧内容服务使用同一主机、不同端口，默认端口为 8100。保存后会立即请求 /v2/bootstrap 验证连接。")
             .setView(input)
             .setPositiveButton("保存并同步") { _, _ ->
                 val value = input.text.toString().trim().trimEnd('/')
@@ -2621,12 +2624,27 @@ class PartnerDramaActivity : FragmentActivity() {
     /** 仅用于开发环境联调；正式构建必须由广告服务端回调/验签替代。 */
     private fun testRewardProof(): String = if (BuildConfig.DEBUG) "TEST_TOPON_REWARD" else ""
 
-    private fun rewardsBaseUrl(): String = serverPreferences
-        .getString(REWARDS_SERVER_BASE_URL_KEY, null)
-        ?.trim()
-        ?.trimEnd('/')
-        ?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
-        ?: BuildConfig.REWARDS_API_BASE_URL.trim().trimEnd('/')
+    private fun rewardsBaseUrl(): String {
+        val saved = serverPreferences
+            .getString(REWARDS_SERVER_BASE_URL_KEY, null)
+            ?.trim()
+            ?.trimEnd('/')
+            ?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+        if (saved != null) return saved
+
+        val configured = BuildConfig.REWARDS_API_BASE_URL.trim().trimEnd('/')
+        // Debug 真机常见情况：只配置或手动保存了 Content API，Rewards 地址仍保持模拟器默认
+        // 10.0.2.2。此时复用已验证可访问的内容服务主机，仅替换为 Rewards 的 8100 端口。
+        if (BuildConfig.DEBUG && configured.contains("10.0.2.2")) {
+            val contentUri = runCatching { Uri.parse(localContentBaseUrl()) }.getOrNull()
+            val host = contentUri?.host?.takeIf { it.isNotBlank() }
+            if (host != null && host != "10.0.2.2") {
+                val scheme = contentUri.scheme?.takeIf { it == "http" || it == "https" } ?: "http"
+                return "$scheme://$host:8100"
+            }
+        }
+        return configured
+    }
 
     private fun localContentBaseUrl(): String = serverPreferences
         .getString(SERVER_BASE_URL_KEY, null)

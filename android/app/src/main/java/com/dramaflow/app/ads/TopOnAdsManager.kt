@@ -199,6 +199,9 @@ class TopOnAdsManager(
         splashRequestInFlight = true
         Log.i(TAG, "Splash request started: mode=${if (settings.isDemoMode) "official-demo" else "partner-config"}, placement=${settings.splashPlacementId}")
         var delivered = false
+        // TopOn 可能先回调 onAdLoadTimeout，随后仍回调 onAdLoaded(isTimeout=true)。
+        // 一旦启动流程已因超时进入内容页，禁止再展示迟到的开屏，避免与新人/签到窗口叠加。
+        var splashRequestExpired = false
         fun deliver(result: FullscreenResult, host: FrameLayout? = null) {
             if (delivered) return
             delivered = true
@@ -216,6 +219,10 @@ class TopOnAdsManager(
                         override fun onAdLoaded(isTimeout: Boolean) {
                             val ready = splash?.isAdReady == true
                             Log.i(TAG, "Splash loaded: isTimeout=$isTimeout, ready=$ready")
+                            if (splashRequestExpired || delivered) {
+                                Log.i(TAG, "Splash loaded after startup timeout; discarded to keep startup dialogs ordered")
+                                return
+                            }
                             host = splashHost(activity)
                             if (host == null || splash == null || !ready) {
                                 Log.w(TAG, "Splash cannot show: host=${host != null}, ad=${splash != null}, ready=$ready")
@@ -226,7 +233,8 @@ class TopOnAdsManager(
                         }
 
                         override fun onAdLoadTimeout() {
-                            Log.w(TAG, "Splash load timed out after ${SPLASH_TIMEOUT_MS}ms")
+                            splashRequestExpired = true
+                            Log.w(TAG, "Splash load timed out after ${SPLASH_TIMEOUT_MS}ms; startup will continue without a late splash")
                             deliver(FullscreenResult.Skipped("TopOn 开屏广告加载超时"))
                         }
 

@@ -143,3 +143,10 @@ cd android
 本地 Content API 和 Rewards API 通常位于 Windows 电脑的局域网 IPv4 地址，例如 `http://192.168.0.111:8000` 与 `http://192.168.0.111:8100`。Android Debug 包已使用独立的网络安全配置，允许该类局域网 HTTP 请求；Release 包仍默认拒绝明文流量，仅对炫羽测试域名 `api.eventtrack.top` 放行 HTTP。
 
 如果真机报错 `Cleartext communication to 192.168.x.x not permitted`，说明安装的是修改前的 APK 或本地未重新执行 Debug 构建。重新拉取代码并运行 `./gradlew.bat :app:assembleDebug` 后安装新包即可；IP 地址与 Content/Rewards 服务地址不需要改为 HTTPS。
+
+
+## 11. 启动弹窗与 Rewards 地址诊断
+
+开屏广告拥有最高启动优先级。新人奖励和连续签到仅在 TopOn 开屏**关闭、跳过、无填充或加载失败**后才开始请求奖励快照并显示。TopOn 在部分测试广告源上可能先回调 5 秒加载超时、之后又回调 `onAdLoaded(isTimeout=true)`；应用会丢弃此类迟到广告，避免内容页、新人奖励或签到窗口已经出现后仍叠加开屏广告，导致 Skip/关闭体验异常。
+
+Rewards 服务同步时，应用日志会打印实际请求的完整基地址，例如 `正在同步奖励服务：http://192.168.0.111:8100`。如 Debug 构建仍错误保留模拟器默认 `10.0.2.2:8100`，但本地内容服务地址已设置为局域网 IP，应用会在 Debug 环境自动复用内容服务主机并切换到 `8100` 端口。用户也可以在“我的 → 积分与奖励服务”确认或手动保存 `http://192.168.0.111:8100`；保存后会立即调用 `/v2/bootstrap` 验证。
