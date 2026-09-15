@@ -136,3 +136,10 @@ cd android
 合作方测试参数中的开屏广告源日志可能出现 `close_button=0`、`allows_skip=1`、`countdown=5`。这表示是否显示关闭按钮、最短可跳过时间和 Skip 行为由 TopOn 实际选中的广告源配置决定。应用不得覆盖、伪造或强制关闭广告源素材；若原生 Skip 再次不显示或点击无效，需要由合作方在 TopOn 开屏广告位中检查当前广告源 `Topon Adx` 的素材与跳过策略。
 
 炫羽上报失败不会阻断广告、奖励或播放器。当前对网络/DNS/HTTP 非成功响应最多进行 2 次重试；日志会区分“将重试”和“最终失败”。炫羽测试地址必须使用 `http://api.eventtrack.top`（80 端口）；此前出现 `Failed to connect to api.eventtrack.top:443` 是错误使用 HTTPS 的直接表现。切换为 HTTP 后，若仍失败，再由合作方检查设备网络、DNS、地区访问和服务器可用性；AppsFlyer/Firebase 的收入事件仍可独立上报。
+
+
+## 10. Debug 局域网 HTTP 配置
+
+本地 Content API 和 Rewards API 通常位于 Windows 电脑的局域网 IPv4 地址，例如 `http://192.168.0.111:8000` 与 `http://192.168.0.111:8100`。Android Debug 包已使用独立的网络安全配置，允许该类局域网 HTTP 请求；Release 包仍默认拒绝明文流量，仅对炫羽测试域名 `api.eventtrack.top` 放行 HTTP。
+
+如果真机报错 `Cleartext communication to 192.168.x.x not permitted`，说明安装的是修改前的 APK 或本地未重新执行 Debug 构建。重新拉取代码并运行 `./gradlew.bat :app:assembleDebug` 后安装新包即可；IP 地址与 Content/Rewards 服务地址不需要改为 HTTPS。
