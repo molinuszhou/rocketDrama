@@ -61,8 +61,9 @@ android {
         applicationId = "com.dramaflow.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 16
-        versionName = "1.6"
+        // Android 客户端每次代码改动递增补丁版本；服务端/文档单独改动不变更此版本。
+        versionCode = 17
+        versionName = "1.6.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }

@@ -1,8 +1,8 @@
-# JoyeDrama 白包 v1.6 测试与联调手册
+# JoyeDrama 白包 v1.6.1 测试与联调手册
 
 ## 1. 本次接入范围
 
-版本 `1.6`（`versionCode=16`）已完成以下 Android 代码与构建接入：
+版本 `1.6.1`（`versionCode=17`）已完成以下 Android 代码与构建接入。后续每次有 Android 客户端代码修改时，补丁版本依次递增为 `1.6.2`、`1.6.3`；仅服务端、Docker 或文档变更不递增 Android 版本：
 
 | 链路 | 实现状态 | 验证口径 |
 |---|---|---|
@@ -82,13 +82,17 @@ GET http://api.eventtrack.top/event/w_ad_show
 | 字段 | 来源 |
 |---|---|
 | `uid` | AppsFlyer SDK 的 AF UID |
-| `app_ver` | BuildConfig 版本，当前为 `1.6` |
+| `app_ver` | BuildConfig 版本，当前为 `1.6.1` |
 | `pkg_name` | 当前包名 `com.dramaflow.app` |
 | `ad_type` | TopOn `ATAdInfo` 广告格式 |
 | `ad_network` | TopOn `ATAdInfo` 广告网络名称 |
 | `ecpm` | TopOn `ATAdInfo` eCPM |
 
 炫羽测试服务使用 **HTTP（80 端口）**，不是 HTTPS。Android 已通过网络安全配置仅放行 `api.eventtrack.top` 的明文请求；`local.properties` 必须为 `XUANYU_EVENT_BASE_URL=http://api.eventtrack.top`。若炫羽监控未收到数据，先检查 AppsFlyer UID 是否已生成、设备网络是否可访问该 HTTP 域名、TopOn 是否真实触发展示回调，以及 Logcat 中 `WhiteLabelAnalytics` 是否有 HTTP 状态或最终失败记录。
+
+### 5.1 Logcat 文本统计
+
+可以直接将 Android Studio Logcat 复制、保存为 UTF-8 `.txt` 文件并上传分析；中文 `WhiteLabelAnalytics` 日志可以正常统计。建议保留从应用冷启动到全部广告测试完成的完整文本。统计时优先匹配固定日志片段：`Splash shown:`、`Interstitial shown:`、`Rewarded shown:`、`Rewarded completed:`、`Firebase ad_impression:`、`Firebase rewarded_ad_completed:`、`AppsFlyer ad_impression:`、`AppsFlyer ad_impression_001:`、`炫羽广告展示上报成功：`。
 
 ## 6. 当前必须补齐的合作方资料
 
