@@ -149,7 +149,7 @@ class PartnerAnalytics private constructor(private val appContext: Context) {
         debug("Firebase ad_impression: placement=${payload.logicalPlacement}, value=${revenueUsd.toPlainString()}")
     }
 
-    private fun reportXuanyuAdShow(payload: AdPayload, attempt: Int = 0) {
+    private fun reportXuanyuAdShow(payload: AdPayload, uidAttempt: Int = 0, networkAttempt: Int = 0) {
         val baseUrl = BuildConfig.XUANYU_EVENT_BASE_URL.trim().removeSuffix("/")
         val uid = appsFlyerUid()
         if (baseUrl.isBlank()) {
@@ -157,8 +157,8 @@ class PartnerAnalytics private constructor(private val appContext: Context) {
             return
         }
         if (uid.isNullOrBlank()) {
-            if (attempt < XUANYU_UID_RETRY_COUNT) {
-                mainHandler.postDelayed({ reportXuanyuAdShow(payload, attempt + 1) }, XUANYU_UID_RETRY_DELAY_MS)
+            if (uidAttempt < XUANYU_UID_RETRY_COUNT) {
+                mainHandler.postDelayed({ reportXuanyuAdShow(payload, uidAttempt + 1, networkAttempt) }, XUANYU_UID_RETRY_DELAY_MS)
             } else {
                 Log.w(TAG, "炫羽广告展示上报跳过：AppsFlyer uid 未就绪")
             }
@@ -178,13 +178,32 @@ class PartnerAnalytics private constructor(private val appContext: Context) {
         }
         httpClient.newCall(Request.Builder().url(url).get().build()).enqueue(object : Callback {
             override fun onFailure(call: Call, error: IOException) {
-                Log.w(TAG, "炫羽广告展示上报失败：${error.message}")
+                if (networkAttempt < XUANYU_NETWORK_RETRY_COUNT) {
+                    val nextAttempt = networkAttempt + 1
+                    Log.w(TAG, "炫羽广告展示上报失败（第 ${nextAttempt} 次重试前）：${error.message}")
+                    mainHandler.postDelayed(
+                        { reportXuanyuAdShow(payload, uidAttempt, nextAttempt) },
+                        XUANYU_NETWORK_RETRY_DELAY_MS,
+                    )
+                } else {
+                    Log.w(TAG, "炫羽广告展示上报最终失败：${error.message}")
+                }
             }
 
             override fun onResponse(call: Call, response: Response) {
                 response.use {
-                    if (it.isSuccessful) debug("炫羽广告展示上报成功：${payload.logicalPlacement}")
-                    else Log.w(TAG, "炫羽广告展示上报失败：HTTP ${it.code}")
+                    if (it.isSuccessful) {
+                        debug("炫羽广告展示上报成功：${payload.logicalPlacement}")
+                    } else if (networkAttempt < XUANYU_NETWORK_RETRY_COUNT) {
+                        val nextAttempt = networkAttempt + 1
+                        Log.w(TAG, "炫羽广告展示上报失败：HTTP ${it.code}，将重试")
+                        mainHandler.postDelayed(
+                            { reportXuanyuAdShow(payload, uidAttempt, nextAttempt) },
+                            XUANYU_NETWORK_RETRY_DELAY_MS,
+                        )
+                    } else {
+                        Log.w(TAG, "炫羽广告展示上报最终失败：HTTP ${it.code}")
+                    }
                 }
             }
         })
@@ -210,6 +229,8 @@ class PartnerAnalytics private constructor(private val appContext: Context) {
         private const val USD = "USD"
         private const val XUANYU_UID_RETRY_COUNT = 3
         private const val XUANYU_UID_RETRY_DELAY_MS = 750L
+        private const val XUANYU_NETWORK_RETRY_COUNT = 2
+        private const val XUANYU_NETWORK_RETRY_DELAY_MS = 1_500L
         private val APPSFLYER_CUMULATIVE_THRESHOLD_USD = BigDecimal("0.01")
 
         @Volatile

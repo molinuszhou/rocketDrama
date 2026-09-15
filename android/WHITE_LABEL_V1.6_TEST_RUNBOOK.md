@@ -128,3 +128,11 @@ cd android
 3. 待领取宝石低于阈值时拖动进度条和调整倍速不会弹插屏；
 4. 待领取宝石达到阈值后，拖动和倍速可分别触发插屏，但各自频控独立；
 5. 皇冠页面能显示后续高倍率档位，完成等级后只影响后续生成的单集宝石，不回溯修改已生成奖励。
+
+## 9. 开屏 Skip 与炫羽网络异常说明
+
+开屏现在使用 TopOn 官方 `ATSplashSkipInfo` 自定义 Skip 入口，右上角显示倒计时和“跳过”按钮。真机日志应出现 `Splash show with custom skip view` 和 `Splash custom skip supported=true`；点击后应收到 `Splash dismissed`，并进入首页。若日志显示 `custom skip supported=false`，则说明当前广告源不支持自定义 Skip，仍由广告源自身的 Skip/关闭控件控制。
+
+合作方测试参数中的开屏广告源日志可能出现 `close_button=0`、`allows_skip=1`、`countdown=5`。这表示是否显示关闭按钮、最短可跳过时间和 Skip 行为仍由 TopOn 实际选中的广告源配置决定；应用不能覆盖广告源的关闭策略。若自定义 Skip 支持开启，则优先使用应用右上角自定义 Skip；若不支持，则应按广告素材自身的可跳过规则操作。
+
+炫羽上报失败不会阻断广告、奖励或播放器。当前对网络/DNS/HTTP 非成功响应最多进行 2 次重试；日志会区分“将重试”和“最终失败”。例如 `Failed to connect to api.eventtrack.top:443` 表示手机当时无法连接炫羽服务器，应由合作方检查设备网络、DNS、地区访问和服务器可用性；AppsFlyer/Firebase 的收入事件仍可独立上报。

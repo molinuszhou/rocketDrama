@@ -2,11 +2,16 @@ package com.dramaflow.app.ads
 
 import android.app.Activity
 import android.content.Context
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.TextView
 import com.dramaflow.app.BuildConfig
 import com.dramaflow.app.analytics.PartnerAnalytics
 import com.secmtp.sdk.core.api.ATAdInfo
@@ -23,6 +28,8 @@ import com.secmtp.sdk.rewardvideo.api.ATRewardVideoExListener
 import com.secmtp.sdk.splashad.api.ATSplashAd
 import com.secmtp.sdk.splashad.api.ATSplashAdExtraInfo
 import com.secmtp.sdk.splashad.api.ATSplashExListener
+import com.secmtp.sdk.splashad.api.ATSplashSkipAdListener
+import com.secmtp.sdk.splashad.api.ATSplashSkipInfo
 
 /**
  * TopOn 聚合广告唯一调用入口。
@@ -222,7 +229,24 @@ class TopOnAdsManager(
                                 deliver(FullscreenResult.Skipped("TopOn 未返回可展示的开屏广告"), host)
                                 return
                             }
-                            splash!!.show(activity, host)
+                            val skipView = createSplashSkipView(activity, host!!)
+                            val skipInfo = ATSplashSkipInfo(
+                                skipView,
+                                SPLASH_TIMEOUT_MS.toLong(),
+                                1_000L,
+                                object : ATSplashSkipAdListener {
+                                    override fun onAdTick(duration: Long, remainder: Long) {
+                                        skipView.text = formatSkipText(remainder)
+                                    }
+
+                                    override fun isSupportCustomSkipView(isSupport: Boolean) {
+                                        Log.i(TAG, "Splash custom skip supported=$isSupport")
+                                        skipView.visibility = if (isSupport) View.VISIBLE else View.GONE
+                                    }
+                                },
+                            )
+                            Log.i(TAG, "Splash show with custom skip view")
+                            splash!!.show(activity, host, skipInfo)
                         }
 
                         override fun onAdLoadTimeout() {
@@ -409,7 +433,48 @@ class TopOnAdsManager(
     private fun splashHost(activity: Activity): FrameLayout? {
         if (activity.isFinishing || activity.isDestroyed) return null
         val root = activity.findViewById<ViewGroup>(android.R.id.content) ?: return null
-        return FrameLayout(activity).also { root.addView(it, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT) }
+        return FrameLayout(activity).also {
+            it.setBackgroundColor(Color.TRANSPARENT)
+            root.addView(it, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        }
+    }
+
+    private fun createSplashSkipView(activity: Activity, host: FrameLayout): TextView {
+        val density = activity.resources.displayMetrics.density
+        val skipView = TextView(activity).apply {
+            text = formatSkipText(SPLASH_TIMEOUT_MS.toLong())
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            isClickable = true
+            isFocusable = true
+            visibility = View.GONE
+            setPadding(
+                (12 * density).toInt(),
+                (6 * density).toInt(),
+                (12 * density).toInt(),
+                (6 * density).toInt(),
+            )
+            background = GradientDrawable().apply {
+                setColor(0x99000000.toInt())
+                cornerRadius = 20 * density
+            }
+        }
+        val params = FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            Gravity.TOP or Gravity.END,
+        ).apply {
+            topMargin = (24 * density).toInt()
+            marginEnd = (16 * density).toInt()
+        }
+        host.addView(skipView, params)
+        return skipView
+    }
+
+    private fun formatSkipText(remainderMillis: Long): String {
+        val seconds = ((remainderMillis + 999L) / 1_000L).coerceAtLeast(0L)
+        return if (seconds > 0) "跳过 ${seconds}s" else "跳过"
     }
 
     private fun showOnActiveActivity(activity: Activity, onInactive: (String) -> Unit, show: () -> Unit) {
