@@ -1,6 +1,6 @@
 # JoyeDrama 独立 PostgreSQL 奖励服务：Windows 部署与联调手册
 
-**文档版本：v7.0.0**
+**文档版本：v8.1.0**
 **适用环境：Windows 10/11、Docker Desktop、Android 真机或模拟器**
 
 本服务负责广告事件、宝石账本、钱包余额、可提现余额、签到、随机宝箱、逐集待领取宝石、皇冠成长、内容解锁权益与插屏频控。它和自有短剧内容服务是**独立的两个服务**：content service 负责目录、分集、短时播放 URL 和媒体文件；Rewards API 只负责奖励与权益结算。
@@ -60,7 +60,7 @@ docker compose ps
 docker compose logs -f rewards-api
 ```
 
-空的 PostgreSQL 数据卷会依次执行 `001_init.sql` 至 `006_rewarded_actions_and_player_v7.sql`。[3] 已存在的数据库卷由 Rewards API 启动时根据 `schema_migrations` **仅执行缺失版本**，因此升级至 v7 不需要清空账本。
+空的 PostgreSQL 数据卷会依次执行 `001_init.sql` 至 `008_v81_ad_fatigue_and_crown_curve.sql`。[3] 已存在的数据库卷由 Rewards API 启动时根据 `schema_migrations` **仅执行缺失版本**，因此升级至 v8.1 通常不需要清空账本。
 
 > 不要使用 `docker compose down -v` 来升级。该命令会删除 PostgreSQL 持久卷。只有明确要从零重建测试数据时才可以使用。
 
