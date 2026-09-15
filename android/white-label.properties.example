@@ -3,7 +3,7 @@
 
 # 白包基础
 WHITE_LABEL_APP_NAME=JoyeDrama
-# versionCode/versionName 已固定为 16 / 1.6；正式发包按应用商店策略递增。
+# 当前客户端版本为 18 / 1.6.2；后续每次 Android 客户端改动递增补丁版本。
 
 # TopOn 聚合广告。
 # 1) 当前无合作方 App Key 时，在 Debug 包设为 true：自动使用 TopOn 官方 Demo App/广告位测试开屏、激励和插屏。
@@ -31,7 +31,9 @@ FIREBASE_REWARDED_EVENT_NAME=rewarded_ad_completed
 # 炫羽测试服务器。当前文档定义 /event/w_ad_show，使用 HTTP，并携带 AppsFlyer UID、版本、包名和 TopOn 广告信息。
 XUANYU_EVENT_BASE_URL=http://api.eventtrack.top
 
-# 仅测试联调开启。上线前关闭，TopOn 网络日志、AppsFlyer/Firebase 调试均不应在生产常开。
+# 测试阶段默认关闭 AppsFlyer、Firebase 和炫羽的实际事件上报；需要合作方核验时改为 true。
+EXTERNAL_REPORTING_ENABLED=false
+# 仅控制本地 Logcat 诊断；不会自行开启外部事件上报。
 ANALYTICS_DEBUG=true
 
 # 现有自有短剧和 v8 积分服务。

@@ -30,6 +30,8 @@ InterstitialPlacement = Literal[
     "int_episode_midroll",
     "int_seek",
     "int_speed",
+    "int_rewarded_fallback",
+    "int_drama_switch",
 ]
 
 
@@ -97,7 +99,19 @@ class RewardPolicyUpdateRequest(BaseModel):
     action_interstitial_reward_threshold_gems: int | None = Field(default=None, ge=0, le=1_000_000_000)
     crown_rewarded_ads_per_episode: int | None = Field(default=None, ge=1, le=10)
     release_boost_percent: float | None = Field(default=None, gt=0.0, le=1.0)
-    release_boost_daily_limit: int | None = Field(default=None, ge=0, le=20)
+    release_boost_daily_limit: int | None = Field(default=None, ge=0, le=100)
+    rv_daily_limit: int | None = Field(default=None, ge=0, le=1000)
+    episode_interstitial_limit: int | None = Field(default=None, ge=0, le=10)
+    drama_switch_interstitial_enabled: bool | None = None
+    drama_switch_interstitial_every_count: int | None = Field(default=None, ge=1, le=50)
+    drama_switch_interstitial_hourly_limit: int | None = Field(default=None, ge=0, le=120)
+    rewarded_fallback_interstitial_enabled: bool | None = None
+    gems_earned_cap: int | None = Field(default=None, ge=0, le=10_000_000_000)
+    gem_damping_tier1_threshold: int | None = Field(default=None, ge=0, le=10_000_000_000)
+    gem_damping_tier2_threshold: int | None = Field(default=None, ge=0, le=10_000_000_000)
+    gem_damping_tier1_multiplier: float | None = Field(default=None, ge=0.0, le=1.0)
+    gem_damping_tier2_multiplier: float | None = Field(default=None, ge=0.0, le=1.0)
+    gem_damping_tier3_multiplier: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
 class CrownMultiplierUpdateRequest(BaseModel):
@@ -121,6 +135,7 @@ class InterstitialShownRequest(BaseModel):
     user_id: str = Field(min_length=1, max_length=128)
     event_id: str = Field(min_length=8, max_length=160)
     placement_id: InterstitialPlacement
+    episode_id: str | None = Field(default=None, max_length=256)
 
 
 class WithdrawalPreflightRequest(BaseModel):

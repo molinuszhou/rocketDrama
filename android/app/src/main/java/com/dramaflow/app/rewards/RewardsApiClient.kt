@@ -150,8 +150,23 @@ class RewardsApiClient(
         val speedEnabled: Boolean = false,
         val speedHourlyLimit: Int = 0,
         val actionRewardThresholdGems: Int = 3000,
+        val episodeInterstitialLimit: Int = 1,
+        val dramaSwitchEnabled: Boolean = true,
+        val dramaSwitchEveryCount: Int = 3,
+        val dramaSwitchHourlyLimit: Int = 6,
+        val rewardedFallbackEnabled: Boolean = true,
         val lastRvAt: String?,
         val lastInterstitialAt: String?,
+    )
+
+    data class GemDamping(
+        val totalGemsEarned: Long = 0L,
+        val cap: Long = 0L,
+        val tier1Threshold: Long = 0L,
+        val tier2Threshold: Long = 0L,
+        val tier1Multiplier: Float = 1f,
+        val tier2Multiplier: Float = 1f,
+        val tier3Multiplier: Float = 1f,
     )
 
     data class Withdrawal(
@@ -187,6 +202,7 @@ class RewardsApiClient(
         val walletEligibilityCopy: String,
         val chest: Chest,
         val interstitial: InterstitialPolicy,
+        val gemDamping: GemDamping = GemDamping(),
         val withdrawal: Withdrawal,
         val achievements: List<Achievement>,
         val crownProgress: List<CrownProgress>,
@@ -316,9 +332,11 @@ class RewardsApiClient(
         { data -> onSuccess(parseSnapshot(data.getJSONObject("snapshot"))) }, onFailure,
     )
 
-    fun recordInterstitial(userId: String, placementId: String, onSuccess: (Snapshot) -> Unit, onFailure: (String) -> Unit) = post(
+    fun recordInterstitial(userId: String, placementId: String, episodeId: String? = null, onSuccess: (Snapshot) -> Unit, onFailure: (String) -> Unit) = post(
         "/v2/interstitials/shown",
-        JSONObject().put("user_id", userId).put("event_id", "int-${UUID.randomUUID()}").put("placement_id", placementId),
+        JSONObject().put("user_id", userId).put("event_id", "int-${UUID.randomUUID()}").put("placement_id", placementId).also { payload ->
+            if (!episodeId.isNullOrBlank()) payload.put("episode_id", episodeId)
+        },
         { data -> onSuccess(parseSnapshot(data.getJSONObject("snapshot"))) }, onFailure,
     )
 
@@ -351,6 +369,7 @@ class RewardsApiClient(
         val chest = json.getJSONObject("chest")
         val interstitial = json.getJSONObject("interstitial")
         val withdrawal = json.getJSONObject("withdrawal")
+        val damping = json.optJSONObject("gem_damping") ?: JSONObject()
         val user = json.optJSONObject("user") ?: JSONObject()
         val release = walletJson.optJSONObject("release") ?: JSONObject()
         val tiers = parseTiers(checkin.optJSONArray("tiers"))
@@ -422,8 +441,18 @@ class RewardsApiClient(
                 interstitial.optBoolean("speed_enabled", false),
                 interstitial.optInt("speed_hourly_limit", 0),
                 interstitial.optInt("action_reward_threshold_gems", 3000),
+                interstitial.optInt("episode_limit", 1),
+                interstitial.optBoolean("drama_switch_enabled", true),
+                interstitial.optInt("drama_switch_every_count", 3).coerceAtLeast(1),
+                interstitial.optInt("drama_switch_hourly_limit", 6),
+                interstitial.optBoolean("rewarded_fallback_enabled", true),
                 nullableString(interstitial, "last_rv_at"),
                 nullableString(interstitial, "last_interstitial_at"),
+            ),
+            gemDamping = GemDamping(
+                damping.optLong("total_gems_earned", walletJson.optLong("total_gems_earned")),
+                damping.optLong("cap"), damping.optLong("tier1_threshold"), damping.optLong("tier2_threshold"),
+                damping.optDouble("tier1_multiplier", 1.0).toFloat(), damping.optDouble("tier2_multiplier", 1.0).toFloat(), damping.optDouble("tier3_multiplier", 1.0).toFloat(),
             ),
             withdrawal = Withdrawal(withdrawal.optBoolean("enabled"), withdrawal.optBoolean("eligible"), withdrawal.optString("reason"), withdrawal.optString("threshold", "0.00")),
             achievements = achievements, crownProgress = crowns, rvCountToday = today.optInt("rv_count"), rvDailyLimit = today.optInt("rv_daily_limit", 20), lifecycleDay = user.optInt("lifecycle_day"), geoTier = user.optString("geo_tier", "t3"),

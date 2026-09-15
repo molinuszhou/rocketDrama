@@ -46,6 +46,10 @@ class PartnerAnalytics private constructor(private val appContext: Context) {
     fun initialize() {
         if (initialized) return
         initialized = true
+        if (!BuildConfig.EXTERNAL_REPORTING_ENABLED) {
+            Log.i(TAG, "外部数据上报已关闭：AppsFlyer、Firebase 与炫羽事件不会发送")
+            return
+        }
         if (BuildConfig.APPSFLYER_DEV_KEY.isBlank()) {
             Log.w(TAG, "AppsFlyer Dev Key is not configured; attribution events are skipped")
             return
@@ -55,13 +59,14 @@ class PartnerAnalytics private constructor(private val appContext: Context) {
         Log.i(TAG, "AppsFlyer initialization requested; uid=${appsFlyerUid().orEmpty()}")
     }
 
-    fun appsFlyerUid(): String? = runCatching { appsFlyer.getAppsFlyerUID(appContext) }
+    fun appsFlyerUid(): String? = if (!BuildConfig.EXTERNAL_REPORTING_ENABLED) null else runCatching { appsFlyer.getAppsFlyerUID(appContext) }
         .getOrNull()
         ?.trim()
         ?.takeIf(String::isNotBlank)
 
     /** 广告真实展示：炫羽展示上报使用此时机；收入事件等待 paid impression 回调。 */
     fun reportTopOnImpression(logicalPlacement: String, adUnitId: String, adInfo: ATAdInfo) {
+        if (!BuildConfig.EXTERNAL_REPORTING_ENABLED) { debug("外部上报已关闭：跳过展示事件 $logicalPlacement"); return }
         reportXuanyuAdShow(payloadFor(logicalPlacement, adUnitId, adInfo))
     }
 
@@ -73,6 +78,7 @@ class PartnerAnalytics private constructor(private val appContext: Context) {
      */
     @Synchronized
     fun reportTopOnRevenue(logicalPlacement: String, adUnitId: String, adInfo: ATAdInfo) {
+        if (!BuildConfig.EXTERNAL_REPORTING_ENABLED) { debug("外部上报已关闭：跳过收入事件 $logicalPlacement"); return }
         val payload = payloadFor(logicalPlacement, adUnitId, adInfo)
         val currency = payload.currency.trim().uppercase(Locale.ROOT)
         if (currency != USD || !payload.ecpm.isFinite() || payload.ecpm <= 0.0) {
@@ -106,6 +112,7 @@ class PartnerAnalytics private constructor(private val appContext: Context) {
 
     /** Firebase 的唯一自定义事件：只在激励广告完整回调后发送。 */
     fun reportRewardedCompleted(logicalPlacement: String, adUnitId: String, adInfo: ATAdInfo?) {
+        if (!BuildConfig.EXTERNAL_REPORTING_ENABLED) { debug("外部上报已关闭：跳过激励完成事件 $logicalPlacement"); return }
         val payload = adInfo?.let { payloadFor(logicalPlacement, adUnitId, it) }
             ?: AdPayload(logicalPlacement, adUnitId, "rewarded", "TopOn", 0.0, USD)
         firebase.logEvent(BuildConfig.FIREBASE_REWARDED_EVENT_NAME, Bundle().apply {
@@ -150,6 +157,7 @@ class PartnerAnalytics private constructor(private val appContext: Context) {
     }
 
     private fun reportXuanyuAdShow(payload: AdPayload, uidAttempt: Int = 0, networkAttempt: Int = 0) {
+        if (!BuildConfig.EXTERNAL_REPORTING_ENABLED) return
         val baseUrl = BuildConfig.XUANYU_EVENT_BASE_URL.trim().removeSuffix("/")
         val uid = appsFlyerUid()
         if (baseUrl.isBlank()) {

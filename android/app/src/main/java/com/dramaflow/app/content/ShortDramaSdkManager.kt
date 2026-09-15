@@ -5,6 +5,7 @@ import android.util.Log
 import com.bytedance.sdk.shortplay.api.PSSDK
 import com.bytedance.sdk.shortplay.api.ShortPlay
 import com.dramaflow.app.BuildConfig
+import com.dramaflow.app.i18n.AppLanguage
 import java.util.UUID
 
 /**
@@ -86,11 +87,18 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
             .autoInitVideoPlayer(true)
             .debug(BuildConfig.DEBUG)
             .build()
+        // SDK 内容语言与界面语言独立：UI 使用六语词典；SDK 请求使用内容方支持的标准语言码。
+        PSSDK.setContentLanguage(contentLanguageFor(AppLanguage.tag(appContext)))
         PSSDK.init(appContext, config, object : PSSDK.PSSDKInitListener {
             override fun onInitFinished(success: Boolean, error: PSSDK.ErrorInfo?) {
                 initialized = success
                 if (success) {
                     PSSDK.setEligibleAudience(true)
+                    PSSDK.checkPlayStatus(object : PSSDK.ServiceCheckResultListener {
+                        override fun onCheckResult(result: PSSDK.ServiceAvailableResult?) {
+                            Log.i(TAG, "短剧 SDK 播放服务检测：${result?.name ?: "UNKNOWN"}")
+                        }
+                    })
                     onResult(Initialization.Ready)
                 } else {
                     onResult(Initialization.Failed("短剧 SDK 初始化失败：${error?.code ?: -1} ${error?.msg.orEmpty()}"))
@@ -199,6 +207,20 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
             language = shortPlay.language.orEmpty(),
             genres = genres,
         )
+    }
+
+    /** 用户切换应用语言后，外部目录刷新前调用；不改变本地视频内容的标题或字幕。 */
+    fun setContentLanguageForUi(uiLanguage: String) {
+        if (BuildConfig.SHORT_DRAMA_SDK_ENABLED && (initialized || PSSDK.hasInitialized())) {
+            PSSDK.setContentLanguage(contentLanguageFor(uiLanguage))
+        }
+    }
+
+    private fun contentLanguageFor(uiLanguage: String): String = when (uiLanguage) {
+        "pt-BR" -> "pt"
+        "zh-TW" -> "zh_hant"
+        "zh-CN" -> "zh_hans"
+        else -> uiLanguage.substringBefore('-')
     }
 
     private fun normalizeAssetPath(rawPath: String): String = rawPath.trim()

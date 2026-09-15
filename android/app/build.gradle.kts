@@ -41,6 +41,8 @@ val shortDramaLicenseAsset = integrationValue("SHORT_DRAMA_LICENSE_ASSET")
 val shortDramaSecurityKey = integrationValue("SHORT_DRAMA_SECURITY_KEY")
 val whiteLabelAppName = integrationValue("WHITE_LABEL_APP_NAME").ifBlank { "JoyeDrama" }
 val analyticsDebug = integrationValue("ANALYTICS_DEBUG").trim().equals("true", ignoreCase = true)
+// 测试阶段默认关闭 AppsFlyer、Firebase 和炫羽的实际事件上报；SDK 与事件代码保留，正式联调时显式开启。
+val externalReportingEnabled = integrationValue("EXTERNAL_REPORTING_ENABLED").trim().equals("true", ignoreCase = true)
 val localContentApiBaseUrl = integrationValue("LOCAL_CONTENT_API_BASE_URL").ifBlank { "http://10.0.2.2:8000" }
 val rewardsApiBaseUrl = integrationValue("REWARDS_API_BASE_URL").ifBlank { "http://10.0.2.2:8100" }
 
@@ -62,8 +64,8 @@ android {
         minSdk = 26
         targetSdk = 35
         // Android 客户端每次代码改动递增补丁版本；服务端/文档单独改动不变更此版本。
-        versionCode = 17
-        versionName = "1.6.1"
+        versionCode = 18
+        versionName = "1.6.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -84,6 +86,7 @@ android {
         buildConfigField("String", "SHORT_DRAMA_LICENSE_ASSET", "\"${escapeBuildConfig(shortDramaLicenseAsset)}\"")
         buildConfigField("String", "SHORT_DRAMA_SECURITY_KEY", "\"${escapeBuildConfig(shortDramaSecurityKey)}\"")
         buildConfigField("boolean", "ANALYTICS_DEBUG", analyticsDebug.toString())
+        buildConfigField("boolean", "EXTERNAL_REPORTING_ENABLED", externalReportingEnabled.toString())
         resValue("string", "app_name", whiteLabelAppName)
         buildConfigField("String", "LOCAL_CONTENT_API_BASE_URL", "\"${escapeBuildConfig(localContentApiBaseUrl)}\"")
         buildConfigField("String", "REWARDS_API_BASE_URL", "\"${escapeBuildConfig(rewardsApiBaseUrl)}\"")

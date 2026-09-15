@@ -148,7 +148,7 @@ def exchange_gems(payload: GemsExchangeRequest) -> dict:
 
 @app.post("/v2/interstitials/shown", response_model=ApiEnvelope)
 def interstitial_shown(payload: InterstitialShownRequest) -> dict:
-    return {"code": 0, "data": service.record_interstitial(payload.user_id, payload.event_id, payload.placement_id)}
+    return {"code": 0, "data": service.record_interstitial(payload.user_id, payload.event_id, payload.placement_id, payload.episode_id)}
 
 
 @app.post("/v2/withdrawals/preflight", response_model=ApiEnvelope)

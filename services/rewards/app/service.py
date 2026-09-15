@@ -73,7 +73,8 @@ class RewardsService:
 
             policy = self._policy(connection)
             counters = self._daily_counter(connection, user_id, business_date, lock=True)
-            if counters["rv_count"] >= policy["rv_daily_limit"]:
+            rv_daily_limit = int(policy["rv_daily_limit"])
+            if rv_daily_limit > 0 and int(counters["rv_count"]) >= rv_daily_limit:
                 raise ServiceError(1001, "今日激励广告次数已达上限，请明天再来", 429)
 
             # 先执行业务前置检查，避免无效事件消耗用户的日频控。
@@ -111,7 +112,14 @@ class RewardsService:
                 (user_id, business_date),
             )
             # 关联该次广告与对应的权益动作。插屏冷却从该广告完成时重新开始。
-            self._link_rewarded_event(connection, user_id, business_date, placement_id, target_id, ad_event_id)
+            credited_gems = self._link_rewarded_event(connection, user_id, business_date, placement_id, target_id, ad_event_id)
+            if credited_gems is not None:
+                result["gems_added"] = credited_gems
+                self._execute(
+                    connection,
+                    "UPDATE rewarded_ad_events SET result_payload = %s::jsonb WHERE ad_event_id = %s",
+                    (self._json(result), ad_event_id),
+                )
             achievements = self._award_achievements_if_due(connection, user_id, policy)
             result["achievements_awarded"] = achievements
             result["reset_int_timer"] = True
@@ -320,7 +328,7 @@ class RewardsService:
                 ) is not None
                 gems = int(claim["base_reward_gems"]) * (2 if boosted else 1)
                 claim_reference = f"{reference_id}:{claim['id']}"
-                self._credit_gems(
+                credited = self._credit_gems(
                     connection, user_id, gems, policy,
                     "EPISODE_REWARD_CLAIM", "episode_reward_claim_all", claim_reference,
                 )
@@ -333,7 +341,7 @@ class RewardsService:
                     """,
                     ("DOUBLED" if boosted else "CLAIMED", claim_reference, claim["id"]),
                 )
-                total += gems
+                total += credited
                 boosted_count += 1 if boosted else 0
             self._execute(
                 connection,
@@ -409,7 +417,11 @@ class RewardsService:
             "reward_claim_interstitial_enabled", "mid_episode_interstitial_enabled", "mid_episode_interstitial_trigger_seconds",
             "mid_episode_interstitial_hourly_limit", "seek_interstitial_enabled", "seek_interstitial_hourly_limit",
             "next_episode_interstitial_enabled", "speed_interstitial_enabled", "speed_interstitial_hourly_limit",
-            "action_interstitial_reward_threshold_gems",
+            "action_interstitial_reward_threshold_gems", "rv_daily_limit", "episode_interstitial_limit",
+            "drama_switch_interstitial_enabled", "drama_switch_interstitial_every_count", "drama_switch_interstitial_hourly_limit",
+            "rewarded_fallback_interstitial_enabled", "gems_earned_cap", "gem_damping_tier1_threshold",
+            "gem_damping_tier2_threshold", "gem_damping_tier1_multiplier", "gem_damping_tier2_multiplier",
+            "gem_damping_tier3_multiplier",
             "crown_rewarded_ads_per_episode", "release_boost_percent", "release_boost_daily_limit",
         }
         changed = {key: value for key, value in updates.items() if key in allowed and value is not None}
@@ -421,6 +433,13 @@ class RewardsService:
             chest_max = int(changed.get("random_chest_max_gems", policy["random_chest_max_gems"]))
             if chest_min > chest_max:
                 raise ServiceError(1904, "随机宝箱最小宝石不能大于最大宝石", 422)
+            damping_tier1 = int(changed.get("gem_damping_tier1_threshold", policy.get("gem_damping_tier1_threshold", 0)))
+            damping_tier2 = int(changed.get("gem_damping_tier2_threshold", policy.get("gem_damping_tier2_threshold", 0)))
+            gems_cap = int(changed.get("gems_earned_cap", policy.get("gems_earned_cap", 0)))
+            if damping_tier2 > 0 and damping_tier1 > damping_tier2:
+                raise ServiceError(1906, "一级宝石阻尼阈值不能大于二级阈值", 422)
+            if gems_cap > 0 and ((damping_tier1 > gems_cap) or (damping_tier2 > gems_cap)):
+                raise ServiceError(1907, "宝石阻尼阈值不能大于累计宝石上限", 422)
             assignments = ", ".join(f"{key} = %s" for key in changed)
             values = tuple(changed.values()) + (1,)
             self._execute(connection, f"UPDATE reward_policy SET {assignments}, updated_at = NOW() WHERE id = %s", values)
@@ -499,7 +518,7 @@ class RewardsService:
                 "snapshot": self._snapshot(connection, user_id),
             }
 
-    def record_interstitial(self, user_id: str, event_id: str, placement_id: str) -> dict[str, Any]:
+    def record_interstitial(self, user_id: str, event_id: str, placement_id: str, episode_id: str | None = None) -> dict[str, Any]:
         with self._transaction() as connection:
             self._ensure_user(connection, user_id)
             business_date = self._business_date()
@@ -517,6 +536,17 @@ class RewardsService:
                     WHERE user_id = %s AND placement_id = %s AND shown_at >= NOW() - INTERVAL '1 hour'""",
                     (user_id, placement),
                 )["count"])
+
+            if episode_id and placement_id in {"int_episode_midroll", "int_seek", "int_speed", "int_rewarded_fallback"}:
+                episode_limit = int(policy["episode_interstitial_limit"])
+                shown_in_episode = int(self._one(
+                    connection,
+                    """SELECT COUNT(*) AS count FROM interstitial_events
+                    WHERE user_id = %s AND episode_id = %s AND shown_at >= NOW() - INTERVAL '24 hours'""",
+                    (user_id, episode_id),
+                )["count"])
+                if episode_limit > 0 and shown_in_episode >= episode_limit:
+                    raise ServiceError(2017, "本集插屏展示次数已达上限", 429)
 
             if placement_id == "int_next_episode_unlock":
                 if not bool(policy["next_episode_interstitial_enabled"]):
@@ -549,6 +579,15 @@ class RewardsService:
                 speed_limit = int(policy["speed_interstitial_hourly_limit"])
                 if speed_limit > 0 and placement_count(placement_id) >= speed_limit:
                     raise ServiceError(2016, "本小时倍速插屏已达上限", 429)
+            elif placement_id == "int_drama_switch":
+                if not bool(policy["drama_switch_interstitial_enabled"]):
+                    raise ServiceError(2018, "切换剧集插屏当前未启用", 409)
+                switch_limit = int(policy["drama_switch_interstitial_hourly_limit"])
+                if switch_limit > 0 and placement_count(placement_id) >= switch_limit:
+                    raise ServiceError(2019, "本小时切换剧集插屏已达上限", 429)
+            elif placement_id == "int_rewarded_fallback":
+                if not bool(policy["rewarded_fallback_interstitial_enabled"]):
+                    raise ServiceError(2020, "激励回退插屏当前未启用", 409)
             else:
                 # 兼容旧版 int_timer / int_pause 事件。
                 if counters["last_interstitial_at"] and now - counters["last_interstitial_at"] < timedelta(seconds=int(policy["interstitial_cooldown_seconds"])):
@@ -558,8 +597,8 @@ class RewardsService:
 
             self._execute(
                 connection,
-                "INSERT INTO interstitial_events (event_id, user_id, business_date, placement_id) VALUES (%s, %s, %s, %s)",
-                (event_id, user_id, business_date, placement_id),
+                "INSERT INTO interstitial_events (event_id, user_id, business_date, placement_id, episode_id) VALUES (%s, %s, %s, %s, %s)",
+                (event_id, user_id, business_date, placement_id, episode_id),
             )
             if placement_id == "int_pause_native":
                 self._execute(
@@ -824,7 +863,7 @@ class RewardsService:
         placement_id: str,
         target_id: str | None,
         ad_event_id: str,
-    ) -> None:
+    ) -> int | None:
         policy = self._policy(connection)
         event = self._one(connection, "SELECT result_payload FROM rewarded_ad_events WHERE ad_event_id = %s", (ad_event_id,))
         payload = event["result_payload"]
@@ -841,7 +880,7 @@ class RewardsService:
             if updated != 1:
                 raise ServiceError(1603, "欢迎奖励状态已变化，请刷新后重试", 409)
             self._execute(connection, "UPDATE users SET welcome_claimed_at = NOW() WHERE user_id = %s", (user_id,))
-            self._credit_gems(connection, user_id, int(payload["gems_added"]), policy, "WELCOME_BONUS", "welcome_bonus_ad", ad_event_id)
+            return self._credit_gems(connection, user_id, int(payload["gems_added"]), policy, "WELCOME_BONUS", "welcome_bonus_ad", ad_event_id)
         elif action == "SIGN_IN":
             inserted = self._execute(
                 connection,
@@ -854,8 +893,9 @@ class RewardsService:
             )
             if inserted != 1:
                 raise ServiceError(1406, "今天已经签到", 409)
-            self._credit_gems(connection, user_id, int(payload["gems_added"]), policy, "SIGN_IN", "checkin_ad", ad_event_id)
+            credited = self._credit_gems(connection, user_id, int(payload["gems_added"]), policy, "SIGN_IN", "checkin_ad", ad_event_id)
             self._ensure_random_chests(connection, user_id, business_date, policy)
+            return credited
         elif action == "EPISODE_REWARDS_CLAIM_AUTH":
             self._execute(
                 connection,
@@ -871,14 +911,14 @@ class RewardsService:
                 "UPDATE pending_claims SET state = 'CLAIMED', claim_ad_event_id = %s, claimed_at = NOW() WHERE id = %s",
                 (ad_event_id, payload["claim_id"]),
             )
-            self._credit_gems(connection, user_id, payload["gems_added"], policy, "CLAIM_REWARD", "claim_ad", ad_event_id)
+            return self._credit_gems(connection, user_id, payload["gems_added"], policy, "CLAIM_REWARD", "claim_ad", ad_event_id)
         elif action == "DOUBLE_REWARD":
             self._execute(
                 connection,
                 "UPDATE pending_claims SET state = 'DOUBLED', double_ad_event_id = %s, doubled_at = NOW() WHERE id = %s",
                 (ad_event_id, payload["claim_id"]),
             )
-            self._credit_gems(connection, user_id, payload["gems_added"], policy, "DOUBLE_REWARD", "double_ad", ad_event_id)
+            return self._credit_gems(connection, user_id, payload["gems_added"], policy, "DOUBLE_REWARD", "double_ad", ad_event_id)
         elif action == "EPISODE_REWARD_BOOST":
             self._execute(
                 connection,
@@ -895,7 +935,7 @@ class RewardsService:
                 "UPDATE episode_reward_claims SET state = 'DOUBLED', double_ad_event_id = %s, doubled_at = NOW() WHERE id = %s",
                 (ad_event_id, payload["claim_id"]),
             )
-            self._credit_gems(connection, user_id, payload["gems_added"], policy, "EPISODE_REWARD_DOUBLE", "episode_reward_double", ad_event_id)
+            return self._credit_gems(connection, user_id, payload["gems_added"], policy, "EPISODE_REWARD_DOUBLE", "episode_reward_double", ad_event_id)
         elif action == "RANDOM_CHEST_OPEN":
             self._execute(
                 connection,
@@ -906,14 +946,14 @@ class RewardsService:
                 """,
                 (payload["gems_added"], ad_event_id, payload["chest_id"]),
             )
-            self._credit_gems(connection, user_id, payload["gems_added"], policy, "RANDOM_CHEST_OPEN", "random_chest", str(payload["chest_id"]))
+            return self._credit_gems(connection, user_id, payload["gems_added"], policy, "RANDOM_CHEST_OPEN", "random_chest", str(payload["chest_id"]))
         elif action == "SIGNIN_DOUBLE":
             self._execute(
                 connection,
                 "UPDATE checkins SET double_gems = %s WHERE user_id = %s AND business_date = %s",
                 (payload["gems_added"], user_id, business_date),
             )
-            self._credit_gems(connection, user_id, payload["gems_added"], policy, "SIGNIN_DOUBLE", "signin_double_ad", ad_event_id)
+            return self._credit_gems(connection, user_id, payload["gems_added"], policy, "SIGNIN_DOUBLE", "signin_double_ad", ad_event_id)
         elif action == "RELEASE_BOOST":
             amount = int(payload["released_micros"])
             self._execute(
@@ -941,6 +981,8 @@ class RewardsService:
                 """,
                 (user_id, -amount, amount, ad_event_id),
             )
+            return None
+        return None
 
     def _create_episode_reward_claim(
         self,
@@ -1285,8 +1327,22 @@ class RewardsService:
                 "speed_enabled": bool(policy["speed_interstitial_enabled"]),
                 "speed_hourly_limit": int(policy["speed_interstitial_hourly_limit"]),
                 "action_reward_threshold_gems": int(policy["action_interstitial_reward_threshold_gems"]),
+                "episode_limit": int(policy["episode_interstitial_limit"]),
+                "drama_switch_enabled": bool(policy["drama_switch_interstitial_enabled"]),
+                "drama_switch_every_count": int(policy["drama_switch_interstitial_every_count"]),
+                "drama_switch_hourly_limit": int(policy["drama_switch_interstitial_hourly_limit"]),
+                "rewarded_fallback_enabled": bool(policy["rewarded_fallback_interstitial_enabled"]),
                 "last_rv_at": counters["last_rv_at"].isoformat() if counters["last_rv_at"] else None,
                 "last_interstitial_at": counters["last_interstitial_at"].isoformat() if counters["last_interstitial_at"] else None,
+            },
+            "gem_damping": {
+                "total_gems_earned": int(user["total_gems_earned"]),
+                "cap": int(policy["gems_earned_cap"]),
+                "tier1_threshold": int(policy["gem_damping_tier1_threshold"]),
+                "tier2_threshold": int(policy["gem_damping_tier2_threshold"]),
+                "tier1_multiplier": float(policy["gem_damping_tier1_multiplier"]),
+                "tier2_multiplier": float(policy["gem_damping_tier2_multiplier"]),
+                "tier3_multiplier": float(policy["gem_damping_tier3_multiplier"]),
             },
             "withdrawal": self.withdrawal_preflight_inline(connection, user_id, policy, user, wallet_policy),
             "ledger": [
@@ -1360,15 +1416,36 @@ class RewardsService:
         entry_type: str,
         reference_type: str,
         reference_id: str,
-    ) -> None:
+    ) -> int:
         if gems <= 0:
-            return
+            return 0
         existing = self._one(connection, "SELECT id FROM ledger_entries WHERE reference_type = %s AND reference_id = %s", (reference_type, reference_id))
         if existing:
-            return
+            return 0
         user = self._one(connection, "SELECT total_gems_earned FROM users WHERE user_id = %s FOR UPDATE", (user_id,))
-        total = int(user["total_gems_earned"]) + gems
-        # v3.0 中宝石不会自动变成现金钱包；只有用户主动兑换才会从 L1 进入 L2。
+        total_before = int(user["total_gems_earned"])
+        cap = int(policy.get("gems_earned_cap", 0))
+        if cap > 0 and total_before >= cap:
+            credited_gems = 0
+        else:
+            # 用户要求的阻尼只作用于“看剧获得的宝石基数”，不削减欢迎、签到、宝箱等明确活动奖励。
+            episode_reward_entries = {"EPISODE_REWARD_CLAIM", "EPISODE_REWARD_DOUBLE", "CLAIM_REWARD", "DOUBLE_REWARD"}
+            if entry_type in episode_reward_entries:
+                tier1 = int(policy.get("gem_damping_tier1_threshold", 0))
+                tier2 = int(policy.get("gem_damping_tier2_threshold", 0))
+                if tier1 > 0 and total_before < tier1:
+                    multiplier = float(policy.get("gem_damping_tier1_multiplier", 1.0))
+                elif tier2 > 0 and total_before < tier2:
+                    multiplier = float(policy.get("gem_damping_tier2_multiplier", 1.0))
+                else:
+                    multiplier = float(policy.get("gem_damping_tier3_multiplier", 1.0))
+                credited_gems = max(0, math.floor(gems * multiplier))
+            else:
+                credited_gems = gems
+            if cap > 0:
+                credited_gems = min(credited_gems, cap - total_before)
+        total = total_before + credited_gems
+        # 宝石不自动变为现金钱包；只有用户主动兑换才会从 L1 进入 L2。
         self._execute(
             connection,
             """
@@ -1378,7 +1455,7 @@ class RewardsService:
                 updated_at = NOW()
             WHERE user_id = %s
             """,
-            (gems, total, user_id),
+            (credited_gems, total, user_id),
         )
         self._execute(
             connection,
@@ -1387,8 +1464,9 @@ class RewardsService:
             (user_id, entry_type, gems_delta, reference_type, reference_id)
             VALUES (%s, %s, %s, %s, %s)
             """,
-            (user_id, entry_type, gems, reference_type, reference_id),
+            (user_id, entry_type, credited_gems, reference_type, reference_id),
         )
+        return credited_gems
 
     def _ensure_user(self, connection: psycopg.Connection[Any], user_id: str) -> None:
         self._execute(connection, "INSERT INTO users (user_id) VALUES (%s) ON CONFLICT (user_id) DO NOTHING", (user_id,))
@@ -1562,6 +1640,18 @@ class RewardsService:
             "crown_rewarded_ads_per_episode": int(policy["crown_rewarded_ads_per_episode"]),
             "release_boost_percent": float(policy["release_boost_percent"]),
             "release_boost_daily_limit": int(policy["release_boost_daily_limit"]),
+            "rv_daily_limit": int(policy["rv_daily_limit"]),
+            "episode_interstitial_limit": int(policy["episode_interstitial_limit"]),
+            "drama_switch_interstitial_enabled": bool(policy["drama_switch_interstitial_enabled"]),
+            "drama_switch_interstitial_every_count": int(policy["drama_switch_interstitial_every_count"]),
+            "drama_switch_interstitial_hourly_limit": int(policy["drama_switch_interstitial_hourly_limit"]),
+            "rewarded_fallback_interstitial_enabled": bool(policy["rewarded_fallback_interstitial_enabled"]),
+            "gems_earned_cap": int(policy["gems_earned_cap"]),
+            "gem_damping_tier1_threshold": int(policy["gem_damping_tier1_threshold"]),
+            "gem_damping_tier2_threshold": int(policy["gem_damping_tier2_threshold"]),
+            "gem_damping_tier1_multiplier": float(policy["gem_damping_tier1_multiplier"]),
+            "gem_damping_tier2_multiplier": float(policy["gem_damping_tier2_multiplier"]),
+            "gem_damping_tier3_multiplier": float(policy["gem_damping_tier3_multiplier"]),
             "next_episode_interstitial_cooldown_seconds": int(policy["next_episode_interstitial_cooldown_seconds"]),
             "pause_ad_enabled": bool(policy["pause_ad_enabled"]),
             "pause_ad_min_play_seconds": int(policy["pause_ad_min_play_seconds"]),

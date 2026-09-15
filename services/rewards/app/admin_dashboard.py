@@ -47,11 +47,16 @@ DASHBOARD_HTML = """<!doctype html>
       <label class="switch">每集剧中插屏<input id="midEpisodeEnabled" type="checkbox"></label>
       <label class="switch">拖拽进度条插屏<input id="seekEnabled" type="checkbox"></label>
       <label class="switch">调整播放速度插屏<input id="speedEnabled" type="checkbox"></label>
+      <label class="switch">横向切换剧集插屏<input id="dramaSwitchEnabled" type="checkbox"></label>
+      <label class="switch">激励广告加载失败时回退插屏<input id="rewardedFallbackEnabled" type="checkbox"></label>
       <div><label for="midEpisodeSeconds">剧中插屏触发秒数</label><input id="midEpisodeSeconds" type="number" min="0" max="3600" step="1"></div>
       <div><label for="midEpisodeLimit">剧中插屏每小时上限</label><input id="midEpisodeLimit" type="number" min="0" max="120" step="1"></div>
       <div><label for="seekLimit">拖拽插屏每小时上限（0=不限制）</label><input id="seekLimit" type="number" min="0" max="120" step="1"></div>
       <div><label for="speedLimit">倍速插屏每小时上限（0=不限制）</label><input id="speedLimit" type="number" min="0" max="240" step="1"></div>
       <div><label for="actionRewardThreshold">拖动/倍速触发所需待领取宝石</label><input id="actionRewardThreshold" type="number" min="0" max="1000000000" step="100"></div>
+      <div><label for="episodeInterstitialLimit">每集插屏总上限（0=不限制）</label><input id="episodeInterstitialLimit" type="number" min="0" max="10" step="1"></div>
+      <div><label for="dramaSwitchEveryCount">横滑切剧每多少次展示 1 次插屏</label><input id="dramaSwitchEveryCount" type="number" min="1" max="50" step="1"></div>
+      <div><label for="dramaSwitchLimit">横滑切剧插屏每小时上限（0=不限制）</label><input id="dramaSwitchLimit" type="number" min="0" max="120" step="1"></div>
     </div>
 
     <h2 style="margin-top:25px">皇冠与钱包广告成长</h2>
@@ -59,7 +64,19 @@ DASHBOARD_HTML = """<!doctype html>
     <div class="grid">
       <div><label for="crownAdsPerEpisode">皇冠：多少条激励广告抵 1 集追剧</label><input id="crownAdsPerEpisode" type="number" min="1" max="10" step="1"></div>
       <div><label for="releaseBoostPercent">钱包广告加速比例（0.20 = 20%）</label><input id="releaseBoostPercent" type="number" min="0.01" max="1" step="0.01"></div>
-      <div><label for="releaseBoostLimit">钱包广告加速每日次数</label><input id="releaseBoostLimit" type="number" min="0" max="20" step="1"></div>
+      <div><label for="releaseBoostLimit">钱包广告加速每日次数</label><input id="releaseBoostLimit" type="number" min="0" max="100" step="1"></div>
+      <div><label for="rvDailyLimit">激励广告每日次数（0=不限次数）</label><input id="rvDailyLimit" type="number" min="0" max="1000" step="1"></div>
+    </div>
+
+    <h2 style="margin-top:25px">追剧宝石阻尼与总额上限</h2>
+    <div class="notice">阻尼只作用于看剧后领取的分集宝石及其翻倍，不削减欢迎奖励、签到或随机宝箱。总额达到上限后不再增加宝石。</div>
+    <div class="grid">
+      <div><label for="gemsCap">用户累计宝石上限（0=不限制）</label><input id="gemsCap" type="number" min="0" step="1000"></div>
+      <div><label for="dampingTier1">一级阈值（累计宝石）</label><input id="dampingTier1" type="number" min="0" step="1000"></div>
+      <div><label for="dampingTier2">二级阈值（累计宝石）</label><input id="dampingTier2" type="number" min="0" step="1000"></div>
+      <div><label for="dampingM1">一级分集奖励系数</label><input id="dampingM1" type="number" min="0" max="1" step="0.01"></div>
+      <div><label for="dampingM2">二级分集奖励系数</label><input id="dampingM2" type="number" min="0" max="1" step="0.01"></div>
+      <div><label for="dampingM3">三级分集奖励系数</label><input id="dampingM3" type="number" min="0" max="1" step="0.01"></div>
     </div>
     <button id="saveOperating">保存随机宝箱与广告规则</button>
 
@@ -77,16 +94,17 @@ function number(id,value){$(id).value=Number(value);}
 function render(p){
   current=p; $('policy').hidden=false;
   number('chestMin',p.random_chest_min_gems); number('chestMax',p.random_chest_max_gems); number('dailyChestCount',p.daily_random_chest_count); number('episodesPerChest',p.episodes_per_random_chest);
-  bool('rewardClaimEnabled',p.reward_claim_interstitial_enabled); bool('nextEpisodeEnabled',p.next_episode_interstitial_enabled); bool('midEpisodeEnabled',p.mid_episode_interstitial_enabled); bool('seekEnabled',p.seek_interstitial_enabled); bool('speedEnabled',p.speed_interstitial_enabled);
-  number('midEpisodeSeconds',p.mid_episode_interstitial_trigger_seconds); number('midEpisodeLimit',p.mid_episode_interstitial_hourly_limit); number('seekLimit',p.seek_interstitial_hourly_limit); number('speedLimit',p.speed_interstitial_hourly_limit); number('actionRewardThreshold',p.action_interstitial_reward_threshold_gems);
-  number('crownAdsPerEpisode',p.crown_rewarded_ads_per_episode); number('releaseBoostPercent',p.release_boost_percent); number('releaseBoostLimit',p.release_boost_daily_limit);
+  bool('rewardClaimEnabled',p.reward_claim_interstitial_enabled); bool('nextEpisodeEnabled',p.next_episode_interstitial_enabled); bool('midEpisodeEnabled',p.mid_episode_interstitial_enabled); bool('seekEnabled',p.seek_interstitial_enabled); bool('speedEnabled',p.speed_interstitial_enabled); bool('dramaSwitchEnabled',p.drama_switch_interstitial_enabled); bool('rewardedFallbackEnabled',p.rewarded_fallback_interstitial_enabled);
+  number('midEpisodeSeconds',p.mid_episode_interstitial_trigger_seconds); number('midEpisodeLimit',p.mid_episode_interstitial_hourly_limit); number('seekLimit',p.seek_interstitial_hourly_limit); number('speedLimit',p.speed_interstitial_hourly_limit); number('actionRewardThreshold',p.action_interstitial_reward_threshold_gems); number('episodeInterstitialLimit',p.episode_interstitial_limit); number('dramaSwitchEveryCount',p.drama_switch_interstitial_every_count); number('dramaSwitchLimit',p.drama_switch_interstitial_hourly_limit);
+  number('crownAdsPerEpisode',p.crown_rewarded_ads_per_episode); number('releaseBoostPercent',p.release_boost_percent); number('releaseBoostLimit',p.release_boost_daily_limit); number('rvDailyLimit',p.rv_daily_limit);
+  number('gemsCap',p.gems_earned_cap); number('dampingTier1',p.gem_damping_tier1_threshold); number('dampingTier2',p.gem_damping_tier2_threshold); number('dampingM1',p.gem_damping_tier1_multiplier); number('dampingM2',p.gem_damping_tier2_multiplier); number('dampingM3',p.gem_damping_tier3_multiplier);
   $('crowns').innerHTML=(p.crown_multipliers||[]).map(c=>`<tr><td>${c.title}</td><td><input id="crown-${c.code}" type="number" min="1" max="10" step="0.01" value="${c.episode_reward_multiplier}"></td><td><button class="secondary" data-crown="${c.code}">保存倍率</button></td></tr>`).join('');
   document.querySelectorAll('[data-crown]').forEach(btn=>btn.onclick=()=>saveCrown(btn.dataset.crown));
 }
 async function request(url,body){const r=await fetch(url,{method:'PUT',headers:auth(),body:JSON.stringify(body)});const j=await r.json();if(!r.ok)throw Error(j.msg||'保存失败');return j.data;}
 async function load(){status('正在读取规则…');try{const r=await fetch('/v2/admin/policy',{headers:auth()});const j=await r.json();if(!r.ok)throw Error(j.msg||'读取失败');render(j.data);status('规则已加载。','ok');}catch(e){status(e.message,'error');}}
 async function saveOperating(){
-  const body={random_chest_min_gems:Number($('chestMin').value),random_chest_max_gems:Number($('chestMax').value),daily_random_chest_count:Number($('dailyChestCount').value),episodes_per_random_chest:Number($('episodesPerChest').value),reward_claim_interstitial_enabled:$('rewardClaimEnabled').checked,next_episode_interstitial_enabled:$('nextEpisodeEnabled').checked,mid_episode_interstitial_enabled:$('midEpisodeEnabled').checked,mid_episode_interstitial_trigger_seconds:Number($('midEpisodeSeconds').value),mid_episode_interstitial_hourly_limit:Number($('midEpisodeLimit').value),seek_interstitial_enabled:$('seekEnabled').checked,seek_interstitial_hourly_limit:Number($('seekLimit').value),speed_interstitial_enabled:$('speedEnabled').checked,speed_interstitial_hourly_limit:Number($('speedLimit').value),action_interstitial_reward_threshold_gems:Number($('actionRewardThreshold').value),crown_rewarded_ads_per_episode:Number($('crownAdsPerEpisode').value),release_boost_percent:Number($('releaseBoostPercent').value),release_boost_daily_limit:Number($('releaseBoostLimit').value)};
+  const body={random_chest_min_gems:Number($('chestMin').value),random_chest_max_gems:Number($('chestMax').value),daily_random_chest_count:Number($('dailyChestCount').value),episodes_per_random_chest:Number($('episodesPerChest').value),reward_claim_interstitial_enabled:$('rewardClaimEnabled').checked,next_episode_interstitial_enabled:$('nextEpisodeEnabled').checked,mid_episode_interstitial_enabled:$('midEpisodeEnabled').checked,mid_episode_interstitial_trigger_seconds:Number($('midEpisodeSeconds').value),mid_episode_interstitial_hourly_limit:Number($('midEpisodeLimit').value),seek_interstitial_enabled:$('seekEnabled').checked,seek_interstitial_hourly_limit:Number($('seekLimit').value),speed_interstitial_enabled:$('speedEnabled').checked,speed_interstitial_hourly_limit:Number($('speedLimit').value),action_interstitial_reward_threshold_gems:Number($('actionRewardThreshold').value),episode_interstitial_limit:Number($('episodeInterstitialLimit').value),drama_switch_interstitial_enabled:$('dramaSwitchEnabled').checked,drama_switch_interstitial_every_count:Number($('dramaSwitchEveryCount').value),drama_switch_interstitial_hourly_limit:Number($('dramaSwitchLimit').value),rewarded_fallback_interstitial_enabled:$('rewardedFallbackEnabled').checked,crown_rewarded_ads_per_episode:Number($('crownAdsPerEpisode').value),release_boost_percent:Number($('releaseBoostPercent').value),release_boost_daily_limit:Number($('releaseBoostLimit').value),rv_daily_limit:Number($('rvDailyLimit').value),gems_earned_cap:Number($('gemsCap').value),gem_damping_tier1_threshold:Number($('dampingTier1').value),gem_damping_tier2_threshold:Number($('dampingTier2').value),gem_damping_tier1_multiplier:Number($('dampingM1').value),gem_damping_tier2_multiplier:Number($('dampingM2').value),gem_damping_tier3_multiplier:Number($('dampingM3').value)};
   if(body.random_chest_min_gems>body.random_chest_max_gems){status('随机宝箱最小宝石不能大于最大宝石。','error');return;}
   status('正在保存…');try{render(await request('/v2/admin/policy/operating',body));status('随机宝箱与广告规则已保存。','ok');}catch(e){status(e.message,'error');}
 }
