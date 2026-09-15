@@ -541,7 +541,7 @@ class PartnerDramaActivity : FragmentActivity() {
     }
 
     private fun createHeroBanner(drama: LocalDrama): View = FrameLayout(this).apply {
-        background = gradientDrawable(intArrayOf(COLOR_PURPLE, 0xFF20182F.toInt()), 22)
+        background = gradientDrawable(intArrayOf(0xFFFFD59A.toInt(), 0xFFFFEFE2.toInt()), 22)
         setPadding(dp(18), dp(18), dp(18), dp(18))
         minimumHeight = dp(172)
         isClickable = true
@@ -550,7 +550,7 @@ class PartnerDramaActivity : FragmentActivity() {
         copy.addView(TextView(this@PartnerDramaActivity).apply {
             text = "本周精选"
             textSize = 13f
-            setTextColor(0xDFFFFFFF.toInt())
+            setTextColor(COLOR_TEXT_MUTED)
         })
         copy.addView(TextView(this@PartnerDramaActivity).apply {
             text = drama.title.ifBlank { "精彩短剧" }
@@ -563,8 +563,8 @@ class PartnerDramaActivity : FragmentActivity() {
         copy.addView(TextView(this@PartnerDramaActivity).apply {
             text = "${drama.total.coerceAtLeast(1)} 集 · 立即开追"
             textSize = 13f
-            setTextColor(0xEFFFFFFF.toInt())
-            background = roundedDrawable(0x44FFFFFF, 14)
+            setTextColor(COLOR_TEXT_PRIMARY)
+            background = roundedDrawable(0x88FFFFFF.toInt(), 14)
             setPadding(dp(10), dp(6), dp(10), dp(6))
         })
         addView(copy, FrameLayout.LayoutParams(dp(220), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER_VERTICAL or Gravity.START))
@@ -701,7 +701,7 @@ class PartnerDramaActivity : FragmentActivity() {
         addView(TextView(this@PartnerDramaActivity).apply {
             text = subtitle
             textSize = 13f
-            setTextColor(Color.rgb(185, 173, 197))
+            setTextColor(COLOR_TEXT_MUTED)
             setPadding(0, dp(4), 0, 0)
         })
     }
@@ -714,7 +714,7 @@ class PartnerDramaActivity : FragmentActivity() {
             contentDescription = t("claim_all")
             background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(0xFFFFFFFF.toInt(), 0xFFFFEEF2.toInt())).apply {
                 shape = GradientDrawable.OVAL
-                setStroke(dp(2), 0x66F65A7C)
+                setStroke(dp(2), 0x66FF7043)
             }
             setOnClickListener {
                 if (rewardsSnapshot?.ring?.claimable == true) showEpisodeRewardClaimDialog() else {
@@ -761,7 +761,7 @@ class PartnerDramaActivity : FragmentActivity() {
         button.text = if (boosted) "本集已翻倍" else "本集奖励翻倍"
         button.setTextColor(if (boosted) 0xFFFFE7A0.toInt() else Color.WHITE)
         button.background = gradientDrawable(
-            if (boosted) intArrayOf(0xA67D5B17.toInt(), 0xBF4E3610.toInt()) else intArrayOf(0xD9FF6C7B.toInt(), 0xE6D93654.toInt()),
+                if (boosted) intArrayOf(0xFFFFD180.toInt(), 0xFFFFB74D.toInt()) else intArrayOf(0xFFFF9A62.toInt(), 0xFFFF5C63.toInt()),
             14,
         )
         button.isClickable = episodeId != null
@@ -1137,7 +1137,7 @@ class PartnerDramaActivity : FragmentActivity() {
     private fun createActivityRewardDemo(): View = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         setPadding(dp(16), dp(15), dp(16), dp(15))
-        background = gradientDrawable(intArrayOf(0xFF283142.toInt(), 0xFFFFFFFF.toInt()), 18)
+        background = gradientDrawable(intArrayOf(0xFFFFF1E6.toInt(), 0xFFFFFFFF.toInt()), 18)
         addView(TextView(this@PartnerDramaActivity).apply {
             text = "新剧追更挑战"
             textSize = 16f
@@ -1145,7 +1145,7 @@ class PartnerDramaActivity : FragmentActivity() {
             setTextColor(COLOR_TEXT_PRIMARY)
         })
         addView(TextView(this@PartnerDramaActivity).apply {
-            text = "活动演示：活动期间完成指定短剧 5 集有效观看，可获得 120 活动点数"
+            text = "活动期间完成指定短剧 5 集有效观看，可获得 120 活动点数"
             textSize = 12f
             setTextColor(COLOR_TEXT_MUTED)
             setPadding(0, dp(6), 0, dp(12))
@@ -1154,7 +1154,7 @@ class PartnerDramaActivity : FragmentActivity() {
         row.addView(TextView(this@PartnerDramaActivity).apply {
             text = "进度 0/5 · 即将开放"
             textSize = 13f
-            setTextColor(0xEFFFFFFF.toInt())
+            setTextColor(COLOR_TEXT_PRIMARY)
             background = roundedDrawable(COLOR_SURFACE, 12)
             setPadding(dp(11), dp(7), dp(11), dp(7))
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
@@ -1230,13 +1230,13 @@ class PartnerDramaActivity : FragmentActivity() {
         dialog.window?.apply { setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT)); setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT) }
     }
 
-    /** 深色奖励弹窗：七日格子和金额均以服务端快照为准；服务离线时仅展示同步状态，不发放奖励。 */
+    /** 明亮奖励弹窗：七日格子和金额均以服务端快照为准；服务离线时仅展示同步状态，不发放奖励。 */
     private fun showCheckinRewardDialog(snapshot: RewardsApiClient.Snapshot?) {
         val dialog = AlertDialog.Builder(this).create()
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(22), dp(20), dp(18))
-            background = gradientDrawable(intArrayOf(0xFF2A2141.toInt(), COLOR_CARD), 26)
+            background = gradientDrawable(intArrayOf(0xFFFFF0E6.toInt(), COLOR_CARD), 26)
         }
         content.addView(TextView(this).apply {
             text = "连续签到奖励"
@@ -2327,7 +2327,7 @@ class PartnerDramaActivity : FragmentActivity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(dp(24), dp(24), dp(24), dp(20))
-            background = gradientDrawable(intArrayOf(0xFF5B1830.toInt(), 0xFF1F1223.toInt()), 28)
+            background = gradientDrawable(intArrayOf(0xFFFFF0E6.toInt(), 0xFFFFFFFF.toInt()), 28)
         }
         val chestImage = ImageView(this).apply {
             setImageResource(com.dramaflow.app.R.drawable.ic_random_chest_reward)
@@ -2342,13 +2342,13 @@ class PartnerDramaActivity : FragmentActivity() {
             textSize = 22f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            setTextColor(0xFFFFE59A.toInt())
+            setTextColor(COLOR_TEXT_PRIMARY)
         })
         content.addView(TextView(this).apply {
             text = "宝箱已经放入你的奖励库。现在打开 1 个，或继续追剧后再来领取。"
             textSize = 13f
             gravity = Gravity.CENTER
-            setTextColor(0xEFFFFFFF.toInt())
+            setTextColor(COLOR_TEXT_MUTED)
             setPadding(0, dp(8), 0, dp(18))
         })
         val actions = LinearLayout(this).apply { gravity = Gravity.CENTER }
@@ -2357,8 +2357,8 @@ class PartnerDramaActivity : FragmentActivity() {
             textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            setTextColor(0xFFFFE7A0.toInt())
-            background = roundedDrawable(0x355C2E3B, 16)
+            setTextColor(COLOR_TEXT_PRIMARY)
+            background = roundedDrawable(COLOR_SURFACE, 16)
             isClickable = true
             setOnClickListener { dialog.dismiss(); onContinuePlayback() }
         }, LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginEnd = dp(8) })
@@ -2790,13 +2790,13 @@ class PartnerDramaActivity : FragmentActivity() {
         private const val INSTALLATION_KEY = "anonymous_installation_id"
         private const val TAG = "JoyeDramaPlayer"
 
-        private const val COLOR_BACKGROUND = 0xFFF7F8FC.toInt()
+        private const val COLOR_BACKGROUND = 0xFFF7F8FA.toInt()
         private const val COLOR_CARD = 0xFFFFFFFF.toInt()
         private const val COLOR_SURFACE = 0xFFF0F2F8.toInt()
         private const val COLOR_ACCENT = 0xFFFF7043.toInt()
         private const val COLOR_PURPLE = 0xFFFFB347.toInt()
-        private const val COLOR_TEXT_PRIMARY = 0xFF202A43.toInt()
-        private const val COLOR_TEXT_MUTED = 0xFF68738A.toInt()
+        private const val COLOR_TEXT_PRIMARY = 0xFF1C1C1C.toInt()
+        private const val COLOR_TEXT_MUTED = 0xFF7A7A7A.toInt()
 
         fun intent(context: Context): Intent = Intent(context, PartnerDramaActivity::class.java)
     }

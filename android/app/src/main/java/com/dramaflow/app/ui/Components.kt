@@ -49,20 +49,20 @@ fun DramaPoster(
         modifier = modifier
             .aspectRatio(0.70f)
             .clip(RoundedCornerShape(16.dp))
-            .background(Brush.verticalGradient(listOf(drama.accent.copy(alpha = 0.95f), Color(0xFF130F1B))))
+            .background(Brush.verticalGradient(listOf(drama.accent.copy(alpha = 0.78f), Color(0xFFFFE3C8))))
             .then(interaction)
             .padding(12.dp)
     ) {
         Text(
             text = drama.coverSymbol,
             style = MaterialTheme.typography.headlineLarge,
-            color = Color.White.copy(alpha = 0.90f),
+            color = Color(0xFF6D3926),
             fontWeight = FontWeight.Black,
             modifier = Modifier.align(Alignment.TopStart)
         )
         Column(modifier = Modifier.align(Alignment.BottomStart)) {
-            Text(drama.subtitle, style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.75f))
-            Text(drama.title, style = MaterialTheme.typography.titleMedium, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(drama.subtitle, style = MaterialTheme.typography.labelMedium, color = Color(0xFF7C675F))
+            Text(drama.title, style = MaterialTheme.typography.titleMedium, color = Color(0xFF1C1C1C), maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         if (showPlay) {
             Box(
@@ -70,10 +70,10 @@ fun DramaPoster(
                     .align(Alignment.Center)
                     .size(46.dp)
                     .clip(RoundedCornerShape(23.dp))
-                    .background(Color.Black.copy(alpha = 0.38f)),
+                    .background(Color.White.copy(alpha = 0.86f)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Outlined.PlayArrow, null, tint = Color.White)
+                Icon(Icons.Outlined.PlayArrow, null, tint = MaterialTheme.colorScheme.primary)
             }
         }
     }

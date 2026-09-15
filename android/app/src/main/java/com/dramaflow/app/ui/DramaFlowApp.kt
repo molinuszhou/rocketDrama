@@ -20,6 +20,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -54,6 +55,7 @@ fun DramaFlowApp(viewModel: AppViewModel = viewModel()) {
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
+        containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbarHost) },
         bottomBar = {
             if (state.route == AppRoute.MAIN) {
@@ -113,7 +115,7 @@ fun DramaFlowApp(viewModel: AppViewModel = viewModel()) {
         AlertDialog(
             onDismissRequest = viewModel::dismissCheckIn,
             title = { Text("签到成功") },
-            text = { Text("已获得 30 金币和 ¥0.05 原型奖励，明天继续签到可提升连续天数。") },
+            text = { Text("已获得 30 coins。明天继续签到可提升连续天数。") },
             confirmButton = { Button(onClick = viewModel::dismissCheckIn) { Text("收下奖励") } }
         )
     }
@@ -170,7 +172,10 @@ private fun AppDestination(
 
 @Composable
 private fun BottomNavigation(selected: MainTab, onSelect: (MainTab) -> Unit) {
-    NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+    NavigationBar(
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 8.dp
+    ) {
         val destinations = listOf(
             Triple(MainTab.HOME, "首页", Icons.Outlined.Home),
             Triple(MainTab.DISCOVER, "发现", Icons.Outlined.AutoAwesome),

@@ -139,16 +139,16 @@ fun PlayerScreen(padding: PaddingValues, viewModel: AppViewModel) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(440.dp)
-                    .background(Brush.verticalGradient(listOf(drama.accent, Color(0xFF110D18))))
+                    .background(Brush.verticalGradient(listOf(drama.accent.copy(alpha = .9f), Color(0xFFFFC98B))))
                     .padding(horizontal = 18.dp, vertical = 12.dp)
             ) {
-                ScreenTopBar("", viewModel::navigateBack, trailing = { IconButton(onClick = { viewModel.toggleFavorite(drama.id) }) { Icon(if (drama.id in state.favorites) Icons.Outlined.Favorite else Icons.Outlined.FavoriteBorder, "收藏", tint = Color.White) } })
+                ScreenTopBar("", viewModel::navigateBack, trailing = { IconButton(onClick = { viewModel.toggleFavorite(drama.id) }) { Icon(if (drama.id in state.favorites) Icons.Outlined.Favorite else Icons.Outlined.FavoriteBorder, "收藏", tint = Color(0xFF2D211B)) } })
                 Spacer(Modifier.weight(1f))
-                Surface(color = Color.Black.copy(alpha = 0.30f), shape = RoundedCornerShape(20.dp)) {
+                Surface(color = Color.White.copy(alpha = 0.82f), shape = RoundedCornerShape(20.dp)) {
                     Row(Modifier.padding(horizontal = 13.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Outlined.PlayArrow, null, tint = Color.White, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Outlined.PlayArrow, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("第 $currentEpisode 集 · 演示播放画面", style = MaterialTheme.typography.labelLarge)
+                        Text("第 $currentEpisode 集 · 正在播放", style = MaterialTheme.typography.labelLarge)
                     }
                 }
                 Spacer(Modifier.height(12.dp))
@@ -244,7 +244,7 @@ fun CashWalletScreen(padding: PaddingValues, viewModel: AppViewModel) {
         item {
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant), shape = RoundedCornerShape(24.dp)) {
                 Column(Modifier.padding(22.dp)) {
-                    Text("资格余额（原型）", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
+                    Text("Available cash balance", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
                     Text(formatCash(state.user.cashCents), style = MaterialTheme.typography.headlineLarge)
                     Spacer(Modifier.height(13.dp))
                     Text(
@@ -300,7 +300,7 @@ fun CoinWalletScreen(padding: PaddingValues, viewModel: AppViewModel) {
                 Column(Modifier.padding(22.dp)) {
                     Text("我的金币", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
                     Text("${state.user.coins}", style = MaterialTheme.typography.headlineLarge)
-                    Text("最低兑换门槛 ${eligibility.minimumCoins} 金币 · 原型汇率与档位仅作界面演示", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    Text("Minimum ${eligibility.minimumCoins} coins · exchange options are subject to server eligibility", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                 }
             }
         }
@@ -344,7 +344,7 @@ fun SettingsScreen(padding: PaddingValues, viewModel: AppViewModel) {
         "用户协议" to "查看服务条款",
         "隐私政策" to "了解数据使用方式",
         "联系我们" to "support@example.com",
-        "版本信息" to "DramaFlow 1.0.0 · 原型版"
+        "版本信息" to "JoyeDrama 1.0.0"
     )
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding),

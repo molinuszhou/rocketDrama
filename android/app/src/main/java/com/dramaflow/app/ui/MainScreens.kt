@@ -146,7 +146,7 @@ fun HomeScreen(padding: PaddingValues, viewModel: AppViewModel) {
             val featured = viewModel.dramas.first()
             Surface(
                 modifier = Modifier.fillMaxWidth().height(172.dp).clickable { viewModel.openDrama(featured.id) },
-                color = featured.accent,
+                color = Color(0xFFFFE7D6),
                 shape = RoundedCornerShape(22.dp)
             ) {
                 Column(
@@ -196,7 +196,7 @@ private fun DiscoverStory(drama: Drama, onOpen: () -> Unit, onWatch: () -> Unit)
         modifier = Modifier
             .fillMaxSize()
             .clip(RoundedCornerShape(24.dp))
-            .background(Brush.verticalGradient(listOf(drama.accent, Color(0xFF110D18))))
+            .background(Brush.verticalGradient(listOf(drama.accent.copy(alpha = .88f), Color(0xFFFFC98B))))
             .clickable { onWatch() }
             .padding(22.dp)
     ) {
@@ -205,20 +205,20 @@ private fun DiscoverStory(drama: Drama, onOpen: () -> Unit, onWatch: () -> Unit)
                 Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Outlined.Star, null, modifier = Modifier.size(15.dp), tint = Color(0xFFFFD166))
                     Spacer(Modifier.width(4.dp))
-                    Text("68%", style = MaterialTheme.typography.labelMedium)
+                Text("68%", style = MaterialTheme.typography.labelMedium, color = Color(0xFF4D2E1F))
                 }
             }
         }
         Column(modifier = Modifier.align(Alignment.BottomStart)) {
-            Text("${drama.episodes} 集短剧", style = MaterialTheme.typography.labelLarge, color = Color.White.copy(alpha = 0.8f))
+            Text("${drama.episodes} 集短剧", style = MaterialTheme.typography.labelLarge, color = Color(0xFF704B3A))
             Spacer(Modifier.height(5.dp))
-            Text(drama.title, style = MaterialTheme.typography.headlineLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(drama.title, style = MaterialTheme.typography.headlineLarge, color = Color(0xFF171717), maxLines = 2, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(8.dp))
-            Text(drama.description, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.85f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(drama.description, style = MaterialTheme.typography.bodyMedium, color = Color(0xFF604B43), maxLines = 2, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(16.dp))
             Button(onClick = onOpen, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF21172D))) { Text("立即观看") }
             Spacer(Modifier.height(8.dp))
-            Text("上滑切换下一部 · 演示内容", style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.7f))
+            Text("上滑切换下一部", style = MaterialTheme.typography.labelMedium, color = Color(0xFF795E50))
         }
     }
 }
@@ -346,7 +346,7 @@ fun ProfileScreen(padding: PaddingValues, viewModel: AppViewModel) {
         item {
             Card(modifier = Modifier.fillMaxWidth().clickable { viewModel.navigate(AppRoute.CASH_WALLET) }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant), shape = RoundedCornerShape(22.dp)) {
                 Column(Modifier.padding(20.dp)) {
-                    Text("资格余额（原型）", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
+                    Text("Available cash balance", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
                     Spacer(Modifier.height(4.dp))
                     Text(formatCash(state.user.cashCents), style = MaterialTheme.typography.headlineLarge)
                     Spacer(Modifier.height(12.dp))

@@ -278,7 +278,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun requestDemoWithdrawal(label: String) = _uiState.update { state ->
         val eligibility = state.withdrawalEligibility
         if (eligibility.eligible) {
-            state.copy(snackMessage = "原型模式：已满足公开资格条件，可进入 $label 的服务端申请流程")
+            state.copy(snackMessage = "资格已满足，可进入 $label 的申请流程")
         } else {
             state.copy(snackMessage = "尚未满足资格：${eligibility.unmetRequirements.joinToString("；")}")
         }
