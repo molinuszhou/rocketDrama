@@ -199,3 +199,34 @@ docker compose start rewards-api
 [2] [Docker Compose 环境变量官方文档](https://docs.docker.com/compose/how-tos/environment-variables/set-environment-variables/)
 
 [3] [PostgreSQL 官方 Docker 镜像文档](https://hub.docker.com/_/postgres)
+
+
+## 10. Bootstrap 返回 HTTP 500 时：重建 Rewards 数据库
+
+当 Android 日志已显示实际请求 `http://电脑局域网IPv4:8100`，但“奖励服务同步失败”包含 `HTTP 500` 时，表示手机、局域网地址和端口已正常连通，异常发生在 Rewards API 的数据库业务处理阶段。v8.1 的插屏奖励阈值新增了 `reward_policy.action_interstitial_reward_threshold_gems` 字段；本版本已将 `008_v81_ad_fatigue_and_crown_curve.sql` 同时加入 Docker 新库初始化与 API 运行时迁移，避免新旧数据库遗漏该字段。
+
+测试阶段允许清空积分数据时，可只重建 Rewards PostgreSQL 卷。此操作会删除测试用户、宝石、钱包、签到、宝箱、解锁和皇冠账本；不会删除 `content/media` 中的本地短剧视频与封面文件。
+
+```powershell
+cd C:\JoyeDrama
+
+git pull
+cd services
+
+# 先停止 Rewards API 与 PostgreSQL；Content API 可继续运行。
+docker compose stop rewards-api postgres
+
+# 查询并确认当前项目的 Rewards 数据卷名称。
+docker volume ls
+
+# Compose 项目名通常为 services；仅删除以 rewards_postgres_data 结尾的奖励数据库卷。
+docker volume rm services_rewards_postgres_data
+
+# 用 001–008 规则重新创建数据库并启动 Rewards API。
+docker compose up -d --build postgres rewards-api
+
+docker compose logs --tail=200 rewards-api
+Invoke-RestMethod http://127.0.0.1:8100/health
+```
+
+若 `services_rewards_postgres_data` 不存在，请以 `docker volume ls` 输出为准，删除名称以 `_rewards_postgres_data` 结尾且属于当前 JoyeDrama 项目的卷。`/health` 返回 JSON 中包含 `"status":"ok"` 后，在 Android Debug 包中彻底关闭并重新打开应用；新用户会自动创建，随后应正常返回新人奖励、签到、宝箱、皇冠和插屏策略快照。

@@ -20,6 +20,7 @@ def apply_runtime_migrations(settings: Settings) -> None:
         ("005_random_chest_and_reward_v6", sql_directory / "005_random_chest_and_reward_v6.sql"),
         ("006_rewarded_actions_and_player_v7", sql_directory / "006_rewarded_actions_and_player_v7.sql"),
         ("007_v8_player_reward_polish", sql_directory / "007_v8_player_reward_polish.sql"),
+        ("008_v81_ad_fatigue_and_crown_curve", sql_directory / "008_v81_ad_fatigue_and_crown_curve.sql"),
     )
     with psycopg.connect(settings.database_url, autocommit=True) as connection:
         with connection.cursor() as cursor:

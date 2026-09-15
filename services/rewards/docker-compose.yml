@@ -12,6 +12,12 @@ services:
       - rewards_postgres_data:/var/lib/postgresql/data
       - ./sql/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
       - ./sql/002_monetization_v3.sql:/docker-entrypoint-initdb.d/002_monetization_v3.sql:ro
+      - ./sql/003_rewards_v4.sql:/docker-entrypoint-initdb.d/003_rewards_v4.sql:ro
+      - ./sql/004_ad_flow_v5.sql:/docker-entrypoint-initdb.d/004_ad_flow_v5.sql:ro
+      - ./sql/005_random_chest_and_reward_v6.sql:/docker-entrypoint-initdb.d/005_random_chest_and_reward_v6.sql:ro
+      - ./sql/006_rewarded_actions_and_player_v7.sql:/docker-entrypoint-initdb.d/006_rewarded_actions_and_player_v7.sql:ro
+      - ./sql/007_v8_player_reward_polish.sql:/docker-entrypoint-initdb.d/007_v8_player_reward_polish.sql:ro
+      - ./sql/008_v81_ad_fatigue_and_crown_curve.sql:/docker-entrypoint-initdb.d/008_v81_ad_fatigue_and_crown_curve.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
