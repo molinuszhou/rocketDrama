@@ -149,6 +149,7 @@ class RewardsApiClient(
         val seekHourlyLimit: Int = 0,
         val speedEnabled: Boolean = false,
         val speedHourlyLimit: Int = 0,
+        val actionRewardThresholdGems: Int = 3000,
         val lastRvAt: String?,
         val lastInterstitialAt: String?,
     )
@@ -420,6 +421,7 @@ class RewardsApiClient(
                 interstitial.optInt("seek_hourly_limit", 0),
                 interstitial.optBoolean("speed_enabled", false),
                 interstitial.optInt("speed_hourly_limit", 0),
+                interstitial.optInt("action_reward_threshold_gems", 3000),
                 nullableString(interstitial, "last_rv_at"),
                 nullableString(interstitial, "last_interstitial_at"),
             ),

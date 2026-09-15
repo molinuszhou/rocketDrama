@@ -87,6 +87,7 @@ class PartnerDramaActivity : FragmentActivity() {
     private var startupContentInitializationStarted = false
     private var startupCheckinPromptRequested = false
     private var startupCheckinPromptShown = false
+    private var startupWelcomePromptShown = false
     private var selectedDrama: LocalDrama? = null
     private var currentEpisodeIndex = 0
     private var pendingUnlockIndex = -1
@@ -1059,7 +1060,7 @@ class PartnerDramaActivity : FragmentActivity() {
                 textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE)
             })
             addView(TextView(this@PartnerDramaActivity).apply {
-                text = "当前每集宝石 ${String.format(Locale.US, "%.2f", current?.episodeRewardMultiplier ?: 1f)} 倍 · 升至 ${next.title} 后提升至 ${String.format(Locale.US, "%.2f", next.episodeRewardMultiplier)} 倍"
+                text = "当前 ${String.format(Locale.US, "%.2f", current?.episodeRewardMultiplier ?: 1f)} 倍 · 下一档 ${next.title} 为 ${String.format(Locale.US, "%.2f", next.episodeRewardMultiplier)} 倍，皇冠最高可达 2.50 倍"
                 textSize = 13f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(6), 0, dp(10))
             })
             addView(ProgressBar(this@PartnerDramaActivity, null, android.R.attr.progressBarStyleHorizontal).apply {
@@ -1068,7 +1069,7 @@ class PartnerDramaActivity : FragmentActivity() {
                 backgroundTintList = ColorStateList.valueOf(0x33333333)
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(8)))
             addView(TextView(this@PartnerDramaActivity).apply {
-                text = "继续追剧、每天签到都能积累成长进度"
+                text = "继续追剧和签到积累成长；越高档位，后续每集宝石倍率提升越明显"
                 textSize = 12f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(10), 0, dp(9))
             })
             addView(TextView(this@PartnerDramaActivity).apply {
@@ -1168,9 +1169,58 @@ class PartnerDramaActivity : FragmentActivity() {
         if (!startupCheckinPromptRequested || startupCheckinPromptShown || isFinishing || isDestroyed) return
         val snapshot = rewardsSnapshot
         if (snapshot == null && rewardsLoading) return
+        if (snapshot?.welcome?.available == true && !startupWelcomePromptShown) {
+            startupWelcomePromptShown = true
+            startupCheckinPromptRequested = false
+            showWelcomeRewardDialog(snapshot) {
+                startupCheckinPromptShown = true
+                showCheckinRewardDialog(rewardsSnapshot ?: snapshot)
+            }
+            return
+        }
         startupCheckinPromptRequested = false
         startupCheckinPromptShown = true
         showCheckinRewardDialog(snapshot)
+    }
+
+    private fun showWelcomeRewardDialog(snapshot: RewardsApiClient.Snapshot, onFinished: () -> Unit) {
+        val dialog = AlertDialog.Builder(this).create()
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(22), dp(24), dp(22), dp(18))
+            background = gradientDrawable(intArrayOf(0xFF8D3F2B.toInt(), 0xFF3D205C.toInt()), 26)
+        }
+        content.addView(TextView(this@PartnerDramaActivity).apply {
+            text = "新人专享奖励"
+            textSize = 24f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
+        })
+        content.addView(TextView(this@PartnerDramaActivity).apply {
+            text = "欢迎开启追剧奖励之旅"
+            textSize = 16f; gravity = Gravity.CENTER; setTextColor(0xFFFFE7A0.toInt()); setPadding(0, dp(8), 0, dp(4))
+        })
+        content.addView(TextView(this@PartnerDramaActivity).apply {
+            text = "首次完整观看一条激励广告，即可领取 ${snapshot.welcome.gems} 宝石。奖励仅限首次领取。"
+            textSize = 14f; gravity = Gravity.CENTER; setTextColor(0xEEFFFFFF.toInt()); setPadding(0, dp(8), 0, dp(18))
+        })
+        content.addView(TextView(this@PartnerDramaActivity).apply {
+            text = "立即领取新人奖励"
+            textSize = 16f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(0xFF542012.toInt())
+            background = roundedDrawable(0xFFFFE7A0.toInt(), 16); setPadding(dp(14), dp(14), dp(14), dp(14)); isClickable = true
+            setOnClickListener { dialog.dismiss(); claimWelcomeBonus(); onFinished() }
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)))
+        content.addView(TextView(this).apply {
+            text = "稍后领取"
+            textSize = 13f; gravity = Gravity.CENTER; setTextColor(0xBFFFFFFF.toInt()); setPadding(dp(12), dp(15), dp(12), dp(4)); isClickable = true
+            setOnClickListener { dialog.dismiss(); onFinished() }
+        })
+        dialog.setView(content)
+        dialog.setCanceledOnTouchOutside(false)
+        dialog.setOnCancelListener { onFinished() }
+        dialog.show()
+        dialog.window?.apply {
+            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+            setLayout((resources.displayMetrics.widthPixels * 0.92f).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
     }
 
     /** 深色奖励弹窗：七日格子和金额均以服务端快照为准；服务离线时仅展示同步状态，不发放奖励。 */
@@ -1756,7 +1806,9 @@ class PartnerDramaActivity : FragmentActivity() {
                 override fun onStopTrackingTouch(seekBar: SeekBar?) {
                     val targetSeconds = seekBar?.progress ?: return
                     val policy = rewardsSnapshot?.interstitial
-                    if (policy?.seekEnabled == true && !seekInterstitialInProgress) {
+                    val pendingGems = rewardsSnapshot?.ring?.rewardCoins ?: 0
+                    val rewardThresholdReached = policy != null && pendingGems >= policy.actionRewardThresholdGems
+                    if (policy?.seekEnabled == true && rewardThresholdReached && !seekInterstitialInProgress) {
                         seekInterstitialInProgress = true
                         showPlaybackActionInterstitial("int_seek", onShown = {
                             seekInterstitialInProgress = false
@@ -1882,7 +1934,9 @@ class PartnerDramaActivity : FragmentActivity() {
                 }
                 dialog.dismiss()
                 val policy = rewardsSnapshot?.interstitial
-                if (policy?.speedEnabled == true) {
+                val pendingGems = rewardsSnapshot?.ring?.rewardCoins ?: 0
+                val rewardThresholdReached = policy != null && pendingGems >= policy.actionRewardThresholdGems
+                if (policy?.speedEnabled == true && rewardThresholdReached) {
                     showPlaybackActionInterstitial("int_speed", onShown = applySpeed, onUnavailable = { message ->
                         logStatus("倍速插屏未展示：$message")
                         applySpeed()

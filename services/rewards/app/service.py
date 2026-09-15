@@ -409,6 +409,7 @@ class RewardsService:
             "reward_claim_interstitial_enabled", "mid_episode_interstitial_enabled", "mid_episode_interstitial_trigger_seconds",
             "mid_episode_interstitial_hourly_limit", "seek_interstitial_enabled", "seek_interstitial_hourly_limit",
             "next_episode_interstitial_enabled", "speed_interstitial_enabled", "speed_interstitial_hourly_limit",
+            "action_interstitial_reward_threshold_gems",
             "crown_rewarded_ads_per_episode", "release_boost_percent", "release_boost_daily_limit",
         }
         changed = {key: value for key, value in updates.items() if key in allowed and value is not None}
@@ -1283,6 +1284,7 @@ class RewardsService:
                 "seek_hourly_limit": int(policy["seek_interstitial_hourly_limit"]),
                 "speed_enabled": bool(policy["speed_interstitial_enabled"]),
                 "speed_hourly_limit": int(policy["speed_interstitial_hourly_limit"]),
+                "action_reward_threshold_gems": int(policy["action_interstitial_reward_threshold_gems"]),
                 "last_rv_at": counters["last_rv_at"].isoformat() if counters["last_rv_at"] else None,
                 "last_interstitial_at": counters["last_interstitial_at"].isoformat() if counters["last_interstitial_at"] else None,
             },
@@ -1556,6 +1558,7 @@ class RewardsService:
             "next_episode_interstitial_hourly_limit": int(policy["next_episode_interstitial_hourly_limit"]),
             "speed_interstitial_enabled": bool(policy["speed_interstitial_enabled"]),
             "speed_interstitial_hourly_limit": int(policy["speed_interstitial_hourly_limit"]),
+            "action_interstitial_reward_threshold_gems": int(policy["action_interstitial_reward_threshold_gems"]),
             "crown_rewarded_ads_per_episode": int(policy["crown_rewarded_ads_per_episode"]),
             "release_boost_percent": float(policy["release_boost_percent"]),
             "release_boost_daily_limit": int(policy["release_boost_daily_limit"]),
