@@ -81,20 +81,19 @@ fun HomeScreen(padding: PaddingValues, viewModel: AppViewModel) {
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
         item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("晚上好", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
-                    Text("发现一部好短剧", style = MaterialTheme.typography.headlineMedium)
-                }
-                Surface(
-                    modifier = Modifier.clickable { viewModel.navigate(AppRoute.CASH_WALLET) },
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    shape = RoundedCornerShape(18.dp)
-                ) {
-                    Row(Modifier.padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Outlined.AccountBalanceWallet, null, modifier = Modifier.size(17.dp), tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(5.dp))
-                        Text(formatCash(state.user.cashCents), style = MaterialTheme.typography.labelLarge)
+            Box(
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp))
+                    .background(Brush.horizontalGradient(listOf(Color(0xFFFFA12B), Color(0xFFFF5D55))))
+                    .padding(18.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Coins", style = MaterialTheme.typography.labelLarge, color = Color.White.copy(alpha = .82f))
+                        Text("${state.user.coins} coins", style = MaterialTheme.typography.headlineMedium, color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                    Column(Modifier.weight(1f).clickable { viewModel.navigate(AppRoute.CASH_WALLET) }) {
+                        Text("Cash balance", style = MaterialTheme.typography.labelLarge, color = Color.White.copy(alpha = .82f))
+                        Text(formatCash(state.user.cashCents), style = MaterialTheme.typography.headlineMedium, color = Color.White, fontWeight = FontWeight.Bold)
                     }
                 }
             }

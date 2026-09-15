@@ -68,6 +68,7 @@ class PartnerDramaActivity : FragmentActivity() {
     /** 当前测试由 Local Content API 提供；字段与合作方短剧 SDK 的 title/cover/summary/genres 模型对齐。 */
     private var selectedCatalogGenre: String? = null
     private var activeTab: MainTab = MainTab.HOME
+    private var withdrawalPageShown = false
     private var rewardsSnapshot: RewardsApiClient.Snapshot? = null
     private var rewardsLoading = false
     private var exoPlayer: ExoPlayer? = null
@@ -150,7 +151,14 @@ class PartnerDramaActivity : FragmentActivity() {
         setContentView(root)
         navigationBackCallback = object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (playerShown) showCatalog() else finish()
+                when {
+                    withdrawalPageShown -> {
+                        withdrawalPageShown = false
+                        renderActiveTab()
+                    }
+                    playerShown -> showCatalog()
+                    else -> finish()
+                }
             }
         }
         onBackPressedDispatcher.addCallback(this, navigationBackCallback)
@@ -264,6 +272,68 @@ class PartnerDramaActivity : FragmentActivity() {
         root.addView(createFloatingRewardWheel(), FrameLayout.LayoutParams(dp(92), dp(112), Gravity.END or Gravity.BOTTOM).apply {
             marginEnd = dp(10)
             bottomMargin = dp(80)
+        })
+    }
+
+    private fun showWithdrawalPage(wallet: RewardsApiClient.Wallet) {
+        withdrawalPageShown = true
+        playerShown = false
+        val page = ScrollView(this).apply {
+            setBackgroundColor(COLOR_BACKGROUND)
+            isFillViewport = true
+            addView(createWithdrawalPage(wallet))
+        }
+        root.removeAllViews()
+        root.addView(page, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+    }
+
+    private fun createWithdrawalPage(wallet: RewardsApiClient.Wallet): View = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(18), dp(24), dp(18), dp(32))
+        addView(LinearLayout(this@PartnerDramaActivity).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            addView(TextView(this@PartnerDramaActivity).apply {
+                text = "‹"; textSize = 38f; setTextColor(COLOR_TEXT_PRIMARY)
+                setPadding(0, 0, dp(16), 0); isClickable = true
+                setOnClickListener { onBackPressedDispatcher.onBackPressed() }
+            })
+            addView(TextView(this@PartnerDramaActivity).apply {
+                text = "Cash Out"; textSize = 25f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY)
+            })
+        }, matchParams(bottom = 20))
+        addView(LinearLayout(this@PartnerDramaActivity).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(22), dp(22), dp(22), dp(22))
+            background = gradientDrawable(intArrayOf(0xFFFFF4EA.toInt(), 0xFFFFE0C6.toInt()), 22)
+            addView(TextView(this@PartnerDramaActivity).apply { text = "PayPal"; textSize = 32f; typeface = Typeface.DEFAULT_BOLD; setTextColor(0xFF1469B8.toInt()) })
+            addView(TextView(this@PartnerDramaActivity).apply { text = "Balance"; textSize = 14f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(24), 0, dp(2)) })
+            addView(TextView(this@PartnerDramaActivity).apply { text = "USD ${wallet.availableBalance}"; textSize = 34f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
+        }, matchParams(bottom = 24))
+        addView(TextView(this@PartnerDramaActivity).apply { text = "Enter cashout amount"; textSize = 19f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) }, matchParams(bottom = 10))
+        addView(EditText(this@PartnerDramaActivity).apply {
+            hint = "USD   |   Enter whole number"; textSize = 16f
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+            setTextColor(COLOR_TEXT_PRIMARY); setHintTextColor(COLOR_TEXT_MUTED); setPadding(dp(16), 0, dp(16), 0)
+            background = roundedDrawable(0xFFF0F1F4.toInt(), 16)
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { bottomMargin = dp(12) })
+        addView(TextView(this@PartnerDramaActivity).apply {
+            text = "To ensure your cashout is processed smoothly, please enter the amount in this format: 23.52 (meaning $23.52)."
+            textSize = 13f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, 0, 0, dp(22))
+        })
+        addView(LinearLayout(this@PartnerDramaActivity).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(18), dp(18), dp(12)); background = roundedDrawable(0xFFFFFBF8.toInt(), 20)
+            addView(TextView(this@PartnerDramaActivity).apply { text = "How cashout works?"; textSize = 19f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY); setPadding(0, 0, 0, dp(10)) })
+            listOf("1  Earn coins" to "Complete tasks and watch short dramas.", "2  Increase value" to "Watch longer and complete more episodes.", "3  Convert to cash" to "The more coins you earn, the more cash you can redeem.").forEach { item ->
+                addView(LinearLayout(this@PartnerDramaActivity).apply {
+                    orientation = LinearLayout.VERTICAL; setPadding(0, dp(10), 0, dp(10))
+                    addView(TextView(this@PartnerDramaActivity).apply { text = item.first; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
+                    addView(TextView(this@PartnerDramaActivity).apply { text = item.second; textSize = 13f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(3), 0, 0) })
+                })
+            }
+        }, matchParams(bottom = 22))
+        addView(TextView(this@PartnerDramaActivity).apply {
+            text = "Cash Out"; textSize = 17f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
+            background = gradientDrawable(intArrayOf(0xFFFF9A32.toInt(), COLOR_ACCENT), 24); setPadding(0, dp(15), 0, dp(15)); isClickable = true
+            setOnClickListener { showWalletRulesDialog(wallet) }
         })
     }
 
@@ -888,7 +958,7 @@ class PartnerDramaActivity : FragmentActivity() {
             }, LinearLayout.LayoutParams(0, dp(42), 1f))
             actions.addView(TextView(this@PartnerDramaActivity).apply {
                 text = t("withdraw"); textSize = 14f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_PRIMARY)
-                background = roundedDrawable(0xCCFFFFFF.toInt(), 14); setOnClickListener { showWithdrawalDetailsDialog(wallet) }; isClickable = true
+                background = roundedDrawable(0xCCFFFFFF.toInt(), 14); setOnClickListener { showWithdrawalPage(wallet) }; isClickable = true
             }, LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginStart = dp(9) })
             addView(actions)
         }
@@ -1343,14 +1413,27 @@ class PartnerDramaActivity : FragmentActivity() {
                 TopOnAdsManager.RewardedResult.Cancelled -> showRewardedFallbackInterstitial(
                     wasPlayingBeforeRewarded, "广告未完整观看，未获得奖励或解锁权益"
                 )
-                is TopOnAdsManager.RewardedResult.Unavailable -> showRewardedFallbackInterstitial(
+                is TopOnAdsManager.RewardedResult.Unavailable -> showRewardedUnavailableNotice(
                     wasPlayingBeforeRewarded, t("ad_loading_failed") + " ${result.reason}"
                 )
-                is TopOnAdsManager.RewardedResult.Failed -> showRewardedFallbackInterstitial(
+                is TopOnAdsManager.RewardedResult.Failed -> showRewardedUnavailableNotice(
                     wasPlayingBeforeRewarded, t("ad_loading_failed") + " (${result.code})"
                 )
             }
         }
+    }
+
+    /** 无激励广告资源时直接在内容层展示说明，不再触发会遮挡说明的插屏回退。 */
+    private fun showRewardedUnavailableNotice(shouldResume: Boolean, message: String) {
+        fullscreenAdInProgress = false
+        episodeTransitionInProgress = false
+        resumeAfterFullscreenAd = shouldResume
+        resumeAfterFullscreenAdIfNeeded()
+        AlertDialog.Builder(this)
+            .setTitle("Reward video unavailable")
+            .setMessage("$message\n\nPlease try again later. This does not affect other tasks or coin earnings.")
+            .setPositiveButton("Got it", null)
+            .show()
     }
 
     /** 激励中途退出或加载失败时，只在后台开关允许时回退一次插屏；不会授予原激励权益。 */
@@ -2710,8 +2793,8 @@ class PartnerDramaActivity : FragmentActivity() {
         private const val COLOR_BACKGROUND = 0xFFF7F8FC.toInt()
         private const val COLOR_CARD = 0xFFFFFFFF.toInt()
         private const val COLOR_SURFACE = 0xFFF0F2F8.toInt()
-        private const val COLOR_ACCENT = 0xFFE95278.toInt()
-        private const val COLOR_PURPLE = 0xFF6F7FE8.toInt()
+        private const val COLOR_ACCENT = 0xFFFF7043.toInt()
+        private const val COLOR_PURPLE = 0xFFFFB347.toInt()
         private const val COLOR_TEXT_PRIMARY = 0xFF202A43.toInt()
         private const val COLOR_TEXT_MUTED = 0xFF68738A.toInt()
 

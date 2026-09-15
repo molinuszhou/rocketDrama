@@ -144,4 +144,4 @@ fun EmptyState(title: String, subtitle: String, action: String, onAction: () -> 
     }
 }
 
-fun formatCash(cents: Int): String = "¥%.2f".format(cents / 100.0)
+fun formatCash(cents: Int): String = "USD %.2f".format(cents / 100.0)
