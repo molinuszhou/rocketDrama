@@ -32,7 +32,8 @@ val appsFlyerDevKey = integrationValue("APPSFLYER_DEV_KEY").ifBlank { "DdWbxT9VR
 val appsFlyerSingleRevenueEventName = integrationValue("APPSFLYER_SINGLE_REVENUE_EVENT_NAME").ifBlank { "ad_impression" }
 val appsFlyerCumulativeRevenueEventName = integrationValue("APPSFLYER_CUMULATIVE_REVENUE_EVENT_NAME").ifBlank { "ad_impression_001" }
 val firebaseRewardedEventName = integrationValue("FIREBASE_REWARDED_EVENT_NAME").ifBlank { "rewarded_ad_completed" }
-val xuanyuEventBaseUrl = integrationValue("XUANYU_EVENT_BASE_URL").ifBlank { "https://api.eventtrack.top" }
+// 炫羽海外事件服务当前测试协议为 HTTP；Android 清单仅对该域名放行明文流量。
+val xuanyuEventBaseUrl = integrationValue("XUANYU_EVENT_BASE_URL").ifBlank { "http://api.eventtrack.top" }
 val shortDramaSdkEnabled = integrationValue("SHORT_DRAMA_SDK_ENABLED").trim().equals("true", ignoreCase = true)
 val shortDramaAppId = integrationValue("SHORT_DRAMA_APP_ID")
 val shortDramaVodAppId = integrationValue("SHORT_DRAMA_VOD_APP_ID")

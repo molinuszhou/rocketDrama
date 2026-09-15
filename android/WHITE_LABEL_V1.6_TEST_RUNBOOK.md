@@ -74,7 +74,7 @@ TopOn 测试真机应具备 Google 服务并能够取得 GAID。测试期 `ANALY
 当前合作方 PDF 只定义了一个客户端事件：
 
 ```text
-GET https://api.eventtrack.top/event/w_ad_show
+GET http://api.eventtrack.top/event/w_ad_show
 ```
 
 每次 TopOn **广告展示**会携带下列字段：
@@ -88,7 +88,7 @@ GET https://api.eventtrack.top/event/w_ad_show
 | `ad_network` | TopOn `ATAdInfo` 广告网络名称 |
 | `ecpm` | TopOn `ATAdInfo` eCPM |
 
-若炫羽监控未收到数据，先检查：AppsFlyer UID 是否已生成、设备网络是否可访问 `api.eventtrack.top`、TopOn 是否真实触发展示回调、以及 Logcat 中 `WhiteLabelAnalytics` 是否有 HTTP 状态。
+炫羽测试服务使用 **HTTP（80 端口）**，不是 HTTPS。Android 已通过网络安全配置仅放行 `api.eventtrack.top` 的明文请求；`local.properties` 必须为 `XUANYU_EVENT_BASE_URL=http://api.eventtrack.top`。若炫羽监控未收到数据，先检查 AppsFlyer UID 是否已生成、设备网络是否可访问该 HTTP 域名、TopOn 是否真实触发展示回调，以及 Logcat 中 `WhiteLabelAnalytics` 是否有 HTTP 状态或最终失败记录。
 
 ## 6. 当前必须补齐的合作方资料
 
@@ -135,4 +135,4 @@ cd android
 
 合作方测试参数中的开屏广告源日志可能出现 `close_button=0`、`allows_skip=1`、`countdown=5`。这表示是否显示关闭按钮、最短可跳过时间和 Skip 行为仍由 TopOn 实际选中的广告源配置决定；应用不能覆盖广告源的关闭策略。若自定义 Skip 支持开启，则优先使用应用右上角自定义 Skip；若不支持，则应按广告素材自身的可跳过规则操作。
 
-炫羽上报失败不会阻断广告、奖励或播放器。当前对网络/DNS/HTTP 非成功响应最多进行 2 次重试；日志会区分“将重试”和“最终失败”。例如 `Failed to connect to api.eventtrack.top:443` 表示手机当时无法连接炫羽服务器，应由合作方检查设备网络、DNS、地区访问和服务器可用性；AppsFlyer/Firebase 的收入事件仍可独立上报。
+炫羽上报失败不会阻断广告、奖励或播放器。当前对网络/DNS/HTTP 非成功响应最多进行 2 次重试；日志会区分“将重试”和“最终失败”。炫羽测试地址必须使用 `http://api.eventtrack.top`（80 端口）；此前出现 `Failed to connect to api.eventtrack.top:443` 是错误使用 HTTPS 的直接表现。切换为 HTTP 后，若仍失败，再由合作方检查设备网络、DNS、地区访问和服务器可用性；AppsFlyer/Firebase 的收入事件仍可独立上报。

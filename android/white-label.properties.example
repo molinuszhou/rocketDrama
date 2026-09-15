@@ -28,8 +28,8 @@ APPSFLYER_CUMULATIVE_REVENUE_EVENT_NAME=ad_impression_001
 # 放入 android/app/google-services.json（该文件已被 Git 忽略）。
 FIREBASE_REWARDED_EVENT_NAME=rewarded_ad_completed
 
-# 炫羽测试服务器。当前文档定义 /event/w_ad_show，使用 AppsFlyer UID、版本、包名和 TopOn 广告信息。
-XUANYU_EVENT_BASE_URL=https://api.eventtrack.top
+# 炫羽测试服务器。当前文档定义 /event/w_ad_show，使用 HTTP，并携带 AppsFlyer UID、版本、包名和 TopOn 广告信息。
+XUANYU_EVENT_BASE_URL=http://api.eventtrack.top
 
 # 仅测试联调开启。上线前关闭，TopOn 网络日志、AppsFlyer/Firebase 调试均不应在生产常开。
 ANALYTICS_DEBUG=true

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- 默认拒绝明文流量；仅按合作方测试协议放行炫羽事件上报域名。 -->
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">api.eventtrack.top</domain>
+    </domain-config>
+</network-security-config>
