@@ -2,10 +2,15 @@ package com.dramaflow.app.ads
 
 import android.app.Activity
 import android.content.Context
+import android.graphics.Color
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.ViewGroup
+import android.view.Window
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import android.widget.FrameLayout
 import com.dramaflow.app.BuildConfig
 import com.dramaflow.app.analytics.PartnerAnalytics
@@ -83,6 +88,13 @@ class TopOnAdsManager(
     private val pendingInitializationCallbacks = mutableListOf<(Initialization) -> Unit>()
     private val initializationLock = Any()
     private val mainHandler = Handler(Looper.getMainLooper())
+    /** Keeps TopOn ads out of edge-to-edge host mode; creative close controls remain ad-network owned. */
+    private val safeAdWindows = mutableMapOf<Activity, SafeAdWindowState>()
+
+    private data class SafeAdWindowState(
+        val statusBarColor: Int,
+        val navigationBarColor: Int,
+    )
 
     /**
      * TopOn 初始化会异步拉取聚合配置。必须等 [ATSDKInitListener.onSuccess] 后再请求开屏，
@@ -160,6 +172,7 @@ class TopOnAdsManager(
             if (delivered) return
             delivered = true
             rewardedRequestInFlight = false
+            restoreAppWindowAfterAd(activity)
             onResult(result)
         }
 
@@ -207,6 +220,7 @@ class TopOnAdsManager(
             delivered = true
             splashRequestInFlight = false
             host?.let { (it.parent as? ViewGroup)?.removeView(it) }
+            restoreAppWindowAfterAd(activity)
             onResult(result)
         }
 
@@ -229,6 +243,7 @@ class TopOnAdsManager(
                                 deliver(FullscreenResult.Skipped("TopOn 未返回可展示的开屏广告"), host)
                                 return
                             }
+                            prepareSafeWindowForAd(activity)
                             splash!!.show(activity, host)
                         }
 
@@ -308,6 +323,7 @@ class TopOnAdsManager(
             if (delivered) return
             delivered = true
             interstitialRequestInFlight = false
+            restoreAppWindowAfterAd(activity)
             onResult(result)
         }
 
@@ -426,8 +442,35 @@ class TopOnAdsManager(
 
     private fun showOnActiveActivity(activity: Activity, onInactive: (String) -> Unit, show: () -> Unit) {
         activity.runOnUiThread {
-            if (!activity.isFinishing && !activity.isDestroyed) show() else onInactive("当前页面已关闭，无法展示广告")
+            if (!activity.isFinishing && !activity.isDestroyed) {
+                prepareSafeWindowForAd(activity)
+                show()
+            } else {
+                onInactive("当前页面已关闭，无法展示广告")
+            }
         }
+    }
+
+    /**
+     * Use system-bar-aware host geometry before TopOn presents its own full-screen activity. This leaves
+     * a black safe band around edge-to-edge content on devices that honour the host window, so the SDK's
+     * own close affordance is not trapped under a curved display corner. The ad creative remains unchanged.
+     */
+    private fun prepareSafeWindowForAd(activity: Activity) {
+        val window = activity.window ?: return
+        if (safeAdWindows.containsKey(activity)) return
+        safeAdWindows[activity] = SafeAdWindowState(window.statusBarColor, window.navigationBarColor)
+        WindowCompat.setDecorFitsSystemWindows(window, true)
+        window.statusBarColor = Color.BLACK
+        window.navigationBarColor = Color.BLACK
+        WindowInsetsControllerCompat(window, window.decorView).show(WindowInsetsCompat.Type.systemBars())
+    }
+
+    private fun restoreAppWindowAfterAd(activity: Activity) {
+        val state = safeAdWindows.remove(activity) ?: return
+        val window: Window = activity.window ?: return
+        window.statusBarColor = state.statusBarColor
+        window.navigationBarColor = state.navigationBarColor
     }
 
     private fun errorCode(error: AdError): Int = error.code.toIntOrNull() ?: -1

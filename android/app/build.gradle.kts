@@ -45,12 +45,20 @@ val analyticsDebug = integrationValue("ANALYTICS_DEBUG").trim().equals("true", i
 val externalReportingEnabled = integrationValue("EXTERNAL_REPORTING_ENABLED").trim().equals("true", ignoreCase = true)
 val localContentApiBaseUrl = integrationValue("LOCAL_CONTENT_API_BASE_URL").ifBlank { "http://10.0.2.2:8000" }
 val rewardsApiBaseUrl = integrationValue("REWARDS_API_BASE_URL").ifBlank { "http://10.0.2.2:8100" }
+// Firebase 的应用配置属于环境凭据，仓库中不提交。仅在配置文件存在时启用 Google
+// Services 插件；Analytics SDK 与其受开关控制的代码仍可在本地/CI 中正常编译。
+val googleServicesConfigPresent = file("google-services.json").exists() ||
+    file("src/debug/google-services.json").exists() ||
+    file("src/release/google-services.json").exists()
 
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
-    id("com.google.gms.google-services")
+}
+
+if (googleServicesConfigPresent) {
+    apply(plugin = "com.google.gms.google-services")
 }
 
 android {
