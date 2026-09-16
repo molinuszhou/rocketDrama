@@ -377,26 +377,102 @@ class PartnerDramaActivity : FragmentActivity() {
     }
 
     private fun createTasksPage(): View = scrollPage { content ->
-        content.addView(createPageTitle(t("reward_center"), t("reward_center_subtitle")))
-        rewardsSnapshot?.takeIf { it.welcome.available }?.let { content.addView(createWelcomeRewardCard(it), matchParams(top = 16, bottom = 12)) }
-        content.addView(createRewardsWalletSummary(), matchParams(top = 4, bottom = 16))
-        content.addView(createCheckinCard(), matchParams(bottom = 16))
+        content.setPadding(0, 0, 0, dp(86))
+        content.addView(createRewardsHeroHeader(), matchParams())
+        content.addView(createDramaCoinMissionPanel(), matchParams(top = 12, bottom = 14))
+        content.addView(createDailyBenefitsPanel(), matchParams(bottom = 18))
         val snapshot = rewardsSnapshot
         if (snapshot == null) {
-            content.addView(createInlineNotice(if (rewardsLoading) "正在同步独立积分服务…" else "积分服务尚未连接。可在“我的”中填写独立奖励服务地址。"))
+            content.addView(createInlineNotice(if (rewardsLoading) "正在同步奖励服务…" else "奖励服务尚未连接。"))
         } else {
-            content.addView(createChestCard(snapshot), matchParams(bottom = 16))
-            val chestHint = if (snapshot.chest.availableCount > 0) {
-                "当前有 ${snapshot.chest.availableCount} 个随机宝箱可连续开启；每只完整观看一条激励广告后随机获得 ${snapshot.chest.minCoins}–${snapshot.chest.maxCoins} 宝石。"
-            } else if (snapshot.episodesToNextRandomChest > 0) {
-                "每累计 ${snapshot.episodesPerRandomChest} 集有效观看可获得 1 个随机宝箱；再看 ${snapshot.episodesToNextRandomChest} 集即可获得下一只。"
-            } else {
-                "每累计 ${snapshot.episodesPerRandomChest} 集有效观看可获得 1 个随机宝箱。"
-            }
-            content.addView(createInlineNotice(chestHint), matchParams(bottom = 16))
-            content.addView(createSectionHeader("皇冠之路", "升级头像等级，同时提升后续每集宝石奖励倍率"), matchParams(top = 6, bottom = 12))
-            content.addView(createAchievementSummary(snapshot), matchParams(bottom = 16))
+            content.addView(createRewardChestPanel(snapshot), matchParams(bottom = 16))
         }
+    }
+
+    private fun createRewardsHeroHeader(): View = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(22), dp(24), dp(22), dp(26))
+        background = gradientDrawable(intArrayOf(0xFFFF8A24.toInt(), 0xFFFF5B4D.toInt()), 0)
+        addView(TextView(this@PartnerDramaActivity).apply { text = "JoyeDrama"; textSize = 25f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE) })
+        addView(TextView(this@PartnerDramaActivity).apply { text = "看剧有礼 · 金币兑换现金"; textSize = 14f; setTextColor(0xFFFFF3E8.toInt()); setPadding(0, dp(5), 0, dp(20)) })
+        val row = LinearLayout(this@PartnerDramaActivity).apply { gravity = Gravity.CENTER_VERTICAL }
+        val wallet = rewardsSnapshot?.wallet
+        row.addView(createRewardBalance("金币", wallet?.coins?.toString() ?: "378", compact = false), LinearLayout.LayoutParams(0, dp(86), 1f))
+        row.addView(View(this@PartnerDramaActivity).apply { setBackgroundColor(0x66FFFFFF) }, LinearLayout.LayoutParams(dp(1), dp(60)).apply { marginStart = dp(10); marginEnd = dp(10) })
+        row.addView(createRewardBalance("现金", "${wallet?.cashWallet ?: "0.00"} 美元", compact = true), LinearLayout.LayoutParams(0, dp(86), 1f))
+        addView(row)
+        addView(TextView(this@PartnerDramaActivity).apply { text = "自动兑换现金  ⓘ"; textSize = 14f; setTextColor(0xFFFFF3E8.toInt()); setPadding(dp(2), dp(10), 0, 0) })
+    }
+
+    private fun createRewardBalance(label: String, value: String, compact: Boolean): View = LinearLayout(this).apply {
+        gravity = Gravity.CENTER_VERTICAL
+        addView(ImageView(this@PartnerDramaActivity).apply { setImageResource(R.drawable.ic_coin_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(64), dp(64)))
+        addView(LinearLayout(this@PartnerDramaActivity).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(8), 0, 0, 0)
+            addView(TextView(this@PartnerDramaActivity).apply { text = label; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE) })
+            addView(TextView(this@PartnerDramaActivity).apply { text = value; textSize = if (compact) 20f else 28f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(0, dp(2), 0, 0) })
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+    }
+
+    private fun createDramaCoinMissionPanel(): View = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(18), dp(18), dp(16)); background = roundedDrawable(Color.WHITE, 24)
+        addView(createRewardPanelTitle("看短剧赚金币", "看剧越多，金币越多，轻松赚现金", "去看剧") { activeTab = MainTab.HOME; renderActiveTab() })
+        val row = LinearLayout(this@PartnerDramaActivity).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        listOf("0/1686" to "看剧5分钟", "686" to "看剧10分钟", "915" to "看剧15分钟", "915" to "看剧20分钟", "686" to "看剧30分钟").forEachIndexed { index, item ->
+            row.addView(createCoinMilestone(item.first, item.second), LinearLayout.LayoutParams(dp(108), dp(136)).apply { if (index > 0) marginStart = dp(8) })
+        }
+        addView(android.widget.HorizontalScrollView(this@PartnerDramaActivity).apply { isHorizontalScrollBarEnabled = false; addView(row) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(144)).apply { topMargin = dp(12) })
+        addView(View(this@PartnerDramaActivity).apply { setBackgroundColor(0xFFF0F0F0.toInt()) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)).apply { topMargin = dp(14); bottomMargin = dp(14) })
+        addView(createRewardPanelTitle("追剧挑战赛  🔥 1228", "完成追剧任务，获得相应金币奖励", "去追剧") { activeTab = MainTab.HOME; renderActiveTab() })
+        val challengeRow = LinearLayout(this@PartnerDramaActivity).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        listOf("看剧1分钟" to "404", "再看12集" to "421", "追完1部剧" to "403").forEachIndexed { index, item -> challengeRow.addView(createChallengeItem(item.first, item.second), LinearLayout.LayoutParams(0, dp(86), 1f).apply { if (index > 0) marginStart = dp(8) }) }
+        addView(challengeRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(86)).apply { topMargin = dp(12) })
+    }
+
+    private fun createRewardPanelTitle(title: String, subtitle: String, action: String, onClick: () -> Unit): View = LinearLayout(this).apply {
+        gravity = Gravity.CENTER_VERTICAL
+        addView(ImageView(this@PartnerDramaActivity).apply { setImageResource(R.drawable.ic_coin_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(46), dp(46)))
+        addView(LinearLayout(this@PartnerDramaActivity).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(8), 0, dp(6), 0)
+            addView(TextView(this@PartnerDramaActivity).apply { text = title; textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
+            addView(TextView(this@PartnerDramaActivity).apply { text = subtitle; textSize = 12f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(3), 0, 0) })
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        addView(TextView(this@PartnerDramaActivity).apply { text = "$action ›"; textSize = 14f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE); background = roundedDrawable(COLOR_ACCENT, 22); setPadding(dp(14), dp(9), dp(14), dp(9)); setOnClickListener { onClick() }; isClickable = true })
+    }
+
+    private fun createCoinMilestone(value: String, label: String): View = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER; setPadding(dp(7), dp(7), dp(7), dp(7)); background = gradientDrawable(intArrayOf(0xFFFFC84D.toInt(), 0xFFFFA13B.toInt()), 16)
+        addView(ImageView(this@PartnerDramaActivity).apply { setImageResource(R.drawable.ic_coin_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(48), dp(48)))
+        addView(TextView(this@PartnerDramaActivity).apply { text = value; textSize = 19f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE) })
+        addView(TextView(this@PartnerDramaActivity).apply { text = label; textSize = 10f; gravity = Gravity.CENTER; setTextColor(0xFFFFF5E4.toInt()); setPadding(0, dp(2), 0, 0) })
+    }
+
+    private fun createChallengeItem(title: String, coins: String): View = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(10), dp(9), dp(6), dp(7)); background = roundedDrawable(0xFFFFF6ED.toInt(), 16)
+        addView(TextView(this@PartnerDramaActivity).apply { text = title; textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
+        val row = LinearLayout(this@PartnerDramaActivity).apply { gravity = Gravity.CENTER_VERTICAL }
+        row.addView(ImageView(this@PartnerDramaActivity).apply { setImageResource(R.drawable.ic_coin_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(30), dp(30)))
+        row.addView(TextView(this@PartnerDramaActivity).apply { text = coins; textSize = 17f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_ACCENT); setPadding(dp(3), 0, 0, 0) })
+        addView(row)
+    }
+
+    private fun createDailyBenefitsPanel(): View = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(18), dp(18), dp(15)); background = roundedDrawable(Color.WHITE, 24)
+        addView(TextView(this@PartnerDramaActivity).apply { text = "日常福利"; textSize = 22f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY); setPadding(0, 0, 0, dp(10)) })
+        addView(createBenefitRow("签到领金币", "今日签到可领 1680 金币", "去签到") { completeDailyCheckin() })
+        addView(createBenefitRow("天天领金币", "今日签到立即领 400 金币，做任务最高领 191157 金币", "立即领取") { activeTab = MainTab.TASKS; renderActiveTab() })
+        addView(LinearLayout(this@PartnerDramaActivity).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(dp(10), dp(10), dp(10), dp(10)); background = roundedDrawable(0xFFFFF7EE.toInt(), 16); addView(ImageView(this@PartnerDramaActivity).apply { setImageResource(R.drawable.ic_coin_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(40), dp(40))); addView(TextView(this@PartnerDramaActivity).apply { text = "2220 金币待领取"; textSize = 16f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY); setPadding(dp(8), 0, 0, 0) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)); addView(TextView(this@PartnerDramaActivity).apply { text = "立即领取 ︿"; textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_ACCENT) }) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(60)).apply { topMargin = dp(5) })
+    }
+
+    private fun createBenefitRow(title: String, subtitle: String, action: String, onClick: () -> Unit): View = LinearLayout(this).apply {
+        gravity = Gravity.CENTER_VERTICAL; setPadding(dp(4), dp(8), 0, dp(8))
+        addView(ImageView(this@PartnerDramaActivity).apply { setImageResource(R.drawable.ic_coin_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(54), dp(54)))
+        addView(LinearLayout(this@PartnerDramaActivity).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(9), 0, dp(5), 0); addView(TextView(this@PartnerDramaActivity).apply { text = title; textSize = 16f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) }); addView(TextView(this@PartnerDramaActivity).apply { text = subtitle; textSize = 11f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(3), 0, 0) }) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        addView(TextView(this@PartnerDramaActivity).apply { text = "$action ›"; textSize = 13f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE); background = roundedDrawable(COLOR_ACCENT, 20); setPadding(dp(12), dp(9), dp(12), dp(9)); setOnClickListener { onClick() }; isClickable = true })
+    }
+
+    private fun createRewardChestPanel(snapshot: RewardsApiClient.Snapshot): View = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(16), dp(12), dp(16), dp(12)); background = roundedDrawable(Color.WHITE, 22)
+        addView(ImageView(this@PartnerDramaActivity).apply { setImageResource(R.drawable.ic_random_chest_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(76), dp(76)))
+        addView(LinearLayout(this@PartnerDramaActivity).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(9), 0, 0, 0); addView(TextView(this@PartnerDramaActivity).apply { text = "宝箱奖励"; textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) }); addView(TextView(this@PartnerDramaActivity).apply { text = if (snapshot.chest.availableCount > 0) "${snapshot.chest.availableCount} 个宝箱待开启" else "继续追剧获得宝箱"; textSize = 13f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(4), 0, dp(7) ) }); addView(TextView(this@PartnerDramaActivity).apply { text = if (snapshot.chest.availableCount > 0) "看广告开启" else "去追剧"; textSize = 13f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE); background = roundedDrawable(COLOR_ACCENT, 18); setPadding(dp(13), dp(8), dp(13), dp(8)); setOnClickListener { if (snapshot.chest.availableCount > 0) requestRandomChestOpen() else { activeTab = MainTab.HOME; renderActiveTab() } }; isClickable = true }) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
     }
 
     private fun createProfilePage(): View = scrollPage { content ->
@@ -684,7 +760,7 @@ class PartnerDramaActivity : FragmentActivity() {
                 gravity = Gravity.CENTER
                 isClickable = true
                 setOnClickListener { if (activeTab != tab) { activeTab = tab; renderActiveTab() } }
-                addView(TextView(this@PartnerDramaActivity).apply { text = tab.icon; textSize = 18f; gravity = Gravity.CENTER; setTextColor(if (activeTab == tab) COLOR_ACCENT else COLOR_TEXT_MUTED) })
+                addView(TextView(this@PartnerDramaActivity).apply { text = when (tab) { MainTab.HOME -> "⌂"; MainTab.DISCOVER -> "▣"; MainTab.TASKS -> "🎁"; MainTab.PROFILE -> "♙" }; textSize = 20f; gravity = Gravity.CENTER; setTextColor(if (activeTab == tab) COLOR_ACCENT else COLOR_TEXT_MUTED) })
                 addView(TextView(this@PartnerDramaActivity).apply { text = t(tab.languageKey); textSize = 11f; gravity = Gravity.CENTER; setTextColor(if (activeTab == tab) COLOR_TEXT_PRIMARY else COLOR_TEXT_MUTED) })
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         }
@@ -723,7 +799,7 @@ class PartnerDramaActivity : FragmentActivity() {
             }
         }
         val gem = ImageView(this).apply {
-            setImageResource(R.drawable.ic_gem_reward)
+            setImageResource(R.drawable.ic_coin_reward)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
         }
         wheel.addView(gem, FrameLayout.LayoutParams(size - dp(12), size - dp(12), Gravity.CENTER))
@@ -1214,7 +1290,7 @@ class PartnerDramaActivity : FragmentActivity() {
         val dialog = AlertDialog.Builder(this).create()
         val page = FrameLayout(this).apply { background = gradientDrawable(intArrayOf(0xFFFFD4DE.toInt(), 0xFFF3ECFF.toInt(), 0xFFDDEBFF.toInt()), 0) }
         val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; setPadding(dp(30), dp(38), dp(30), dp(28)) }
-        content.addView(ImageView(this@PartnerDramaActivity).apply { setImageResource(R.drawable.ic_gem_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(150), dp(150)))
+        content.addView(ImageView(this@PartnerDramaActivity).apply { setImageResource(R.drawable.ic_coin_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(150), dp(150)))
         content.addView(TextView(this@PartnerDramaActivity).apply { text = t("welcome_title"); textSize = 30f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_PRIMARY); setPadding(0, dp(10), 0, 0) })
         content.addView(TextView(this@PartnerDramaActivity).apply { text = t("welcome_subtitle"); textSize = 16f; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(8), 0, dp(24)) })
         content.addView(TextView(this@PartnerDramaActivity).apply { text = "+${snapshot.welcome.gems} ${t("gems")}"; textSize = 36f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_ACCENT); background = roundedDrawable(0xAAFFFFFF.toInt(), 20); setPadding(dp(22), dp(15), dp(22), dp(15)) })
