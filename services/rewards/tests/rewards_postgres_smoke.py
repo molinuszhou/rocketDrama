@@ -69,8 +69,8 @@ def run() -> None:
     assert initial["gem_damping"]["tier4_multiplier"] == 0.25
     assert initial["gem_damping"]["scope"] == "ALL_GEM_SOURCES"
     assert initial["wallet"]["release"]["boost_cap"] == 10
-    assert [item["gems"] for item in initial["checkin"]["tiers"][:7]] == [700, 1100, 1600, 2400, 3300, 4700, 20000]
-    assert [item["gems"] for item in initial["crown_progress"]] == [13300, 26700, 66700, 160000, 400000]
+    assert [item["gems"] for item in initial["checkin"]["tiers"][:7]] == [600, 1200, 1600, 2400, 3000, 5000, 20000]
+    assert [item["gems"] for item in initial["crown_progress"]] == [12000, 26000, 66000, 160000, 400000]
 
     # 欢迎奖励和签到均必须由完整激励广告结算，旧直接接口不再能绕过广告。
     welcome, _ = rewarded(service, user_id, "rv_welcome_bonus")
