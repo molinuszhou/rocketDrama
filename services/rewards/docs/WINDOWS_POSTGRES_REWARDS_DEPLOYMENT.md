@@ -60,7 +60,7 @@ docker compose ps
 docker compose logs -f rewards-api
 ```
 
-空的 PostgreSQL 数据卷会依次执行 `001_init.sql` 至 `010_v163_localized_wallet_and_rewards.sql`。[3] 已存在的数据库卷由 Rewards API 启动时根据 `schema_migrations` **仅执行缺失版本**，因此升级至 v1.6.3 通常不需要清空账本。`010` 会新增区域钱包策略、四档阻尼字段与 2,000,000 Gems 上限；不会改写用户已入账的现金金额。
+空的 PostgreSQL 数据卷会依次执行 `001_init.sql` 至 `011_v163_round_gem_values.sql`。[3] 已存在的数据库卷由 Rewards API 启动时根据 `schema_migrations` **仅执行缺失版本**，因此升级至 v1.6.3.1 通常不需要清空账本。`010` 会新增区域钱包策略、四档阻尼字段与 2,000,000 Gems 上限；`011` 会将未来签到和皇冠奖励调整为整百数值。两次迁移都不会回溯修改用户已入账的 Gems 或现金金额。
 
 > 不要使用 `docker compose down -v` 来升级。该命令会删除 PostgreSQL 持久卷。只有明确要从零重建测试数据时才可以使用。
 
@@ -143,6 +143,7 @@ http://localhost:8100/admin
 | 插屏 | 剧中、拖拽、倍速广告开关；剧中触发秒数与小时上限（设置 `0` 表示不设置后台小时上限）。 |
 | 皇冠与钱包 | 皇冠成长广告数量；钱包广告加速比例和每日次数上限（`0` 表示不限制）。 |
 | 全渠道阻尼 | 用户累计 Gems 上限、第一至第三档最大累计 Gems、第一至第四档倍率。欢迎、签到、分集/翻倍、随机宝箱与皇冠奖励均在结算时适用同一档位。默认上限为 2,000,000；边界为 500,000、900,000、1,200,000；倍率为 1.00、0.70、0.45、0.25。 |
+| 整百奖励 | 签到、皇冠和十轮兼容奖励使用整百数值；例如签到第 1 天 700、皇冠青铜 13,300、皇冠白银 26,700。历史已入账奖励不回溯调整。 |
 | 区域钱包 | DEFAULT/USD、BR/BRL、ID/IDR 的每 10,000 Gems 本币金额、美元参考、提现门槛、欢迎 Gems 与每日转入额度。金额以“当地货币 × 1,000,000”的微单位填写；广告加速仍统一按全局“基础转入 × 加速比例”计算。 |
 | 皇冠倍率 | 青铜、白银、黄金、钻石、皇冠五级未来单集宝石倍率。 |
 
@@ -224,7 +225,7 @@ docker volume ls
 # Compose 项目名通常为 services；仅删除以 rewards_postgres_data 结尾的奖励数据库卷。
 docker volume rm services_rewards_postgres_data
 
-# 用 001–010 规则重新创建数据库并启动 Rewards API。
+# 用 001–011 规则重新创建数据库并启动 Rewards API。
 docker compose up -d --build postgres rewards-api
 
 docker compose logs --tail=200 rewards-api

@@ -23,6 +23,7 @@ def apply_runtime_migrations(settings: Settings) -> None:
         ("008_v81_ad_fatigue_and_crown_curve", sql_directory / "008_v81_ad_fatigue_and_crown_curve.sql"),
         ("009_v162_reward_control", sql_directory / "009_v162_reward_control.sql"),
         ("010_v163_localized_wallet_and_rewards", sql_directory / "010_v163_localized_wallet_and_rewards.sql"),
+        ("011_v163_round_gem_values", sql_directory / "011_v163_round_gem_values.sql"),
     )
     with psycopg.connect(settings.database_url, autocommit=True) as connection:
         with connection.cursor() as cursor:
