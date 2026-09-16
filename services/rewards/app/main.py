@@ -17,6 +17,7 @@ from app.schemas import (
     EpisodeRewardClaimRequest,
     GemsExchangeRequest,
     HealthResponse,
+    MarketWalletPolicyUpdateRequest,
     InterstitialShownRequest,
     RewardedCompleteRequest,
     RewardPolicyUpdateRequest,
@@ -57,7 +58,7 @@ def health() -> dict:
 
 @app.post("/v2/bootstrap", response_model=ApiEnvelope)
 def bootstrap(payload: BootstrapRequest) -> dict:
-    return {"code": 0, "data": service.bootstrap(payload.user_id)}
+    return {"code": 0, "data": service.bootstrap(payload.user_id, payload.region)}
 
 
 @app.post("/v2/ads/rewarded/complete", response_model=ApiEnvelope)
@@ -129,6 +130,11 @@ def update_damping(payload: DampingUpdateRequest, authorization: str | None = He
 @app.put("/v2/admin/policy/operating", response_model=ApiEnvelope)
 def update_operating_policy(payload: RewardPolicyUpdateRequest, authorization: str | None = Header(default=None)) -> dict:
     return {"code": 0, "data": service.update_operating_policy(authorization, payload.model_dump())}
+
+
+@app.put("/v2/admin/policy/market-wallet", response_model=ApiEnvelope)
+def update_market_wallet_policy(payload: MarketWalletPolicyUpdateRequest, authorization: str | None = Header(default=None)) -> dict:
+    return {"code": 0, "data": service.update_market_wallet_policy(authorization, payload.model_dump())}
 
 
 @app.put("/v2/admin/crown-multiplier", response_model=ApiEnvelope)

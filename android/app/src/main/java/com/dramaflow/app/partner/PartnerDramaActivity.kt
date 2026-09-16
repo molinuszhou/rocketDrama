@@ -58,6 +58,7 @@ import com.dramaflow.app.local.LocalDrama
 import com.dramaflow.app.local.LocalDramaApiClient
 import com.dramaflow.app.local.LocalEpisode
 import com.dramaflow.app.rewards.RewardsApiClient
+import java.text.NumberFormat
 import java.util.Locale
 import java.util.UUID
 import kotlin.random.Random
@@ -418,7 +419,7 @@ class PartnerDramaActivity : FragmentActivity() {
             balanceRow.addView(LinearLayout(this@PartnerDramaActivity).apply {
                 orientation = LinearLayout.VERTICAL
                 addView(TextView(this@PartnerDramaActivity).apply { text = t("wallet_balance"); textSize = 14f; setTextColor(0xCCFFFFFF.toInt()) })
-                addView(TextView(this@PartnerDramaActivity).apply { text = "\$${walletTotal(wallet)}"; textSize = 34f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(0, dp(5), 0, 0); maxLines = 1 })
+                addView(TextView(this@PartnerDramaActivity).apply { text = formatWalletTotal(wallet, includeUsdReference = true); textSize = 34f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(0, dp(5), 0, 0); maxLines = 2 })
                 addView(TextView(this@PartnerDramaActivity).apply { text = t("wallet_total_hint"); textSize = 11f; setTextColor(0xBFFFFFFF.toInt()); setPadding(0, dp(6), 0, 0) })
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             balanceRow.addView(ImageView(this@PartnerDramaActivity).apply {
@@ -440,15 +441,38 @@ class PartnerDramaActivity : FragmentActivity() {
         })
     }
 
-    private fun walletTotal(wallet: RewardsApiClient.Wallet): String {
+    private fun formatCurrencyAmount(wallet: RewardsApiClient.Wallet, amount: String, usdReference: String? = null, includeUsdReference: Boolean = false): String {
+        val fractionDigits = wallet.currency.fractionDigits.coerceIn(0, 6)
+        val locale = when (wallet.currency.code) {
+            "BRL" -> Locale("pt", "BR")
+            "IDR" -> Locale("id", "ID")
+            else -> Locale.US
+        }
+        val formatter = NumberFormat.getNumberInstance(locale).apply {
+            minimumFractionDigits = fractionDigits
+            maximumFractionDigits = fractionDigits
+        }
+        val numeric = amount.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO
+        val local = "${wallet.currency.symbol}${formatter.format(numeric)}"
+        val usd = usdReference?.toBigDecimalOrNull()
+        return if (includeUsdReference && wallet.currency.code != "USD" && usd != null) {
+            "$local  ≈ US$${String.format(Locale.US, "%.2f", usd)}"
+        } else local
+    }
+
+    private fun formatWalletTotal(wallet: RewardsApiClient.Wallet, includeUsdReference: Boolean = false): String {
         val total = (wallet.cashWallet.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO) +
             (wallet.availableBalance.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO)
-        return total.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString()
+        val usdTotal = (wallet.cashWalletUsdReference.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO) +
+            (wallet.availableBalanceUsdReference.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO)
+        return formatCurrencyAmount(wallet, total.toPlainString(), usdTotal.toPlainString(), includeUsdReference)
     }
 
     private fun showCashoutEligibilityNotice() {
+        val dynamicReason = rewardsSnapshot?.withdrawal?.reason?.takeIf { it.isNotBlank() }
+            ?: t("cashout_minimum_notice")
         AlertDialog.Builder(this).setTitle(t("request_cashout"))
-            .setMessage(t("cashout_minimum_notice"))
+            .setMessage(dynamicReason)
             .setPositiveButton(t("done"), null).show()
     }
 
@@ -516,7 +540,7 @@ class PartnerDramaActivity : FragmentActivity() {
             val balances = LinearLayout(this@PartnerDramaActivity).apply { gravity = Gravity.CENTER_VERTICAL }
             val wallet = snapshot?.wallet
             balances.addView(createRewardBalance(t("gems"), wallet?.coins?.let(::formatGems) ?: "—", compact = false, isGem = true) { showGemIncomeDetails() }, LinearLayout.LayoutParams(0, dp(88), 1f))
-            balances.addView(createRewardBalance(t("wallet_balance"), wallet?.let { "\$${walletTotal(it)}" } ?: "—", compact = true, isGem = false) { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) }, LinearLayout.LayoutParams(0, dp(88), 1f).apply { marginStart = dp(10) })
+            balances.addView(createRewardBalance(t("wallet_balance"), wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—", compact = true, isGem = false) { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) }, LinearLayout.LayoutParams(0, dp(88), 1f).apply { marginStart = dp(10) })
             addView(balances)
             addView(TextView(this@PartnerDramaActivity).apply {
                 text = t("reward_balance_tap_hint"); textSize = 11f; gravity = Gravity.CENTER; setTextColor(0xA619202B.toInt()); setPadding(0, dp(8), 0, 0)
@@ -1011,7 +1035,7 @@ class PartnerDramaActivity : FragmentActivity() {
             addView(createAssetPill(
                 icon = R.drawable.ic_wallet,
                 label = t("wallet_balance"),
-                value = wallet?.let { "\$${walletTotal(it)}" } ?: "—",
+                value = wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—",
                 isGem = false,
             ) { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) }, LinearLayout.LayoutParams(0, dp(56), 1f).apply { marginStart = dp(8) })
         }
@@ -1051,9 +1075,9 @@ class PartnerDramaActivity : FragmentActivity() {
         gravity = Gravity.CENTER
         setPadding(dp(8), dp(14), dp(8), dp(14)); background = roundedDrawable(COLOR_CARD, 22)
         val items = listOf(
-            Triple(R.drawable.ic_wallet, t("available_balance"), "\$${wallet.availableBalance}"),
-            Triple(R.drawable.ic_wallet, t("tomorrow_transfer"), "\$${wallet.release.expectedTomorrowTransfer}"),
-            Triple(R.drawable.reward_gem_crystal, t("ad_boost"), "+\$${wallet.release.expectedBoostTransfer}"),
+            Triple(R.drawable.ic_wallet, t("available_balance"), formatCurrencyAmount(wallet, wallet.availableBalance, wallet.availableBalanceUsdReference, includeUsdReference = true)),
+            Triple(R.drawable.ic_wallet, t("tomorrow_transfer"), formatCurrencyAmount(wallet, wallet.release.expectedTomorrowTransfer, wallet.release.expectedTomorrowTransferUsdReference, includeUsdReference = true)),
+            Triple(R.drawable.reward_gem_crystal, t("ad_boost"), "+${formatCurrencyAmount(wallet, wallet.release.expectedBoostTransfer, wallet.release.expectedBoostTransferUsdReference, includeUsdReference = true)}"),
         )
         items.forEachIndexed { index, item ->
             addView(LinearLayout(this@PartnerDramaActivity).apply {
@@ -1069,10 +1093,13 @@ class PartnerDramaActivity : FragmentActivity() {
     private fun createCashoutExplainer(wallet: RewardsApiClient.Wallet): View = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(18), dp(18), dp(14)); background = roundedDrawable(COLOR_CARD, 22)
         addView(TextView(this@PartnerDramaActivity).apply { text = t("cashout_explainer"); textSize = 19f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY); setPadding(0, 0, 0, dp(8)) })
+        val requestDetail = rewardsSnapshot?.withdrawal?.let {
+            t("cashout_step_request_dynamic", formatCurrencyAmount(wallet, it.threshold, it.thresholdUsdReference, includeUsdReference = true))
+        } ?: t("cashout_step_request")
         val steps = listOf(
             t("earn_gems") to t("cashout_step_earn"),
             t("convert_wallet") to t("cashout_step_convert"),
-            t("request_cashout") to t("cashout_step_request"),
+            t("request_cashout") to requestDetail,
         )
         steps.forEachIndexed { index, step ->
             addView(LinearLayout(this@PartnerDramaActivity).apply {
@@ -1142,7 +1169,7 @@ class PartnerDramaActivity : FragmentActivity() {
         addView(gems)
         addView(View(this@PartnerDramaActivity).apply { setBackgroundColor(0x55FFFFFF); }, LinearLayout.LayoutParams(dp(1), dp(20)))
         addView(ImageView(this@PartnerDramaActivity).apply { setImageResource(R.drawable.ic_wallet); scaleType = ImageView.ScaleType.CENTER_INSIDE; isClickable = true; contentDescription = t("wallet"); setOnClickListener { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) } }, LinearLayout.LayoutParams(dp(24), dp(24)).apply { marginStart = dp(6) })
-        val cash = TextView(this@PartnerDramaActivity).apply { text = wallet?.let { "\$${walletTotal(it)}" } ?: "—"; textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(dp(3), 0, 0, 0); isClickable = true; setOnClickListener { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) } }
+        val cash = TextView(this@PartnerDramaActivity).apply { text = wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—"; textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(dp(3), 0, 0, 0); isClickable = true; setOnClickListener { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) } }
         cashBalanceLabel = cash
         addView(cash)
     }
@@ -1417,7 +1444,7 @@ class PartnerDramaActivity : FragmentActivity() {
             background = gradientDrawable(intArrayOf(0xFFFFF0E5.toInt(), 0xFFFFFFFF.toInt()), 22)
             addView(TextView(this@PartnerDramaActivity).apply { text = t("wallet"); textSize = 20f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
             val balances = LinearLayout(this@PartnerDramaActivity).apply { orientation = LinearLayout.HORIZONTAL }
-            listOf(t("gems") to wallet.coins.toString(), t("cash_balance") to "\$${wallet.cashWallet}").forEachIndexed { index, item ->
+            listOf(t("gems") to wallet.coins.toString(), t("cash_balance") to formatCurrencyAmount(wallet, wallet.cashWallet, wallet.cashWalletUsdReference, includeUsdReference = true)).forEachIndexed { index, item ->
                 balances.addView(LinearLayout(this@PartnerDramaActivity).apply {
                     orientation = LinearLayout.VERTICAL; setPadding(dp(12), dp(12), dp(10), dp(12)); background = roundedDrawable(0xCCFFFFFF.toInt(), 14)
                     addView(TextView(this@PartnerDramaActivity).apply { text = item.first; textSize = 12f; setTextColor(COLOR_TEXT_MUTED) })
@@ -1440,7 +1467,7 @@ class PartnerDramaActivity : FragmentActivity() {
 
     private fun showWithdrawalDetailsDialog(wallet: RewardsApiClient.Wallet) {
         val release = wallet.release
-        val details = "可提现余额：\$${wallet.availableBalance}\n\n${rewardsSnapshot?.withdrawal?.reason.orEmpty()}\n\n预计明日可转入：\$${release.expectedTomorrowTransfer}\n本次广告加速预计额外转入：\$${release.expectedBoostTransfer}"
+        val details = "可提现余额：${formatCurrencyAmount(wallet, wallet.availableBalance, wallet.availableBalanceUsdReference, includeUsdReference = true)}\n\n${rewardsSnapshot?.withdrawal?.reason.orEmpty()}\n\n预计明日可转入：${formatCurrencyAmount(wallet, release.expectedTomorrowTransfer, release.expectedTomorrowTransferUsdReference, includeUsdReference = true)}\n本次广告加速预计额外转入：${formatCurrencyAmount(wallet, release.expectedBoostTransfer, release.expectedBoostTransferUsdReference, includeUsdReference = true)}"
         AlertDialog.Builder(this).setTitle(t("withdrawal_details")).setMessage(details)
             .setNegativeButton(t("close"), null)
             .setPositiveButton("广告加速") { _, _ -> showWalletReleaseBoostDialog() }.show()
@@ -1450,7 +1477,7 @@ class PartnerDramaActivity : FragmentActivity() {
         val release = rewardsSnapshot?.wallet?.release ?: return
         AlertDialog.Builder(this)
             .setTitle(t("ad_boost"))
-            .setMessage(t("ad_boost_message", release.expectedBoostTransfer))
+            .setMessage(t("ad_boost_message", formatCurrencyAmount(rewardsSnapshot?.wallet ?: return, release.expectedBoostTransfer, release.expectedBoostTransferUsdReference, includeUsdReference = true)))
             .setNegativeButton(t("not_now"), null)
             .setPositiveButton(t("watch_ad_claim")) { _, _ -> requestWalletReleaseBoost() }
             .show()
@@ -1460,12 +1487,15 @@ class PartnerDramaActivity : FragmentActivity() {
         requestRewardedAction("rv_release_boost", onSettled = { action ->
             applyRewardsSnapshot(action.snapshot)
             resumeAfterFullscreenAdIfNeeded()
+            val wallet = action.snapshot.wallet
             val transferred = action.releasedMicros / 1_000_000.0
-            val updatedRelease = action.snapshot.wallet.release
+            val updatedRelease = wallet.release
+            val transferredText = formatCurrencyAmount(wallet, String.format(Locale.US, "%.6f", transferred), null, includeUsdReference = false)
+            val tomorrowText = formatCurrencyAmount(wallet, updatedRelease.expectedTomorrowTransfer, updatedRelease.expectedTomorrowTransferUsdReference, includeUsdReference = true)
             val nextMessage = if (transferred > 0.0) {
-                "已加快转入进度，本次额外转入 \$${String.format(Locale.US, "%.2f", transferred)} 到可提现余额。预计明日可转入 \$${updatedRelease.expectedTomorrowTransfer}。"
+                "已加快转入进度，本次额外转入 $transferredText 到可提现余额。预计明日可转入 $tomorrowText。"
             } else {
-                "已完成本次广告加速。预计明日可转入 \$${updatedRelease.expectedTomorrowTransfer} 到可提现余额。"
+                "已完成本次广告加速。预计明日可转入 $tomorrowText。"
             }
             AlertDialog.Builder(this)
                 .setTitle("转入进度已更新")
@@ -1641,7 +1671,7 @@ class PartnerDramaActivity : FragmentActivity() {
         rewardsLoading = true
         val endpoint = rewardsBaseUrl()
         logStatus("正在同步奖励服务：$endpoint")
-        rewardsApi.bootstrap(anonymousInstallationId(), REWARDS_REGION, { snapshot ->
+        rewardsApi.bootstrap(anonymousInstallationId(), rewardsMarketCode(), { snapshot ->
             runOnUiThread {
                 rewardsLoading = false
                 applyRewardsSnapshot(snapshot)
@@ -3310,6 +3340,8 @@ class PartnerDramaActivity : FragmentActivity() {
         }.show()
     }
 
+    private fun rewardsMarketCode(): String = Locale.getDefault().country.trim().uppercase(Locale.ROOT).ifBlank { CONTENT_REGION }
+
     private fun t(key: String, vararg values: Any): String = AppLanguage.text(this, key, *values)
     private fun toast(message: String) = runOnUiThread { Toast.makeText(this, message, Toast.LENGTH_SHORT).show() }
     private fun logStatus(message: String) = android.util.Log.i(TAG, message)
@@ -3320,7 +3352,6 @@ class PartnerDramaActivity : FragmentActivity() {
         private const val SHELF_ITEM_LIMIT = 6
         private const val FREE_EPISODES = 3
         private const val CONTENT_REGION = "SG"
-        private const val REWARDS_REGION = CONTENT_REGION
         private const val PREFERENCES = "joyedrama.short_drama"
         private const val PLAYBACK_HISTORY_PREFERENCES = "joyedrama.playback_history"
         private const val SERVER_PREFERENCES = "dramaflow.local_content"

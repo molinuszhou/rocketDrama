@@ -59,8 +59,16 @@ def run() -> None:
     assert [item["code"] for item in initial["crown_progress"]] == ["BRONZE", "SILVER", "GOLD", "DIAMOND", "CROWN"]
     assert initial["crown_progress"][0]["rounds"]["target"] == 10
     assert initial["crown_progress"][0]["ads_per_episode"] == 2
-    assert initial["interstitial"]["mid_episode_trigger_seconds"] == 30
-    assert initial["wallet"]["release"]["boost_cap"] == 0
+    assert initial["interstitial"]["mid_episode_trigger_seconds"] == 45
+    assert initial["wallet"]["exchange_rate_gems"] == 10_000
+    assert initial["wallet"]["currency"]["code"] == "USD"
+    assert initial["gem_damping"]["cap"] == 2_000_000
+    assert initial["gem_damping"]["tier1_threshold"] == 500_000
+    assert initial["gem_damping"]["tier2_threshold"] == 900_000
+    assert initial["gem_damping"]["tier3_threshold"] == 1_200_000
+    assert initial["gem_damping"]["tier4_multiplier"] == 0.25
+    assert initial["gem_damping"]["scope"] == "ALL_GEM_SOURCES"
+    assert initial["wallet"]["release"]["boost_cap"] == 10
 
     # 欢迎奖励和签到均必须由完整激励广告结算，旧直接接口不再能绕过广告。
     welcome, _ = rewarded(service, user_id, "rv_welcome_bonus")
@@ -71,7 +79,7 @@ def run() -> None:
     assert signed["snapshot"]["checkin"]["signed_today"] is True
 
     # 每种被动播放动作独立记账；拖拽、剧中与倍速均不共享旧冷却。
-    for placement in ("int_next_episode_unlock", "int_episode_midroll", "int_seek", "int_seek", "int_speed", "int_pause_native"):
+    for placement in ("int_next_episode_unlock", "int_episode_midroll", "int_seek", "int_speed", "int_pause_native"):
         result = service.record_interstitial(user_id, event_id(placement), placement)
         assert result["idempotent"] is False
 
@@ -157,7 +165,46 @@ def run() -> None:
         assert boost["result"]["released_micros"] >= 0
         assert boost["snapshot"]["wallet"]["release"]["boost_available"] is True
 
-    print("PostgreSQL v8 rewards smoke test passed; preboost, rewarded gates, chests, crown ads, playback ads and wallet boost verified")
+    # 市场本币：同样的 10,000 Gems 在巴西默认为 R$3.00、在印尼默认为 Rp10,000，并均提供 US$1.00 参考值。
+    br_user = f"v163-br-{uuid.uuid4()}"
+    br_initial = service.bootstrap(br_user, "BR")
+    assert br_initial["wallet"]["currency"]["code"] == "BRL"
+    assert br_initial["wallet"]["currency"]["symbol"] == "R$"
+    rewarded(service, br_user, "rv_welcome_bonus")
+    br_exchange = service.exchange_gems(br_user, 10_000, event_id("br-exchange"))
+    assert br_exchange["snapshot"]["wallet"]["cash_wallet"] == "3.00"
+    assert br_exchange["snapshot"]["wallet"]["cash_wallet_usd_reference"] == "1.00"
+
+    id_user = f"v163-id-{uuid.uuid4()}"
+    id_initial = service.bootstrap(id_user, "ID")
+    assert id_initial["wallet"]["currency"]["code"] == "IDR"
+    assert id_initial["wallet"]["currency"]["fraction_digits"] == 0
+    rewarded(service, id_user, "rv_welcome_bonus")
+    id_exchange = service.exchange_gems(id_user, 10_000, event_id("id-exchange"))
+    assert id_exchange["snapshot"]["wallet"]["cash_wallet"] == "10000"
+    assert id_exchange["snapshot"]["wallet"]["cash_wallet_usd_reference"] == "1.00"
+
+    # 全渠道四档阻尼：在每个边界附近依次以欢迎、签到、分集、宝箱和皇冠来源结算。
+    damping_user = f"v163-damping-{uuid.uuid4()}"
+    service.bootstrap(damping_user, "US")
+    with service._transaction() as connection:  # noqa: SLF001 - boundary integration test setup
+        policy = service._policy(connection)  # noqa: SLF001
+        def total_at(value: int) -> None:
+            service._execute(connection, "UPDATE users SET total_gems_earned = %s, gems_balance = %s WHERE user_id = %s", (value, value, damping_user))  # noqa: SLF001
+
+        total_at(499_999)
+        assert service._credit_gems(connection, damping_user, 10, policy, "WELCOME_BONUS", "damping", event_id("welcome")) == 10  # noqa: SLF001
+        assert service._credit_gems(connection, damping_user, 10, policy, "SIGN_IN", "damping", event_id("signin")) == 7  # noqa: SLF001
+        total_at(899_999)
+        assert service._credit_gems(connection, damping_user, 10, policy, "EPISODE_REWARD_CLAIM", "damping", event_id("episode")) == 7  # noqa: SLF001
+        assert service._credit_gems(connection, damping_user, 10, policy, "RANDOM_CHEST_OPEN", "damping", event_id("chest")) == 4  # noqa: SLF001
+        total_at(1_199_999)
+        assert service._credit_gems(connection, damping_user, 10, policy, "ACHIEVEMENT", "damping", event_id("crown")) == 4  # noqa: SLF001
+        assert service._credit_gems(connection, damping_user, 10, policy, "EPISODE_REWARD_CLAIM", "damping", event_id("tier4")) == 2  # noqa: SLF001
+        total_at(1_999_999)
+        assert service._credit_gems(connection, damping_user, 100, policy, "RANDOM_CHEST_OPEN", "damping", event_id("cap")) == 1  # noqa: SLF001
+
+    print("PostgreSQL v1.6.3 rewards smoke test passed; four-tier all-channel damping, localized wallet exchange, playback ads and wallet boost verified")
 
 
 if __name__ == "__main__":

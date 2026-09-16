@@ -37,6 +37,8 @@ InterstitialPlacement = Literal[
 
 class BootstrapRequest(BaseModel):
     user_id: str = Field(min_length=1, max_length=128)
+    # Android 已随 bootstrap 发送该字段；服务端将 BR、ID 映射到本币策略，其他地区回退 DEFAULT/USD。
+    region: str | None = Field(default=None, min_length=2, max_length=32)
     device_id: str | None = Field(default=None, max_length=256)
 
 
@@ -109,9 +111,23 @@ class RewardPolicyUpdateRequest(BaseModel):
     gems_earned_cap: int | None = Field(default=None, ge=0, le=10_000_000_000)
     gem_damping_tier1_threshold: int | None = Field(default=None, ge=0, le=10_000_000_000)
     gem_damping_tier2_threshold: int | None = Field(default=None, ge=0, le=10_000_000_000)
+    gem_damping_tier3_threshold: int | None = Field(default=None, ge=0, le=10_000_000_000)
     gem_damping_tier1_multiplier: float | None = Field(default=None, ge=0.0, le=1.0)
     gem_damping_tier2_multiplier: float | None = Field(default=None, ge=0.0, le=1.0)
     gem_damping_tier3_multiplier: float | None = Field(default=None, ge=0.0, le=1.0)
+    gem_damping_tier4_multiplier: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
+class MarketWalletPolicyUpdateRequest(BaseModel):
+    market_code: str = Field(min_length=2, max_length=16, pattern=r"^[A-Za-z_]+$")
+    currency_code: str = Field(min_length=3, max_length=3, pattern=r"^[A-Za-z]{3}$")
+    currency_symbol: str = Field(min_length=1, max_length=8)
+    currency_fraction_digits: int = Field(ge=0, le=6)
+    currency_micros_per_10000_gems: int = Field(gt=0, le=10_000_000_000_000)
+    usd_micros_per_10000_gems: int = Field(gt=0, le=10_000_000_000_000)
+    withdrawal_threshold_micros: int = Field(gt=0, le=10_000_000_000_000)
+    welcome_bonus_gems: int = Field(ge=0, le=10_000_000_000)
+    daily_release_micros: int = Field(gt=0, le=10_000_000_000_000)
 
 
 class CrownMultiplierUpdateRequest(BaseModel):

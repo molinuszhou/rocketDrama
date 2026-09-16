@@ -40,9 +40,9 @@ class RewardsService:
                 cursor.fetchone()
         return {"status": "ok", "database": "ok", "environment": self.settings.environment, "now": self._now()}
 
-    def bootstrap(self, user_id: str) -> dict[str, Any]:
+    def bootstrap(self, user_id: str, region: str | None = None) -> dict[str, Any]:
         with self._transaction() as connection:
-            self._ensure_user(connection, user_id)
+            self._ensure_user(connection, user_id, region)
             # 不依赖客户端定时器：用户回到应用时，服务端按 UTC+8 业务日补算已披露的钱包释放额度。
             self._apply_wallet_release_on_active_day(connection, user_id)
             self._ensure_random_chests(connection, user_id, self._business_date(), self._policy(connection))
@@ -420,8 +420,8 @@ class RewardsService:
             "action_interstitial_reward_threshold_gems", "rv_daily_limit", "episode_interstitial_limit",
             "drama_switch_interstitial_enabled", "drama_switch_interstitial_every_count", "drama_switch_interstitial_hourly_limit",
             "rewarded_fallback_interstitial_enabled", "gems_earned_cap", "gem_damping_tier1_threshold",
-            "gem_damping_tier2_threshold", "gem_damping_tier1_multiplier", "gem_damping_tier2_multiplier",
-            "gem_damping_tier3_multiplier",
+            "gem_damping_tier2_threshold", "gem_damping_tier3_threshold", "gem_damping_tier1_multiplier",
+            "gem_damping_tier2_multiplier", "gem_damping_tier3_multiplier", "gem_damping_tier4_multiplier",
             "crown_rewarded_ads_per_episode", "release_boost_percent", "release_boost_daily_limit",
         }
         changed = {key: value for key, value in updates.items() if key in allowed and value is not None}
@@ -435,10 +435,11 @@ class RewardsService:
                 raise ServiceError(1904, "随机宝箱最小宝石不能大于最大宝石", 422)
             damping_tier1 = int(changed.get("gem_damping_tier1_threshold", policy.get("gem_damping_tier1_threshold", 0)))
             damping_tier2 = int(changed.get("gem_damping_tier2_threshold", policy.get("gem_damping_tier2_threshold", 0)))
+            damping_tier3 = int(changed.get("gem_damping_tier3_threshold", policy.get("gem_damping_tier3_threshold", 0)))
             gems_cap = int(changed.get("gems_earned_cap", policy.get("gems_earned_cap", 0)))
-            if damping_tier2 > 0 and damping_tier1 > damping_tier2:
-                raise ServiceError(1906, "一级宝石阻尼阈值不能大于二级阈值", 422)
-            if gems_cap > 0 and ((damping_tier1 > gems_cap) or (damping_tier2 > gems_cap)):
+            if (damping_tier2 > 0 and damping_tier1 > damping_tier2) or (damping_tier3 > 0 and damping_tier2 > damping_tier3):
+                raise ServiceError(1906, "四档宝石阻尼阈值必须按从小到大排序", 422)
+            if gems_cap > 0 and any(tier > gems_cap for tier in (damping_tier1, damping_tier2, damping_tier3)):
                 raise ServiceError(1907, "宝石阻尼阈值不能大于累计宝石上限", 422)
             assignments = ", ".join(f"{key} = %s" for key in changed)
             values = tuple(changed.values()) + (1,)
@@ -450,6 +451,46 @@ class RewardsService:
                     ("dashboard", key, str(policy[key]), str(new_value)),
                 )
             return self._admin_policy_with_crowns(connection, self._policy(connection))
+
+    def update_market_wallet_policy(self, authorization: str | None, payload: dict[str, Any]) -> dict[str, Any]:
+        self._verify_admin_token(authorization)
+        market_code = payload["market_code"].strip().upper()
+        currency_code = payload["currency_code"].strip().upper()
+        with self._transaction() as connection:
+            previous = self._one(connection, "SELECT * FROM market_wallet_policy WHERE market_code = %s", (market_code,))
+            old_value = str({key: str(value) for key, value in (previous or {}).items()})
+            self._execute(
+                connection,
+                """
+                INSERT INTO market_wallet_policy
+                (market_code, currency_code, currency_symbol, currency_fraction_digits,
+                 currency_micros_per_10000_gems, usd_micros_per_10000_gems,
+                 withdrawal_threshold_micros, welcome_bonus_gems, daily_release_micros)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (market_code) DO UPDATE SET
+                    currency_code = EXCLUDED.currency_code,
+                    currency_symbol = EXCLUDED.currency_symbol,
+                    currency_fraction_digits = EXCLUDED.currency_fraction_digits,
+                    currency_micros_per_10000_gems = EXCLUDED.currency_micros_per_10000_gems,
+                    usd_micros_per_10000_gems = EXCLUDED.usd_micros_per_10000_gems,
+                    withdrawal_threshold_micros = EXCLUDED.withdrawal_threshold_micros,
+                    welcome_bonus_gems = EXCLUDED.welcome_bonus_gems,
+                    daily_release_micros = EXCLUDED.daily_release_micros,
+                    updated_at = NOW()
+                """,
+                (
+                    market_code, currency_code, payload["currency_symbol"], payload["currency_fraction_digits"],
+                    payload["currency_micros_per_10000_gems"], payload["usd_micros_per_10000_gems"],
+                                        payload["withdrawal_threshold_micros"], payload["welcome_bonus_gems"], payload["daily_release_micros"],
+
+                ),
+            )
+            self._execute(
+                connection,
+                "INSERT INTO reward_policy_admin_audit (actor, field_name, old_value, new_value) VALUES (%s, %s, %s, %s)",
+                ("dashboard", f"market_wallet.{market_code}", old_value, self._json(payload)),
+            )
+            return {"market_wallet_policies": self._market_wallet_policies(connection)}
 
     def update_crown_multiplier(self, authorization: str | None, code: str, multiplier: float) -> dict[str, Any]:
         self._verify_admin_token(authorization)
@@ -485,7 +526,7 @@ class RewardsService:
             if int(user["gems_balance"]) < gems:
                 raise ServiceError(1701, "宝石余额不足，无法兑换", 409)
             wallet_policy = self._wallet_policy(connection, user_id)
-            micros = (gems * 1_000_000) // int(wallet_policy["gems_to_usd_rate"])
+            micros = (gems * int(wallet_policy["currency_micros_per_10000_gems"])) // 10_000
             if micros <= 0:
                 raise ServiceError(1702, "当前兑换金额过小，请增加兑换宝石数量", 422)
             existing = self._one(
@@ -514,7 +555,13 @@ class RewardsService:
             )
             return {
                 "idempotent": False,
-                "result": {"action": "GEMS_EXCHANGE", "gems_spent": gems, "cash_added": self._money(micros)},
+                "result": {
+                    "action": "GEMS_EXCHANGE",
+                    "gems_spent": gems,
+                    "cash_added": self._money(micros, wallet_policy),
+                    "cash_added_usd_reference": self._usd_reference_money(micros, wallet_policy),
+                    "currency": self._currency_payload(wallet_policy),
+                },
                 "snapshot": self._snapshot(connection, user_id),
             }
 
@@ -630,16 +677,17 @@ class RewardsService:
             if not enabled:
                 reason = "提现功能尚未启用；当前仅展示透明的积分与现金钱包预估。"
             elif available < threshold:
-                reason = f"可提现余额未达到最低门槛 {self._money(threshold)}。"
+                reason = f"可提现余额未达到最低门槛 {self._money_label(threshold, wallet_policy)}。"
             else:
                 reason = "已满足余额条件；仍需通过正式 KYC 与支付服务校验。"
             return {
                 "withdrawal_enabled": enabled,
                 "eligible": enabled and available >= threshold,
                 "reason": reason,
-                "cash_wallet": self._money(int(wallet["cash_wallet_micros"])),
-                "available_balance": self._money(available),
-                "threshold": self._money(threshold),
+                "cash_wallet": self._money(int(wallet["cash_wallet_micros"]), wallet_policy),
+                "available_balance": self._money(available, wallet_policy),
+                "threshold": self._money(threshold, wallet_policy),
+                "currency": self._currency_payload(wallet_policy),
             }
 
     def _rewarded_action(
@@ -1223,26 +1271,34 @@ class RewardsService:
             cash_wallet_micros,
             max(0, math.floor(base_today_transfer * float(policy["release_boost_percent"]))),
         )
+        currency = self._currency_payload(wallet_policy)
         return {
             "business_date": business_date.isoformat(),
-            "user": {"geo_tier": user["geo_tier"], "lifecycle_day": lifecycle_day},
+            "user": {"geo_tier": user["geo_tier"], "market_code": wallet_policy["market_code"], "lifecycle_day": lifecycle_day},
             "wallet": {
                 "gems_balance": user["gems_balance"],
-                "cash_wallet": self._money(user["cash_wallet_micros"]),
-                "wallet_locked": self._money(user["cash_wallet_micros"]),
-                "available_balance": self._money(user["available_balance_micros"]),
+                "cash_wallet": self._money(user["cash_wallet_micros"], wallet_policy),
+                "wallet_locked": self._money(user["cash_wallet_micros"], wallet_policy),
+                "available_balance": self._money(user["available_balance_micros"], wallet_policy),
+                "cash_wallet_usd_reference": self._usd_reference_money(user["cash_wallet_micros"], wallet_policy),
+                "available_balance_usd_reference": self._usd_reference_money(user["available_balance_micros"], wallet_policy),
+                "currency": currency,
                 "total_gems_earned": user["total_gems_earned"],
-                "exchange_rate_gems": wallet_policy["gems_to_usd_rate"],
+                "exchange_rate_gems": 10000,
                 "minimum_exchange_gems": policy["minimum_exchange_gems"],
                 "release": {
                     "released_today": user["last_wallet_release_date"] == business_date,
-                    "daily_release": self._money(release_cap),
+                    "daily_release": self._money(release_cap, wallet_policy),
+                    "daily_release_usd_reference": self._usd_reference_money(release_cap, wallet_policy),
                     "boost_used": counters["release_boost_count"],
                     "boost_cap": policy["release_boost_daily_limit"],
-                    "boost_amount": self._money(expected_boost_transfer),
+                    "boost_amount": self._money(expected_boost_transfer, wallet_policy),
+                    "boost_amount_usd_reference": self._usd_reference_money(expected_boost_transfer, wallet_policy),
                     "boost_percent": float(policy["release_boost_percent"]),
-                    "expected_tomorrow_transfer": self._money(expected_tomorrow_transfer),
-                    "expected_boost_transfer": self._money(expected_boost_transfer),
+                    "expected_tomorrow_transfer": self._money(expected_tomorrow_transfer, wallet_policy),
+                    "expected_tomorrow_transfer_usd_reference": self._usd_reference_money(expected_tomorrow_transfer, wallet_policy),
+                    "expected_boost_transfer": self._money(expected_boost_transfer, wallet_policy),
+                    "expected_boost_transfer_usd_reference": self._usd_reference_money(expected_boost_transfer, wallet_policy),
                     # 前端始终提供广告加速入口；金额是否转入由真实钱包余额与账本决定。
                     "boost_available": int(policy["release_boost_daily_limit"]) <= 0 or int(counters["release_boost_count"]) < int(policy["release_boost_daily_limit"]),
                     "estimated_days_remaining": estimated_days,
@@ -1340,17 +1396,20 @@ class RewardsService:
                 "cap": int(policy["gems_earned_cap"]),
                 "tier1_threshold": int(policy["gem_damping_tier1_threshold"]),
                 "tier2_threshold": int(policy["gem_damping_tier2_threshold"]),
+                "tier3_threshold": int(policy["gem_damping_tier3_threshold"]),
                 "tier1_multiplier": float(policy["gem_damping_tier1_multiplier"]),
                 "tier2_multiplier": float(policy["gem_damping_tier2_multiplier"]),
                 "tier3_multiplier": float(policy["gem_damping_tier3_multiplier"]),
+                "tier4_multiplier": float(policy["gem_damping_tier4_multiplier"]),
+                "scope": "ALL_GEM_SOURCES",
             },
             "withdrawal": self.withdrawal_preflight_inline(connection, user_id, policy, user, wallet_policy),
             "ledger": [
                 {
                     "type": item["entry_type"],
                     "gems_delta": item["gems_delta"],
-                    "cash_wallet_delta": self._money(item["cash_wallet_delta_micros"]),
-                    "available_balance_delta": self._money(item["available_balance_delta_micros"]),
+                    "cash_wallet_delta": self._money(item["cash_wallet_delta_micros"], wallet_policy),
+                    "available_balance_delta": self._money(item["available_balance_delta_micros"], wallet_policy),
                     "created_at": item["created_at"].isoformat(),
                 }
                 for item in recent_ledger
@@ -1402,10 +1461,17 @@ class RewardsService:
         if not enabled:
             reason = "提现功能尚未启用；请关注钱包余额与可提现余额的后续转入进度。"
         elif available < threshold:
-            reason = f"可提现余额未达到最低门槛 {self._money(threshold)}，还差 {self._money(threshold - available)}。"
+            reason = f"可提现余额未达到最低门槛 {self._money_label(threshold, wallet_policy)}，还差 {self._money_label(threshold - available, wallet_policy)}。"
         else:
             reason = "已满足余额条件；仍需通过正式 KYC 与支付服务校验。"
-        return {"enabled": enabled, "eligible": enabled and available >= threshold, "reason": reason, "threshold": self._money(threshold)}
+        return {
+            "enabled": enabled,
+            "eligible": enabled and available >= threshold,
+            "reason": reason,
+            "threshold": self._money(threshold, wallet_policy),
+            "threshold_usd_reference": self._usd_reference_money(threshold, wallet_policy),
+            "currency": self._currency_payload(wallet_policy),
+        }
 
     def _credit_gems(
         self,
@@ -1428,20 +1494,19 @@ class RewardsService:
         if cap > 0 and total_before >= cap:
             credited_gems = 0
         else:
-            # 用户要求的阻尼只作用于“看剧获得的宝石基数”，不削减欢迎、签到、宝箱等明确活动奖励。
-            episode_reward_entries = {"EPISODE_REWARD_CLAIM", "EPISODE_REWARD_DOUBLE", "CLAIM_REWARD", "DOUBLE_REWARD"}
-            if entry_type in episode_reward_entries:
-                tier1 = int(policy.get("gem_damping_tier1_threshold", 0))
-                tier2 = int(policy.get("gem_damping_tier2_threshold", 0))
-                if tier1 > 0 and total_before < tier1:
-                    multiplier = float(policy.get("gem_damping_tier1_multiplier", 1.0))
-                elif tier2 > 0 and total_before < tier2:
-                    multiplier = float(policy.get("gem_damping_tier2_multiplier", 1.0))
-                else:
-                    multiplier = float(policy.get("gem_damping_tier3_multiplier", 1.0))
-                credited_gems = max(0, math.floor(gems * multiplier))
+            # v1.6.3：欢迎、签到、分集/翻倍、宝箱、皇冠等全部 Gems 来源均在结算时适用同一四档阻尼。
+            tier1 = int(policy.get("gem_damping_tier1_threshold", 0))
+            tier2 = int(policy.get("gem_damping_tier2_threshold", 0))
+            tier3 = int(policy.get("gem_damping_tier3_threshold", 0))
+            if tier1 > 0 and total_before < tier1:
+                multiplier = float(policy.get("gem_damping_tier1_multiplier", 1.0))
+            elif tier2 > 0 and total_before < tier2:
+                multiplier = float(policy.get("gem_damping_tier2_multiplier", 1.0))
+            elif tier3 > 0 and total_before < tier3:
+                multiplier = float(policy.get("gem_damping_tier3_multiplier", 1.0))
             else:
-                credited_gems = gems
+                multiplier = float(policy.get("gem_damping_tier4_multiplier", 1.0))
+            credited_gems = max(0, math.floor(gems * multiplier + 1e-9))
             if cap > 0:
                 credited_gems = min(credited_gems, cap - total_before)
         total = total_before + credited_gems
@@ -1468,12 +1533,34 @@ class RewardsService:
         )
         return credited_gems
 
-    def _ensure_user(self, connection: psycopg.Connection[Any], user_id: str) -> None:
-        self._execute(connection, "INSERT INTO users (user_id) VALUES (%s) ON CONFLICT (user_id) DO NOTHING", (user_id,))
-        user = self._one(connection, "SELECT geo_tier FROM users WHERE user_id = %s", (user_id,))
-        wallet_policy = self._one(connection, "SELECT welcome_bonus_gems FROM geo_wallet_policy WHERE geo_tier = %s", (user["geo_tier"],))
-        if not wallet_policy:
-            raise ServiceError(1503, "数据库缺少市场钱包策略，请执行 sql/002_monetization_v3.sql", 503)
+    @staticmethod
+    def _normalise_market_code(region: str | None) -> str:
+        value = (region or "").strip().upper().replace("-", "_")
+        if value in {"BR", "BRA", "BRAZIL", "PT_BR"}:
+            return "BR"
+        if value in {"ID", "IDN", "INDONESIA", "IN_ID"}:
+            return "ID"
+        return "DEFAULT"
+
+    def _ensure_user(self, connection: psycopg.Connection[Any], user_id: str, region: str | None = None) -> None:
+        requested_market = self._normalise_market_code(region)
+        self._execute(
+            connection,
+            "INSERT INTO users (user_id, market_code) VALUES (%s, %s) ON CONFLICT (user_id) DO NOTHING",
+            (user_id, requested_market),
+        )
+        # 已产生资产的用户不切换币种，避免钱包和账本混入两种本币；零资产默认用户可在首次带地区启动时归入对应市场。
+        if requested_market != "DEFAULT":
+            self._execute(
+                connection,
+                """
+                UPDATE users SET market_code = %s, updated_at = NOW()
+                WHERE user_id = %s AND market_code = 'DEFAULT'
+                  AND gems_balance = 0 AND cash_wallet_micros = 0 AND available_balance_micros = 0
+                """,
+                (requested_market, user_id),
+            )
+        wallet_policy = self._wallet_policy(connection, user_id)
         self._execute(
             connection,
             """
@@ -1489,14 +1576,15 @@ class RewardsService:
         row = self._one(
             connection,
             """
-            SELECT g.* FROM users u
-            JOIN geo_wallet_policy g ON g.geo_tier = u.geo_tier
+            SELECT m.*
+            FROM users u
+            JOIN market_wallet_policy m ON m.market_code = COALESCE(NULLIF(u.market_code, ''), 'DEFAULT')
             WHERE u.user_id = %s
             """,
             (user_id,),
         )
         if not row:
-            raise ServiceError(1503, "数据库缺少市场钱包策略，请执行 sql/002_monetization_v3.sql", 503)
+            raise ServiceError(1503, "数据库缺少市场钱包策略，请执行 sql/010_v163_localized_wallet_and_rewards.sql", 503)
         return row
 
     def _lifecycle_day(self, created_at: datetime) -> int:
@@ -1617,7 +1705,22 @@ class RewardsService:
                 """,
             )
         ]
+        payload["market_wallet_policies"] = self._market_wallet_policies(connection)
         return payload
+
+    def _market_wallet_policies(self, connection: psycopg.Connection[Any]) -> list[dict[str, Any]]:
+        return [
+            {
+                "market_code": row["market_code"], "currency_code": row["currency_code"],
+                "currency_symbol": row["currency_symbol"], "currency_fraction_digits": int(row["currency_fraction_digits"]),
+                "currency_micros_per_10000_gems": int(row["currency_micros_per_10000_gems"]),
+                "usd_micros_per_10000_gems": int(row["usd_micros_per_10000_gems"]),
+                "withdrawal_threshold_micros": int(row["withdrawal_threshold_micros"]),
+                "welcome_bonus_gems": int(row["welcome_bonus_gems"]),
+                "daily_release_micros": int(row["daily_release_micros"]),
+            }
+            for row in self._all(connection, "SELECT * FROM market_wallet_policy ORDER BY market_code")
+        ]
 
     @staticmethod
     def _admin_policy_payload(policy: dict[str, Any]) -> dict[str, Any]:
@@ -1649,9 +1752,12 @@ class RewardsService:
             "gems_earned_cap": int(policy["gems_earned_cap"]),
             "gem_damping_tier1_threshold": int(policy["gem_damping_tier1_threshold"]),
             "gem_damping_tier2_threshold": int(policy["gem_damping_tier2_threshold"]),
+            "gem_damping_tier3_threshold": int(policy["gem_damping_tier3_threshold"]),
             "gem_damping_tier1_multiplier": float(policy["gem_damping_tier1_multiplier"]),
             "gem_damping_tier2_multiplier": float(policy["gem_damping_tier2_multiplier"]),
             "gem_damping_tier3_multiplier": float(policy["gem_damping_tier3_multiplier"]),
+            "gem_damping_tier4_multiplier": float(policy["gem_damping_tier4_multiplier"]),
+            "gem_damping_scope": "ALL_GEM_SOURCES",
             "next_episode_interstitial_cooldown_seconds": int(policy["next_episode_interstitial_cooldown_seconds"]),
             "pause_ad_enabled": bool(policy["pause_ad_enabled"]),
             "pause_ad_min_play_seconds": int(policy["pause_ad_min_play_seconds"]),
@@ -1688,8 +1794,34 @@ class RewardsService:
         return datetime.now(UTC).astimezone(self._business_timezone)
 
     @staticmethod
-    def _money(micros: int) -> str:
-        return f"{micros / 1_000_000:.2f}"
+    def _money(micros: int, wallet_policy: dict[str, Any]) -> str:
+        digits = int(wallet_policy["currency_fraction_digits"])
+        amount = micros / 1_000_000
+        return f"{amount:.{digits}f}"
+
+    @staticmethod
+    def _usd_reference_money(micros: int, wallet_policy: dict[str, Any]) -> str:
+        numerator = int(wallet_policy["usd_micros_per_10000_gems"])
+        denominator = int(wallet_policy["currency_micros_per_10000_gems"])
+        usd_micros = (micros * numerator) // max(denominator, 1)
+        return f"{usd_micros / 1_000_000:.2f}"
+
+    @staticmethod
+    def _currency_payload(wallet_policy: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "market_code": wallet_policy["market_code"],
+            "code": wallet_policy["currency_code"],
+            "symbol": wallet_policy["currency_symbol"],
+            "fraction_digits": int(wallet_policy["currency_fraction_digits"]),
+            "local_micros_per_10000_gems": int(wallet_policy["currency_micros_per_10000_gems"]),
+            "usd_micros_per_10000_gems": int(wallet_policy["usd_micros_per_10000_gems"]),
+        }
+
+    def _money_label(self, micros: int, wallet_policy: dict[str, Any]) -> str:
+        local = f"{wallet_policy['currency_symbol']}{self._money(micros, wallet_policy)}"
+        if wallet_policy["currency_code"] == "USD":
+            return local
+        return f"{local}（约 US${self._usd_reference_money(micros, wallet_policy)}）"
 
     @staticmethod
     def _json(value: dict[str, Any]) -> str:

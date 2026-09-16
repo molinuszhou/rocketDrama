@@ -18,6 +18,8 @@ services:
       - ./sql/006_rewarded_actions_and_player_v7.sql:/docker-entrypoint-initdb.d/006_rewarded_actions_and_player_v7.sql:ro
       - ./sql/007_v8_player_reward_polish.sql:/docker-entrypoint-initdb.d/007_v8_player_reward_polish.sql:ro
       - ./sql/008_v81_ad_fatigue_and_crown_curve.sql:/docker-entrypoint-initdb.d/008_v81_ad_fatigue_and_crown_curve.sql:ro
+      - ./sql/009_v162_reward_control.sql:/docker-entrypoint-initdb.d/009_v162_reward_control.sql:ro
+      - ./sql/010_v163_localized_wallet_and_rewards.sql:/docker-entrypoint-initdb.d/010_v163_localized_wallet_and_rewards.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s

@@ -54,8 +54,17 @@ class RewardsApiClient(
         val pendingDays: Int,
         val expectedTomorrowTransfer: String = "0.00",
         val expectedBoostTransfer: String = "0.00",
+        val expectedTomorrowTransferUsdReference: String = "0.00",
+        val expectedBoostTransferUsdReference: String = "0.00",
         val boostAvailable: Boolean = false,
         val boostPercent: Float = 0.2f,
+    )
+
+    data class Currency(
+        val marketCode: String = "DEFAULT",
+        val code: String = "USD",
+        val symbol: String = "$",
+        val fractionDigits: Int = 2,
     )
 
     data class Wallet(
@@ -63,6 +72,9 @@ class RewardsApiClient(
         val cashWallet: String,
         val lockedBalance: String,
         val availableBalance: String,
+        val cashWalletUsdReference: String = "0.00",
+        val availableBalanceUsdReference: String = "0.00",
+        val currency: Currency = Currency(),
         val totalGemsEarned: Long,
         val exchangeRateGems: Long,
         val minimumExchangeGems: Long,
@@ -143,7 +155,7 @@ class RewardsApiClient(
         val pauseAdHourlyLimit: Int = 0,
         val rewardClaimEnabled: Boolean = false,
         val midEpisodeEnabled: Boolean = false,
-        val midEpisodeTriggerSeconds: Int = 30,
+        val midEpisodeTriggerSeconds: Int = 45,
         val midEpisodeHourlyLimit: Int = 0,
         val seekEnabled: Boolean = false,
         val seekHourlyLimit: Int = 0,
@@ -164,9 +176,11 @@ class RewardsApiClient(
         val cap: Long = 0L,
         val tier1Threshold: Long = 0L,
         val tier2Threshold: Long = 0L,
+        val tier3Threshold: Long = 0L,
         val tier1Multiplier: Float = 1f,
         val tier2Multiplier: Float = 1f,
         val tier3Multiplier: Float = 1f,
+        val tier4Multiplier: Float = 1f,
     )
 
     data class Withdrawal(
@@ -174,6 +188,7 @@ class RewardsApiClient(
         val eligible: Boolean,
         val reason: String,
         val threshold: String,
+        val thresholdUsdReference: String = "0.00",
     )
 
     data class Achievement(val code: String, val gems: Long, val entitlement: String)
@@ -374,6 +389,13 @@ class RewardsApiClient(
         val damping = json.optJSONObject("gem_damping") ?: JSONObject()
         val user = json.optJSONObject("user") ?: JSONObject()
         val release = walletJson.optJSONObject("release") ?: JSONObject()
+        val currencyJson = walletJson.optJSONObject("currency") ?: JSONObject()
+        val currency = Currency(
+            marketCode = currencyJson.optString("market_code", user.optString("market_code", "DEFAULT")),
+            code = currencyJson.optString("code", "USD"),
+            symbol = currencyJson.optString("symbol", "$"),
+            fractionDigits = currencyJson.optInt("fraction_digits", 2).coerceIn(0, 6),
+        )
         val tiers = parseTiers(checkin.optJSONArray("tiers"))
         val signedToday = checkin.optBoolean("signed_today")
         val todayIndex = checkin.optInt("today_streak", if (signedToday) checkin.optInt("completed_streak", 1) else 1)
@@ -388,13 +410,18 @@ class RewardsApiClient(
                 coins = walletJson.optLong("gems_balance"), cashWallet = walletJson.optString("cash_wallet", "0.00"),
                 lockedBalance = walletJson.optString("wallet_locked", walletJson.optString("cash_wallet", "0.00")),
                 availableBalance = walletJson.optString("available_balance", "0.00"),
-                totalGemsEarned = walletJson.optLong("total_gems_earned"), exchangeRateGems = walletJson.optLong("exchange_rate_gems", 1_500_000L),
+                cashWalletUsdReference = walletJson.optString("cash_wallet_usd_reference", walletJson.optString("cash_wallet", "0.00")),
+                availableBalanceUsdReference = walletJson.optString("available_balance_usd_reference", walletJson.optString("available_balance", "0.00")),
+                currency = currency,
+                totalGemsEarned = walletJson.optLong("total_gems_earned"), exchangeRateGems = walletJson.optLong("exchange_rate_gems", 10_000L),
                 minimumExchangeGems = walletJson.optLong("minimum_exchange_gems", 10_000L), watchedEpisodes = today.optInt("episode_count"),
                 signedInToday = signedToday, checkinStreak = checkin.optInt("completed_streak"),
                 release = WalletRelease(release.optBoolean("released_today"), release.optString("daily_release", "0.00"),
                     release.optInt("boost_used"), release.optInt("boost_cap", 3), release.optString("boost_amount", "0.00"),
                     release.optInt("estimated_days_remaining"), release.optInt("pending_days"),
                     release.optString("expected_tomorrow_transfer", "0.00"), release.optString("expected_boost_transfer", "0.00"),
+                    release.optString("expected_tomorrow_transfer_usd_reference", release.optString("expected_tomorrow_transfer", "0.00")),
+                    release.optString("expected_boost_transfer_usd_reference", release.optString("expected_boost_transfer", "0.00")),
                     release.optBoolean("boost_available"), release.optDouble("boost_percent", 0.2).toFloat()),
             ),
             tasks = taskList,
@@ -437,7 +464,7 @@ class RewardsApiClient(
                 interstitial.optInt("pause_ad_hourly_limit", 0),
                 interstitial.optBoolean("reward_claim_enabled", false),
                 interstitial.optBoolean("mid_episode_enabled", false),
-                interstitial.optInt("mid_episode_trigger_seconds", 30),
+                interstitial.optInt("mid_episode_trigger_seconds", 45),
                 interstitial.optInt("mid_episode_hourly_limit", 0),
                 interstitial.optBoolean("seek_enabled", false),
                 interstitial.optInt("seek_hourly_limit", 0),
@@ -454,10 +481,10 @@ class RewardsApiClient(
             ),
             gemDamping = GemDamping(
                 damping.optLong("total_gems_earned", walletJson.optLong("total_gems_earned")),
-                damping.optLong("cap"), damping.optLong("tier1_threshold"), damping.optLong("tier2_threshold"),
-                damping.optDouble("tier1_multiplier", 1.0).toFloat(), damping.optDouble("tier2_multiplier", 1.0).toFloat(), damping.optDouble("tier3_multiplier", 1.0).toFloat(),
+                damping.optLong("cap"), damping.optLong("tier1_threshold"), damping.optLong("tier2_threshold"), damping.optLong("tier3_threshold"),
+                damping.optDouble("tier1_multiplier", 1.0).toFloat(), damping.optDouble("tier2_multiplier", 1.0).toFloat(), damping.optDouble("tier3_multiplier", 1.0).toFloat(), damping.optDouble("tier4_multiplier", 1.0).toFloat(),
             ),
-            withdrawal = Withdrawal(withdrawal.optBoolean("enabled"), withdrawal.optBoolean("eligible"), withdrawal.optString("reason"), withdrawal.optString("threshold", "0.00")),
+            withdrawal = Withdrawal(withdrawal.optBoolean("enabled"), withdrawal.optBoolean("eligible"), withdrawal.optString("reason"), withdrawal.optString("threshold", "0.00"), withdrawal.optString("threshold_usd_reference", withdrawal.optString("threshold", "0.00"))),
             achievements = achievements, crownProgress = crowns, rvCountToday = today.optInt("rv_count"), rvDailyLimit = today.optInt("rv_daily_limit", 20), lifecycleDay = user.optInt("lifecycle_day"), geoTier = user.optString("geo_tier", "t3"), ledger = ledger,
         )
     }
