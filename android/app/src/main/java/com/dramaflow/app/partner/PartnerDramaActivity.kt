@@ -534,7 +534,7 @@ class PartnerDramaActivity : FragmentActivity() {
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(18), dp(18), dp(16))
-            background = gradientDrawable(intArrayOf(COLOR_PURPLE, COLOR_ACCENT), 22)
+            background = gradientDrawable(intArrayOf(0xFFFF8A24.toInt(), 0xFFFF5B4D.toInt()), 22)
             addView(TextView(this@PartnerDramaActivity).apply {
                 text = "追剧奖励"
                 textSize = 14f
@@ -1023,7 +1023,7 @@ class PartnerDramaActivity : FragmentActivity() {
         if (wallet == null) return createInlineNotice("正在同步奖励账本，连接成功后将展示宝石和钱包余额。")
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(18), dp(18), dp(16))
-            background = gradientDrawable(intArrayOf(0xFFF2F4FF.toInt(), 0xFFFFEEF3.toInt()), 22)
+            background = gradientDrawable(intArrayOf(0xFFFFF0E5.toInt(), 0xFFFFFFFF.toInt()), 22)
             addView(TextView(this@PartnerDramaActivity).apply { text = t("wallet"); textSize = 20f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
             val balances = LinearLayout(this@PartnerDramaActivity).apply { orientation = LinearLayout.HORIZONTAL }
             listOf(t("gems") to wallet.coins.toString(), t("cash_balance") to "\$${wallet.cashWallet}").forEachIndexed { index, item ->
@@ -2637,7 +2637,7 @@ class PartnerDramaActivity : FragmentActivity() {
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
-            background = gradientDrawable(intArrayOf(COLOR_ACCENT, COLOR_PURPLE), 28)
+            background = gradientDrawable(intArrayOf(0xFFFF8A24.toInt(), 0xFFFF5B4D.toInt()), 28)
         }, LinearLayout.LayoutParams(dp(88), dp(88)).apply { gravity = Gravity.CENTER_HORIZONTAL })
         column.addView(TextView(this).apply {
             text = getString(com.dramaflow.app.R.string.app_name)

@@ -67,8 +67,8 @@ fun SearchScreen(padding: PaddingValues, viewModel: AppViewModel) {
     val results = remember(state.searchQuery) { viewModel.filteredDramas(state.searchQuery) }
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding),
-        contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
             ScreenTopBar("搜索短剧", viewModel::navigateBack)
@@ -152,7 +152,7 @@ fun PlayerScreen(padding: PaddingValues, viewModel: AppViewModel) {
                     }
                 }
                 Spacer(Modifier.height(12.dp))
-                CompactProgress((record?.progressPercent ?: 15) / 100f, color = Color.White)
+                CompactProgress((record?.progressPercent ?: 0) / 100f, color = Color.White)
             }
         }
         item {
@@ -211,8 +211,8 @@ fun LibraryScreen(padding: PaddingValues, title: String, favoriteOnly: Boolean, 
     val library = if (favoriteOnly) viewModel.favoriteDramas().map { it to null } else viewModel.historyDramas().map { it.first to it.second }
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding),
-        contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item { ScreenTopBar(title, viewModel::navigateBack) }
         if (library.isEmpty()) {
@@ -242,7 +242,7 @@ fun CashWalletScreen(padding: PaddingValues, viewModel: AppViewModel) {
     ) {
         item { ScreenTopBar("提现资格", viewModel::navigateBack) }
         item {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant), shape = RoundedCornerShape(24.dp)) {
+            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF0E5)), elevation = CardDefaults.cardElevation(2.dp), shape = RoundedCornerShape(24.dp)) {
                 Column(Modifier.padding(22.dp)) {
                     Text("Available cash balance", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
                     Text(formatCash(state.user.cashCents), style = MaterialTheme.typography.headlineLarge)
@@ -257,7 +257,7 @@ fun CashWalletScreen(padding: PaddingValues, viewModel: AppViewModel) {
             }
         }
         item {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(18.dp)) {
+            Card(colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(1.dp), shape = RoundedCornerShape(18.dp)) {
                 Column(Modifier.padding(16.dp)) {
                     Text("公开资格条件", style = MaterialTheme.typography.titleMedium)
                     Text("最低 ${eligibility.minimumCoins} 金币 · 有效观看至少 3 集 · 完成今日签到 · 每日最多申请 1 次", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
@@ -270,7 +270,7 @@ fun CashWalletScreen(padding: PaddingValues, viewModel: AppViewModel) {
         }
         item { Text("可申请档位", style = MaterialTheme.typography.titleLarge) }
         items(state.cashTiers) { tier ->
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(18.dp)) {
+            Card(colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(1.dp), shape = RoundedCornerShape(18.dp)) {
                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(tier.label, style = MaterialTheme.typography.titleLarge)
@@ -348,7 +348,7 @@ fun SettingsScreen(padding: PaddingValues, viewModel: AppViewModel) {
     )
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding),
-        contentPadding = PaddingValues(20.dp),
+        contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         item { ScreenTopBar("设置", viewModel::navigateBack) }

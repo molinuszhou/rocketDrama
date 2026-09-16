@@ -77,14 +77,14 @@ fun HomeScreen(padding: PaddingValues, viewModel: AppViewModel) {
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding),
-        contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp)
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
             Box(
                 modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp))
-                    .background(Brush.horizontalGradient(listOf(Color(0xFFFFA12B), Color(0xFFFF5D55))))
-                    .padding(18.dp)
+                    .background(Brush.linearGradient(listOf(Color(0xFFFF8A24), Color(0xFFFF5B4D))))
+                    .padding(20.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
@@ -102,7 +102,8 @@ fun HomeScreen(padding: PaddingValues, viewModel: AppViewModel) {
             Surface(
                 modifier = Modifier.fillMaxWidth().clickable { viewModel.navigate(AppRoute.SEARCH) },
                 color = MaterialTheme.colorScheme.surface,
-                shape = RoundedCornerShape(16.dp)
+                shape = RoundedCornerShape(18.dp),
+                tonalElevation = 2.dp
             ) {
                 Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Outlined.Search, null, tint = TextSecondary)
@@ -116,8 +117,9 @@ fun HomeScreen(padding: PaddingValues, viewModel: AppViewModel) {
                 modifier = Modifier.fillMaxWidth().clickable {
                     context.startActivity(Intent(context, PartnerDramaActivity::class.java))
                 },
-                color = MaterialTheme.colorScheme.primaryContainer,
-                shape = RoundedCornerShape(18.dp)
+                color = Color.White,
+                shape = RoundedCornerShape(20.dp),
+                tonalElevation = 2.dp
             ) {
                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
@@ -146,7 +148,7 @@ fun HomeScreen(padding: PaddingValues, viewModel: AppViewModel) {
             val featured = viewModel.dramas.first()
             Surface(
                 modifier = Modifier.fillMaxWidth().height(172.dp).clickable { viewModel.openDrama(featured.id) },
-                color = Color(0xFFFFE7D6),
+                color = Color(0xFFFFEAD9),
                 shape = RoundedCornerShape(22.dp)
             ) {
                 Column(
@@ -201,11 +203,11 @@ private fun DiscoverStory(drama: Drama, onOpen: () -> Unit, onWatch: () -> Unit)
             .padding(22.dp)
     ) {
         Row(modifier = Modifier.align(Alignment.TopEnd), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Surface(color = Color.Black.copy(alpha = 0.23f), shape = RoundedCornerShape(18.dp)) {
+            Surface(color = Color.White.copy(alpha = 0.78f), shape = RoundedCornerShape(18.dp)) {
                 Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Outlined.Star, null, modifier = Modifier.size(15.dp), tint = Color(0xFFFFD166))
                     Spacer(Modifier.width(4.dp))
-                Text("68%", style = MaterialTheme.typography.labelMedium, color = Color(0xFF4D2E1F))
+                Text("精选", style = MaterialTheme.typography.labelMedium, color = Color(0xFF4D2E1F))
                 }
             }
         }
@@ -228,15 +230,15 @@ fun TaskScreen(padding: PaddingValues, viewModel: AppViewModel) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding),
-        contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
-            Text("任务中心", style = MaterialTheme.typography.headlineMedium)
-            Text("奖励、上限和阶段宝箱均按公示规则计算", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
+            Text("福利中心", style = MaterialTheme.typography.headlineMedium)
+            Text("完成看剧、签到和任务，持续领取金币奖励", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
         }
         item {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant), shape = RoundedCornerShape(22.dp)) {
+            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF0E5)), elevation = CardDefaults.cardElevation(2.dp), shape = RoundedCornerShape(22.dp)) {
                 Column(Modifier.padding(18.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
@@ -253,7 +255,7 @@ fun TaskScreen(padding: PaddingValues, viewModel: AppViewModel) {
             }
         }
         item {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(22.dp)) {
+            Card(colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(2.dp), shape = RoundedCornerShape(22.dp)) {
                 Column(Modifier.padding(18.dp)) {
                     Text("今日阶段进度", style = MaterialTheme.typography.titleLarge)
                     Text("每领取一次有效任务奖励获得 1 个阶段点。当前 ${state.rewardPoints}/10 点。", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)

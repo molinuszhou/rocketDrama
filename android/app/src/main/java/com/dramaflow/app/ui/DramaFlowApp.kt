@@ -21,6 +21,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -173,7 +174,7 @@ private fun AppDestination(
 @Composable
 private fun BottomNavigation(selected: MainTab, onSelect: (MainTab) -> Unit) {
     NavigationBar(
-        containerColor = MaterialTheme.colorScheme.surface,
+        containerColor = Color.White,
         tonalElevation = 8.dp
     ) {
         val destinations = listOf(
