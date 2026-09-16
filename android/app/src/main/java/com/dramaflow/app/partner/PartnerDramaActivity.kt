@@ -31,6 +31,7 @@ import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -158,7 +159,7 @@ class PartnerDramaActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        root = FrameLayout(this).apply { setBackgroundColor(COLOR_BACKGROUND) }
+        root = FrameLayout(this).apply { background = pageCanvasDrawable() }
         setContentView(root)
         navigationBackCallback = object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -260,8 +261,11 @@ class PartnerDramaActivity : FragmentActivity() {
         )
     }
 
-    private enum class MainTab(val languageKey: String, val icon: String) {
-        HOME("home", "⌂"), DISCOVER("discover", "◉"), TASKS("rewards", "✦"), PROFILE("profile", "☺")
+    private enum class MainTab(val languageKey: String, val iconRes: Int) {
+        HOME("home", R.drawable.ic_nav_home),
+        DISCOVER("discover", R.drawable.ic_nav_discover),
+        TASKS("rewards", R.drawable.ic_nav_rewards),
+        PROFILE("profile", R.drawable.ic_nav_profile),
     }
 
     private fun renderActiveTab() {
@@ -271,6 +275,8 @@ class PartnerDramaActivity : FragmentActivity() {
         }
         withdrawalPageShown = false
         playerShown = false
+        window.statusBarColor = if (activeTab == MainTab.TASKS) 0xFFFFCF9E.toInt() else COLOR_BACKGROUND
+        WindowInsetsControllerCompat(window, root).isAppearanceLightStatusBars = true
         gemBalanceAnchor = null
         gemBalanceLabel = null
         cashBalanceLabel = null
@@ -285,7 +291,7 @@ class PartnerDramaActivity : FragmentActivity() {
         root.addView(page, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         // 奖励中心的资产在其首屏 hero 内展示；其他页面保留固定资产栏，滚动不影响余额可见性。
         if (activeTab != MainTab.TASKS) {
-            root.addView(createPersistentAssetHeader(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(70), Gravity.TOP))
+            root.addView(createPersistentAssetHeader(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(126), Gravity.TOP))
         }
         root.addView(createBottomNavigation(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(68), Gravity.BOTTOM))
         root.addView(createFloatingRewardWheel(), FrameLayout.LayoutParams(dp(92), dp(112), Gravity.END or Gravity.BOTTOM).apply {
@@ -297,31 +303,33 @@ class PartnerDramaActivity : FragmentActivity() {
     private fun showWithdrawalPage(wallet: RewardsApiClient.Wallet) {
         withdrawalPageShown = true
         playerShown = false
+        window.statusBarColor = COLOR_BACKGROUND
+        WindowInsetsControllerCompat(window, root).isAppearanceLightStatusBars = true
         gemBalanceAnchor = null
         gemBalanceLabel = null
         cashBalanceLabel = null
         exitImmersivePlayerMode()
         val page = ScrollView(this).apply {
-            setBackgroundColor(COLOR_BACKGROUND)
+            background = pageCanvasDrawable()
             isFillViewport = true
             addView(createWithdrawalPage(wallet))
         }
         root.removeAllViews()
         root.addView(page, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        root.addView(createPersistentAssetHeader(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(70), Gravity.TOP))
+        root.addView(createPersistentAssetHeader(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(126), Gravity.TOP))
     }
 
     private fun createWithdrawalPage(wallet: RewardsApiClient.Wallet): View = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
-        setPadding(dp(18), dp(88), dp(18), dp(34))
+        setPadding(dp(18), dp(142), dp(18), dp(34))
         addView(LinearLayout(this@PartnerDramaActivity).apply {
             gravity = Gravity.CENTER_VERTICAL
-            addView(TextView(this@PartnerDramaActivity).apply {
-                text = "‹"; textSize = 38f; setTextColor(COLOR_TEXT_PRIMARY)
+            addView(ImageView(this@PartnerDramaActivity).apply {
+                setImageResource(R.drawable.ic_arrow_back); scaleType = ImageView.ScaleType.CENTER_INSIDE
                 setPadding(0, 0, dp(14), 0); isClickable = true
                 contentDescription = t("home")
                 setOnClickListener { onBackPressedDispatcher.onBackPressed() }
-            })
+            }, LinearLayout.LayoutParams(dp(40), dp(40)))
             addView(TextView(this@PartnerDramaActivity).apply {
                 text = t("cash_out"); textSize = 25f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY)
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
@@ -342,13 +350,13 @@ class PartnerDramaActivity : FragmentActivity() {
                 addView(TextView(this@PartnerDramaActivity).apply { text = "\$${wallet.availableBalance}"; textSize = 36f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(0, dp(5), 0, 0) })
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             balanceRow.addView(ImageView(this@PartnerDramaActivity).apply {
-                setImageResource(R.drawable.ic_gem_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE
+                setImageResource(R.drawable.reward_gem_crystal); scaleType = ImageView.ScaleType.CENTER_INSIDE
                 contentDescription = t("gems")
             }, LinearLayout.LayoutParams(dp(78), dp(78)))
             addView(balanceRow)
             addView(LinearLayout(this@PartnerDramaActivity).apply {
                 gravity = Gravity.CENTER_VERTICAL; setPadding(dp(13), dp(10), dp(13), dp(10)); background = roundedDrawable(0x2AFFFFFF, 16)
-                addView(TextView(this@PartnerDramaActivity).apply { text = "▣"; textSize = 17f; setTextColor(0xFFFFD5A0.toInt()) })
+                addView(ImageView(this@PartnerDramaActivity).apply { setImageResource(R.drawable.ic_wallet); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(24), dp(24)))
                 addView(TextView(this@PartnerDramaActivity).apply { text = t("payment_account") + " · •••• 2499"; textSize = 14f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(dp(8), 0, 0, 0) })
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(14) })
         }, matchParams(bottom = 18))
@@ -415,41 +423,61 @@ class PartnerDramaActivity : FragmentActivity() {
         else content.addView(createRewardChestPanel(snapshot), matchParams(bottom = 16))
     }
 
-    private fun createRewardsHeroHeader(snapshot: RewardsApiClient.Snapshot?): View = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        setPadding(dp(22), dp(30), dp(22), dp(24))
-        background = gradientDrawable(intArrayOf(COLOR_CORAL, COLOR_SUNSET, 0xFFFFE2B0.toInt()), 0)
-        addView(TextView(this@PartnerDramaActivity).apply { text = t("reward_center"); textSize = 29f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
-        addView(TextView(this@PartnerDramaActivity).apply { text = t("rewards_subtitle"); textSize = 14f; setTextColor(0xB81C1C1C.toInt()); setPadding(0, dp(5), 0, dp(16)) })
-        val row = LinearLayout(this@PartnerDramaActivity).apply { gravity = Gravity.CENTER_VERTICAL }
-        val wallet = snapshot?.wallet
-        row.addView(createRewardBalance(t("gems"), wallet?.coins?.let(::formatGems) ?: "—", compact = false, isGem = true), LinearLayout.LayoutParams(0, dp(84), 1f))
-        row.addView(View(this@PartnerDramaActivity).apply { setBackgroundColor(0x44FFFFFF) }, LinearLayout.LayoutParams(dp(1), dp(58)).apply { marginStart = dp(10); marginEnd = dp(10) })
-        row.addView(createRewardBalance(t("wallet_balance"), wallet?.cashWallet?.let { "\$$it" } ?: "—", compact = true, isGem = false), LinearLayout.LayoutParams(0, dp(84), 1f))
-        addView(row)
-        addView(TextView(this@PartnerDramaActivity).apply { text = t("ledger_note"); textSize = 12f; setTextColor(0xB81C1C1C.toInt()); setPadding(dp(2), dp(12), 0, 0) })
+    private fun createRewardsHeroHeader(snapshot: RewardsApiClient.Snapshot?): View = FrameLayout(this).apply {
+        minimumHeight = dp(292)
+        clipToOutline = true
+        background = gradientDrawable(intArrayOf(0xFFFFCF9E.toInt(), 0xFFFFEAC8.toInt(), COLOR_WARM_PEACH), 0)
+        addView(ImageView(this@PartnerDramaActivity).apply {
+            setImageResource(R.drawable.bg_rewards_hero)
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            alpha = 0.96f
+        }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        addView(LinearLayout(this@PartnerDramaActivity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(28), dp(20), dp(18))
+            addView(TextView(this@PartnerDramaActivity).apply {
+                text = t("reward_center"); textSize = 29f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY)
+            })
+            addView(TextView(this@PartnerDramaActivity).apply {
+                text = t("rewards_subtitle"); textSize = 14f; setTextColor(0xB819202B.toInt()); setPadding(0, dp(5), 0, dp(15))
+            })
+            val balances = LinearLayout(this@PartnerDramaActivity).apply { gravity = Gravity.CENTER_VERTICAL }
+            val wallet = snapshot?.wallet
+            balances.addView(createRewardBalance(t("gems"), wallet?.coins?.let(::formatGems) ?: "—", compact = false, isGem = true), LinearLayout.LayoutParams(0, dp(100), 1f))
+            balances.addView(createRewardBalance(t("wallet_balance"), wallet?.cashWallet?.let { "\$$it" } ?: "—", compact = true, isGem = false), LinearLayout.LayoutParams(0, dp(100), 1f).apply { marginStart = dp(10) })
+            addView(balances)
+            addView(TextView(this@PartnerDramaActivity).apply {
+                text = t("ledger_note"); textSize = 12f; gravity = Gravity.CENTER; setTextColor(0xA619202B.toInt()); setPadding(0, dp(11), 0, 0)
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
     }
 
     private fun createRewardBalance(label: String, value: String, compact: Boolean, isGem: Boolean): View = LinearLayout(this).apply {
         gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(13), dp(13), dp(10), dp(13))
+        background = roundedDrawable(0xF7FFFFFF.toInt(), 20)
+        elevation = dp(2).toFloat()
         val icon = ImageView(this@PartnerDramaActivity).apply {
-            setImageResource(if (isGem) R.drawable.ic_gem_reward else R.drawable.ic_random_chest_reward)
+            setImageResource(if (isGem) R.drawable.reward_gem_crystal else R.drawable.ic_wallet)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
         }
         if (isGem) gemBalanceAnchor = icon
-        addView(icon, LinearLayout.LayoutParams(dp(58), dp(58)))
+        addView(icon, LinearLayout.LayoutParams(dp(52), dp(52)))
         addView(LinearLayout(this@PartnerDramaActivity).apply {
-            orientation = LinearLayout.VERTICAL; setPadding(dp(8), 0, 0, 0)
-            addView(TextView(this@PartnerDramaActivity).apply { text = label; textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
-            val valueView = TextView(this@PartnerDramaActivity).apply { text = value; textSize = if (compact) 20f else 27f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY); setPadding(0, dp(2), 0, 0) }
+            orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(8), 0, 0, 0)
+            val valueView = TextView(this@PartnerDramaActivity).apply {
+                text = value; textSize = if (compact) 21f else 27f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY)
+            }
             if (isGem) gemBalanceLabel = valueView else cashBalanceLabel = valueView
             addView(valueView)
+            addView(TextView(this@PartnerDramaActivity).apply { text = label; textSize = 12f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(2), 0, 0) })
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        addView(ImageView(this@PartnerDramaActivity).apply { setImageResource(R.drawable.ic_chevron_right); imageTintList = ColorStateList.valueOf(COLOR_TEXT_MUTED) }, LinearLayout.LayoutParams(dp(18), dp(18)))
     }
 
     private fun createDramaCoinMissionPanel(snapshot: RewardsApiClient.Snapshot?): View = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(18), dp(18), dp(16)); background = roundedDrawable(Color.WHITE, 24)
-        addView(createRewardPanelTitle(t("watch_tasks"), t("watch_tasks_subtitle"), t("go_watch")) { activeTab = MainTab.HOME; renderActiveTab() })
+        addView(createRewardPanelTitle(t("watch_tasks"), t("watch_tasks_subtitle"), t("go_watch"), R.drawable.ic_video_reward) { activeTab = MainTab.HOME; renderActiveTab() })
         val row = LinearLayout(this@PartnerDramaActivity).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         val watchTasks = snapshot?.tasks?.take(5).orEmpty()
         if (watchTasks.isEmpty()) row.addView(createCoinMilestone("—", t("ledger_note")), LinearLayout.LayoutParams(dp(108), dp(136)))
@@ -458,14 +486,14 @@ class PartnerDramaActivity : FragmentActivity() {
         }
         addView(android.widget.HorizontalScrollView(this@PartnerDramaActivity).apply { isHorizontalScrollBarEnabled = false; addView(row) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(144)).apply { topMargin = dp(12) })
         addView(View(this@PartnerDramaActivity).apply { setBackgroundColor(0xFFF0F0F0.toInt()) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)).apply { topMargin = dp(14); bottomMargin = dp(14) })
-        addView(createRewardPanelTitle(t("pending_rewards"), t("claim_after_ad"), t("claim_all")) { showEpisodeRewardClaimDialog() })
+        addView(createRewardPanelTitle(t("pending_rewards"), t("claim_after_ad"), t("claim_all"), R.drawable.reward_gem_crystal) { showEpisodeRewardClaimDialog() })
         val pending = snapshot?.pendingEpisodeRewards?.sumOf { it.rewardCoins } ?: 0
         addView(createPendingRewardAction(pending), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(72)).apply { topMargin = dp(12) })
     }
 
-    private fun createRewardPanelTitle(title: String, subtitle: String, action: String, onClick: () -> Unit): View = LinearLayout(this).apply {
+    private fun createRewardPanelTitle(title: String, subtitle: String, action: String, iconRes: Int, onClick: () -> Unit): View = LinearLayout(this).apply {
         gravity = Gravity.CENTER_VERTICAL
-        addView(ImageView(this@PartnerDramaActivity).apply { setImageResource(R.drawable.ic_gem_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(46), dp(46)))
+        addView(ImageView(this@PartnerDramaActivity).apply { setImageResource(iconRes); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(46), dp(46)))
         addView(LinearLayout(this@PartnerDramaActivity).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(8), 0, dp(6), 0)
             addView(TextView(this@PartnerDramaActivity).apply { text = title; textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
             addView(TextView(this@PartnerDramaActivity).apply { text = subtitle; textSize = 12f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(3), 0, 0) })
@@ -475,7 +503,7 @@ class PartnerDramaActivity : FragmentActivity() {
 
     private fun createPendingRewardAction(pending: Int): View = LinearLayout(this).apply {
         gravity = Gravity.CENTER_VERTICAL; setPadding(dp(12), dp(10), dp(12), dp(10)); background = roundedDrawable(0xFFFFF4EF.toInt(), 18)
-        addView(ImageView(this@PartnerDramaActivity).apply { setImageResource(R.drawable.ic_gem_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(48), dp(48)))
+        addView(ImageView(this@PartnerDramaActivity).apply { setImageResource(R.drawable.reward_gem_crystal); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(48), dp(48)))
         addView(LinearLayout(this@PartnerDramaActivity).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(8), 0, dp(8), 0)
             addView(TextView(this@PartnerDramaActivity).apply { text = if (pending > 0) "+${formatGems(pending.toLong())} ${t("gems")}" else t("pending_rewards"); textSize = 17f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
             addView(TextView(this@PartnerDramaActivity).apply { text = t("claim_after_ad"); textSize = 11f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(2), 0, 0) })
@@ -485,7 +513,7 @@ class PartnerDramaActivity : FragmentActivity() {
 
     private fun createCoinMilestone(value: String, label: String, reward: Int = 0): View = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER; setPadding(dp(7), dp(7), dp(7), dp(7)); background = gradientDrawable(intArrayOf(0xFFFFD7A3.toInt(), 0xFFFFA858.toInt()), 16)
-        addView(ImageView(this@PartnerDramaActivity).apply { setImageResource(R.drawable.ic_gem_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(48), dp(48)))
+        addView(ImageView(this@PartnerDramaActivity).apply { setImageResource(R.drawable.reward_gem_crystal); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(48), dp(48)))
         addView(TextView(this@PartnerDramaActivity).apply { text = value; textSize = 18f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_PRIMARY) })
         addView(TextView(this@PartnerDramaActivity).apply { text = if (reward > 0) "$label · +$reward" else label; textSize = 10f; maxLines = 2; gravity = Gravity.CENTER; setTextColor(0xCC1C1C1C.toInt()); setPadding(0, dp(2), 0, 0) })
     }
@@ -494,23 +522,28 @@ class PartnerDramaActivity : FragmentActivity() {
         orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(10), dp(9), dp(6), dp(7)); background = roundedDrawable(0xFFFFF6ED.toInt(), 16)
         addView(TextView(this@PartnerDramaActivity).apply { text = title; textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY); maxLines = 2 })
         val row = LinearLayout(this@PartnerDramaActivity).apply { gravity = Gravity.CENTER_VERTICAL }
-        row.addView(ImageView(this@PartnerDramaActivity).apply { setImageResource(R.drawable.ic_gem_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(28), dp(28)))
+        row.addView(ImageView(this@PartnerDramaActivity).apply { setImageResource(R.drawable.reward_gem_crystal); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(28), dp(28)))
         row.addView(TextView(this@PartnerDramaActivity).apply { text = coins; textSize = 17f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_CORAL); setPadding(dp(3), 0, 0, 0) })
         addView(row)
     }
 
     private fun createDailyBenefitsPanel(snapshot: RewardsApiClient.Snapshot?): View = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(18), dp(18), dp(15)); background = roundedDrawable(Color.WHITE, 24)
-        addView(TextView(this@PartnerDramaActivity).apply { text = t("daily_benefits"); textSize = 22f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
-        addView(TextView(this@PartnerDramaActivity).apply { text = t("daily_benefits_subtitle"); textSize = 12f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(4), 0, dp(12)) })
+        val heading = LinearLayout(this@PartnerDramaActivity).apply { gravity = Gravity.CENTER_VERTICAL }
+        heading.addView(ImageView(this@PartnerDramaActivity).apply { setImageResource(R.drawable.ic_calendar_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(36), dp(36)))
+        heading.addView(LinearLayout(this@PartnerDramaActivity).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(7), 0, 0, 0)
+            addView(TextView(this@PartnerDramaActivity).apply { text = t("daily_benefits"); textSize = 22f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
+            addView(TextView(this@PartnerDramaActivity).apply { text = t("daily_benefits_subtitle"); textSize = 12f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(3), 0, 0) })
+        })
+        addView(heading, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(10) })
         val checkinText = snapshot?.let { t("today_day_reward", it.checkinTodayIndex, it.checkinNextRewardCoins) } ?: t("ledger_note")
-        addView(createBenefitRow(t("checkin"), checkinText, if (snapshot?.checkinSignedToday == true) t("checked_in") else t("watch_ad_checkin")) { if (snapshot?.checkinSignedToday != true) completeDailyCheckin() })
+        addView(createBenefitRow(t("checkin"), checkinText, if (snapshot?.checkinSignedToday == true) t("checked_in") else t("watch_ad_checkin"), R.drawable.ic_calendar_reward) { if (snapshot?.checkinSignedToday != true) completeDailyCheckin() })
         addView(createCheckinTierStrip(snapshot), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
     }
 
-    private fun createBenefitRow(title: String, subtitle: String, action: String, onClick: () -> Unit): View = LinearLayout(this).apply {
+    private fun createBenefitRow(title: String, subtitle: String, action: String, iconRes: Int, onClick: () -> Unit): View = LinearLayout(this).apply {
         gravity = Gravity.CENTER_VERTICAL; setPadding(dp(4), dp(6), 0, dp(6))
-        addView(ImageView(this@PartnerDramaActivity).apply { setImageResource(R.drawable.ic_gem_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(50), dp(50)))
+        addView(ImageView(this@PartnerDramaActivity).apply { setImageResource(iconRes); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(50), dp(50)))
         addView(LinearLayout(this@PartnerDramaActivity).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(9), 0, dp(5), 0); addView(TextView(this@PartnerDramaActivity).apply { text = title; textSize = 16f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) }); addView(TextView(this@PartnerDramaActivity).apply { text = subtitle; textSize = 11f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(3), 0, 0) }) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         addView(TextView(this@PartnerDramaActivity).apply { text = action; textSize = 12f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE); background = roundedDrawable(COLOR_CORAL, 18); setPadding(dp(11), dp(9), dp(11), dp(9)); setOnClickListener { onClick() }; isClickable = true })
     }
@@ -554,14 +587,16 @@ class PartnerDramaActivity : FragmentActivity() {
     }
 
     private fun scrollPage(build: (LinearLayout) -> Unit): View {
-        val topInset = if (activeTab == MainTab.TASKS) 20 else 84
+        // 常规页面为固定资产栏预留 126dp 高度；奖励页使用自己的首屏 hero，因此从顶部开始。
+        val topInset = if (activeTab == MainTab.TASKS) 0 else 136
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(topInset), dp(16), dp(92))
+            setPadding(dp(16), dp(topInset), dp(16), dp(94))
         }
         build(content)
         return ScrollView(this).apply {
             isFillViewport = true
+            background = pageCanvasDrawable()
             addView(content, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
     }
@@ -643,22 +678,36 @@ class PartnerDramaActivity : FragmentActivity() {
     }
 
     private fun createHeroBanner(drama: LocalDrama): View = FrameLayout(this).apply {
-        background = gradientDrawable(intArrayOf(0xFFFFD8AB.toInt(), 0xFFFFF2E6.toInt()), 22)
-        setPadding(dp(18), dp(18), dp(18), dp(18)); minimumHeight = dp(180); isClickable = true
+        minimumHeight = dp(214)
+        clipToOutline = true
+        background = roundedDrawable(COLOR_INK, 24)
+        isClickable = true
         setOnClickListener { showPlayer(drama, 0) }
+        addView(ImageView(this@PartnerDramaActivity).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            load(drama.coverImage) { crossfade(true); placeholder(posterFallbackDrawable()); error(posterFallbackDrawable()) }
+        }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        addView(View(this@PartnerDramaActivity).apply {
+            background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(0xD9161F2A.toInt(), 0x54161F2A.toInt(), 0xB3161F2A.toInt()))
+        }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         val copy = LinearLayout(this@PartnerDramaActivity).apply { orientation = LinearLayout.VERTICAL }
-        copy.addView(TextView(this@PartnerDramaActivity).apply { text = t("featured_this_week"); textSize = 13f; setTextColor(COLOR_TEXT_MUTED) })
-        copy.addView(TextView(this@PartnerDramaActivity).apply { text = drama.title.ifBlank { t("watch_now") }; textSize = 23f; maxLines = 2; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY); setPadding(0, dp(8), 0, dp(8)) })
-        copy.addView(TextView(this@PartnerDramaActivity).apply { text = t("episodes_count", drama.total.coerceAtLeast(1)); textSize = 13f; setTextColor(COLOR_TEXT_PRIMARY); background = roundedDrawable(0xBBFFFFFF.toInt(), 14); setPadding(dp(10), dp(6), dp(10), dp(6)) })
-        addView(copy, FrameLayout.LayoutParams(dp(215), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER_VERTICAL or Gravity.START))
-        addView(ImageView(this@PartnerDramaActivity).apply { scaleType = ImageView.ScaleType.CENTER_CROP; alpha = 0.78f; load(drama.coverImage) { placeholder(posterFallbackDrawable()); error(posterFallbackDrawable()) } }, FrameLayout.LayoutParams(dp(126), ViewGroup.LayoutParams.MATCH_PARENT, Gravity.END))
+        copy.addView(createPill(t("featured_this_week"), COLOR_CORAL))
+        copy.addView(TextView(this@PartnerDramaActivity).apply { text = drama.title.ifBlank { t("watch_now") }; textSize = 25f; maxLines = 2; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(0, dp(14), 0, dp(4)) })
+        copy.addView(TextView(this@PartnerDramaActivity).apply { text = t("episodes_count", drama.total.coerceAtLeast(1)); textSize = 13f; setTextColor(0xE6FFFFFF.toInt()) })
+        addView(copy, FrameLayout.LayoutParams(dp(220), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.START).apply { leftMargin = dp(18); bottomMargin = dp(18) })
+        val play = LinearLayout(this@PartnerDramaActivity).apply {
+            gravity = Gravity.CENTER_VERTICAL; background = roundedDrawable(0xEBFFFFFF.toInt(), 24); setPadding(dp(4), dp(4), dp(12), dp(4))
+            addView(ImageView(this@PartnerDramaActivity).apply { setImageResource(R.drawable.ic_play_coral); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(42), dp(42)))
+            addView(TextView(this@PartnerDramaActivity).apply { text = t("episodes_count", drama.total.coerceAtLeast(1)); textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY); setPadding(dp(5), 0, 0, 0) })
+        }
+        addView(play, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(50), Gravity.BOTTOM or Gravity.END).apply { rightMargin = dp(14); bottomMargin = dp(14) })
     }
 
     private fun createSearchPrompt(): View = LinearLayout(this).apply {
-        gravity = Gravity.CENTER_VERTICAL; setPadding(dp(14), dp(13), dp(14), dp(13)); background = roundedDrawable(COLOR_CARD, 18); elevation = dp(2).toFloat(); isClickable = true
+        gravity = Gravity.CENTER_VERTICAL; setPadding(dp(15), dp(12), dp(15), dp(12)); background = roundedDrawable(0xFAFFFFFF.toInt(), 19); elevation = dp(2).toFloat(); isClickable = true
         setOnClickListener { toast(t("search_hint")) }
-        addView(TextView(this@PartnerDramaActivity).apply { text = "⌕"; textSize = 21f; setTextColor(COLOR_TEXT_MUTED) })
-        addView(TextView(this@PartnerDramaActivity).apply { text = t("search_hint"); textSize = 14f; setTextColor(COLOR_TEXT_MUTED); setPadding(dp(9), 0, 0, 0) })
+        addView(ImageView(this@PartnerDramaActivity).apply { setImageResource(R.drawable.ic_search); imageTintList = ColorStateList.valueOf(COLOR_TEXT_MUTED); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(23), dp(23)))
+        addView(TextView(this@PartnerDramaActivity).apply { text = t("search_hint"); textSize = 14f; setTextColor(COLOR_TEXT_MUTED); setPadding(dp(10), 0, 0, 0) })
     }
 
     private fun createHorizontalDramaShelf(items: List<LocalDrama>): View = android.widget.HorizontalScrollView(this).apply {
@@ -748,7 +797,11 @@ class PartnerDramaActivity : FragmentActivity() {
             addView(TextView(this@PartnerDramaActivity).apply { text = title; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
             addView(TextView(this@PartnerDramaActivity).apply { text = subtitle; textSize = 12f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(4), 0, 0) })
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        addView(TextView(this@PartnerDramaActivity).apply { text = trailing; textSize = 22f; setTextColor(COLOR_TEXT_MUTED) })
+        if (trailing == "›") {
+            addView(ImageView(this@PartnerDramaActivity).apply { setImageResource(R.drawable.ic_chevron_right); imageTintList = ColorStateList.valueOf(COLOR_TEXT_MUTED); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(22), dp(22)))
+        } else {
+            addView(TextView(this@PartnerDramaActivity).apply { text = trailing; textSize = 14f; setTextColor(COLOR_TEXT_MUTED) })
+        }
     }
 
     private fun createInlineNotice(message: String): View = TextView(this).apply {
@@ -761,42 +814,55 @@ class PartnerDramaActivity : FragmentActivity() {
     }
 
     /** 非奖励页固定在顶部的资产栏；点击宝石进入奖励页，点击钱包进入提现页。 */
-    private fun createPersistentAssetHeader(): View = LinearLayout(this).apply {
-        gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(16), dp(10), dp(16), dp(8))
-        background = gradientDrawable(intArrayOf(0xFCFCFBF8.toInt(), 0xF7FCFBF8.toInt()), 0)
-        val wallet = rewardsSnapshot?.wallet
-        addView(createAssetPill(
-            icon = R.drawable.ic_gem_reward,
-            label = t("gems"),
-            value = wallet?.coins?.let(::formatGems) ?: "—",
-            isGem = true,
-        ) { activeTab = MainTab.TASKS; renderActiveTab() }, LinearLayout.LayoutParams(0, dp(52), 1f))
-        addView(createAssetPill(
-            icon = R.drawable.ic_random_chest_reward,
-            label = t("wallet_balance"),
-            value = wallet?.cashWallet?.let { "\$$it" } ?: "—",
-            isGem = false,
-        ) { wallet?.let(::showWithdrawalPage) }, LinearLayout.LayoutParams(0, dp(52), 1f).apply { marginStart = dp(9) })
+    /** 固定资产栏使用系统状态栏/挖孔 inset；真实设备上不会再被顶部传感器或状态栏遮挡。 */
+    private fun createPersistentAssetHeader(): View {
+        val shell = FrameLayout(this).apply { background = pageCanvasDrawable() }
+        val row = LinearLayout(this).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), 0, dp(16), 0)
+            val wallet = rewardsSnapshot?.wallet
+            addView(createAssetPill(
+                icon = R.drawable.reward_gem_crystal,
+                label = t("gems"),
+                value = wallet?.coins?.let(::formatGems) ?: "—",
+                isGem = true,
+            ) { activeTab = MainTab.TASKS; renderActiveTab() }, LinearLayout.LayoutParams(0, dp(58), 1f))
+            addView(createAssetPill(
+                icon = R.drawable.ic_wallet,
+                label = t("wallet_balance"),
+                value = wallet?.cashWallet?.let { "\$$it" } ?: "—",
+                isGem = false,
+            ) { wallet?.let(::showWithdrawalPage) }, LinearLayout.LayoutParams(0, dp(58), 1f).apply { marginStart = dp(10) })
+        }
+        shell.addView(row, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(58), Gravity.TOP).apply { topMargin = dp(30) })
+        ViewCompat.setOnApplyWindowInsetsListener(shell) { _, insets ->
+            val safeTop = insets.getInsets(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()).top
+            val params = row.layoutParams as FrameLayout.LayoutParams
+            val margin = maxOf(safeTop, dp(18)) + dp(10)
+            if (params.topMargin != margin) { params.topMargin = margin; row.layoutParams = params }
+            insets
+        }
+        ViewCompat.requestApplyInsets(shell)
+        return shell
     }
 
     private fun createAssetPill(icon: Int, label: String, value: String, isGem: Boolean, onClick: () -> Unit): View = LinearLayout(this).apply {
         gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(8), dp(5), dp(10), dp(5))
-        background = roundedDrawable(COLOR_CARD, 17)
-        elevation = dp(2).toFloat()
+        setPadding(dp(9), dp(6), dp(10), dp(6))
+        background = roundedDrawable(0xFCFFFFFF.toInt(), 19)
+        elevation = dp(3).toFloat()
         isClickable = true
         contentDescription = "$label $value"
         setOnClickListener { onClick() }
         val image = ImageView(this@PartnerDramaActivity).apply { setImageResource(icon); scaleType = ImageView.ScaleType.CENTER_INSIDE }
         if (isGem) gemBalanceAnchor = image
-        addView(image, LinearLayout.LayoutParams(dp(36), dp(36)))
+        addView(image, LinearLayout.LayoutParams(dp(40), dp(40)))
         addView(LinearLayout(this@PartnerDramaActivity).apply {
-            orientation = LinearLayout.VERTICAL; setPadding(dp(5), 0, 0, 0)
-            addView(TextView(this@PartnerDramaActivity).apply { text = label; textSize = 9f; setTextColor(COLOR_TEXT_MUTED); maxLines = 1 })
-            val valueView = TextView(this@PartnerDramaActivity).apply { text = value; textSize = 14f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY); maxLines = 1 }
+            orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(5), 0, 0, 0)
+            val valueView = TextView(this@PartnerDramaActivity).apply { text = value; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY); maxLines = 1 }
             if (isGem) gemBalanceLabel = valueView else cashBalanceLabel = valueView
             addView(valueView)
+            addView(TextView(this@PartnerDramaActivity).apply { text = label; textSize = 9f; setTextColor(COLOR_TEXT_MUTED); maxLines = 1 })
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
     }
 
@@ -804,9 +870,9 @@ class PartnerDramaActivity : FragmentActivity() {
         gravity = Gravity.CENTER
         setPadding(dp(8), dp(14), dp(8), dp(14)); background = roundedDrawable(COLOR_CARD, 22)
         val items = listOf(
-            Triple(R.drawable.ic_gem_reward, t("wallet_balance"), "\$${wallet.cashWallet}"),
-            Triple(R.drawable.ic_random_chest_reward, t("tomorrow_transfer"), "\$${wallet.release.expectedTomorrowTransfer}"),
-            Triple(R.drawable.ic_gem_reward, t("ad_boost"), "+\$${wallet.release.expectedBoostTransfer}"),
+            Triple(R.drawable.reward_gem_crystal, t("wallet_balance"), "\$${wallet.cashWallet}"),
+            Triple(R.drawable.ic_wallet, t("tomorrow_transfer"), "\$${wallet.release.expectedTomorrowTransfer}"),
+            Triple(R.drawable.reward_gem_crystal, t("ad_boost"), "+\$${wallet.release.expectedBoostTransfer}"),
         )
         items.forEachIndexed { index, item ->
             addView(LinearLayout(this@PartnerDramaActivity).apply {
@@ -850,7 +916,7 @@ class PartnerDramaActivity : FragmentActivity() {
         root.getLocationOnScreen(rootLocation)
         target.getLocationOnScreen(targetLocation)
         val fly = ImageView(this).apply {
-            setImageResource(R.drawable.ic_gem_reward)
+            setImageResource(R.drawable.reward_gem_crystal)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             alpha = 0f
         }
@@ -885,30 +951,52 @@ class PartnerDramaActivity : FragmentActivity() {
     }
 
     private fun createPlayerAssetStrip(): View = LinearLayout(this).apply {
-        gravity = Gravity.CENTER_VERTICAL; setPadding(dp(7), dp(5), dp(8), dp(5)); background = roundedDrawable(0xB8141420.toInt(), 16)
+        gravity = Gravity.CENTER_VERTICAL; setPadding(dp(8), dp(5), dp(9), dp(5)); background = roundedDrawable(0xD9141720.toInt(), 18)
         val wallet = rewardsSnapshot?.wallet
-        val gem = ImageView(this@PartnerDramaActivity).apply { setImageResource(R.drawable.ic_gem_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE }
+        val gem = ImageView(this@PartnerDramaActivity).apply { setImageResource(R.drawable.reward_gem_crystal); scaleType = ImageView.ScaleType.CENTER_INSIDE }
         gemBalanceAnchor = gem
-        addView(gem, LinearLayout.LayoutParams(dp(28), dp(28)))
-        val gems = TextView(this@PartnerDramaActivity).apply { text = wallet?.coins?.let(::formatGems) ?: "—"; textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(dp(3), 0, dp(7), 0) }
+        addView(gem, LinearLayout.LayoutParams(dp(30), dp(30)))
+        val gems = TextView(this@PartnerDramaActivity).apply { text = wallet?.coins?.let(::formatGems) ?: "—"; textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(dp(4), 0, dp(8), 0) }
         gemBalanceLabel = gems
         addView(gems)
         addView(View(this@PartnerDramaActivity).apply { setBackgroundColor(0x55FFFFFF); }, LinearLayout.LayoutParams(dp(1), dp(20)))
-        val cash = TextView(this@PartnerDramaActivity).apply { text = wallet?.cashWallet?.let { "\$$it" } ?: "—"; textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(dp(7), 0, 0, 0) }
+        addView(ImageView(this@PartnerDramaActivity).apply { setImageResource(R.drawable.ic_wallet); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(24), dp(24)).apply { marginStart = dp(6) })
+        val cash = TextView(this@PartnerDramaActivity).apply { text = wallet?.cashWallet?.let { "\$$it" } ?: "—"; textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(dp(3), 0, 0, 0) }
         cashBalanceLabel = cash
         addView(cash)
+    }
+
+    private fun createTopSafePlayerAssetStrip(): View {
+        val shell = FrameLayout(this)
+        val strip = createPlayerAssetStrip()
+        shell.addView(strip, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42), Gravity.TOP or Gravity.END).apply { topMargin = dp(26); marginEnd = dp(18) })
+        ViewCompat.setOnApplyWindowInsetsListener(shell) { _, insets ->
+            val safeTop = insets.getInsets(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()).top
+            val params = strip.layoutParams as FrameLayout.LayoutParams
+            val margin = maxOf(safeTop, dp(18)) + dp(10)
+            if (params.topMargin != margin) { params.topMargin = margin; strip.layoutParams = params }
+            insets
+        }
+        ViewCompat.requestApplyInsets(shell)
+        return shell
     }
 
     private fun formatGems(value: Long): String = String.format(Locale.US, "%,d", value)
 
     private fun createBottomNavigation(): View = LinearLayout(this).apply {
-        gravity = Gravity.CENTER; setPadding(dp(10), dp(8), dp(10), dp(10)); background = topRoundedDrawable(0xFFFDFDFF.toInt(), 24); elevation = dp(9).toFloat()
+        gravity = Gravity.CENTER; setPadding(dp(14), dp(9), dp(14), dp(10)); background = topRoundedDrawable(0xFCFFFFFF.toInt(), 26); elevation = dp(10).toFloat()
         MainTab.entries.forEach { tab ->
+            val active = activeTab == tab
             addView(LinearLayout(this@PartnerDramaActivity).apply {
                 orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER; isClickable = true
                 setOnClickListener { if (activeTab != tab) { activeTab = tab; renderActiveTab() } }
-                addView(TextView(this@PartnerDramaActivity).apply { text = when (tab) { MainTab.HOME -> "⌂"; MainTab.DISCOVER -> "◈"; MainTab.TASKS -> "✦"; MainTab.PROFILE -> "♙" }; textSize = 20f; gravity = Gravity.CENTER; setTextColor(if (activeTab == tab) COLOR_CORAL else COLOR_TEXT_MUTED) })
-                addView(TextView(this@PartnerDramaActivity).apply { text = t(tab.languageKey); textSize = 11f; gravity = Gravity.CENTER; setTextColor(if (activeTab == tab) COLOR_TEXT_PRIMARY else COLOR_TEXT_MUTED) })
+                val icon = ImageView(this@PartnerDramaActivity).apply {
+                    setImageResource(tab.iconRes)
+                    imageTintList = ColorStateList.valueOf(if (active) COLOR_CORAL else COLOR_TEXT_MUTED)
+                    scaleType = ImageView.ScaleType.CENTER_INSIDE
+                }
+                addView(icon, LinearLayout.LayoutParams(dp(24), dp(24)))
+                addView(TextView(this@PartnerDramaActivity).apply { text = t(tab.languageKey); textSize = 11f; gravity = Gravity.CENTER; typeface = if (active) Typeface.DEFAULT_BOLD else Typeface.DEFAULT; setTextColor(if (active) COLOR_CORAL else COLOR_TEXT_MUTED); setPadding(0, dp(2), 0, 0) })
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         }
     }
@@ -936,7 +1024,7 @@ class PartnerDramaActivity : FragmentActivity() {
             }
         }
         val gem = ImageView(this).apply {
-            setImageResource(R.drawable.ic_gem_reward)
+            setImageResource(R.drawable.reward_gem_crystal)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
         }
         wheel.addView(gem, FrameLayout.LayoutParams(size - dp(12), size - dp(12), Gravity.CENTER))
@@ -1435,7 +1523,7 @@ class PartnerDramaActivity : FragmentActivity() {
         val dialog = AlertDialog.Builder(this).create()
         val page = FrameLayout(this).apply { background = gradientDrawable(intArrayOf(0xFFFFD4DE.toInt(), 0xFFF3ECFF.toInt(), 0xFFDDEBFF.toInt()), 0) }
         val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; setPadding(dp(30), dp(38), dp(30), dp(28)) }
-        content.addView(ImageView(this@PartnerDramaActivity).apply { setImageResource(R.drawable.ic_gem_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(150), dp(150)))
+        content.addView(ImageView(this@PartnerDramaActivity).apply { setImageResource(R.drawable.reward_gem_crystal); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(150), dp(150)))
         content.addView(TextView(this@PartnerDramaActivity).apply { text = t("welcome_title"); textSize = 30f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_PRIMARY); setPadding(0, dp(10), 0, 0) })
         content.addView(TextView(this@PartnerDramaActivity).apply { text = t("welcome_subtitle"); textSize = 16f; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(8), 0, dp(24)) })
         content.addView(TextView(this@PartnerDramaActivity).apply { text = "+${snapshot.welcome.gems} ${t("gems")}"; textSize = 36f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_ACCENT); background = roundedDrawable(0xAAFFFFFF.toInt(), 20); setPadding(dp(22), dp(15), dp(22), dp(15)) })
@@ -1869,10 +1957,7 @@ class PartnerDramaActivity : FragmentActivity() {
         })
         root.addView(playerView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         root.addView(createPlayerChrome(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        root.addView(createPlayerAssetStrip(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42), Gravity.TOP or Gravity.END).apply {
-            topMargin = dp(28)
-            marginEnd = dp(18)
-        })
+        root.addView(createTopSafePlayerAssetStrip(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(128), Gravity.TOP))
         root.addView(createFloatingRewardWheel(compact = true), FrameLayout.LayoutParams(dp(96), dp(132), Gravity.END or Gravity.CENTER_VERTICAL).apply {
             marginEnd = dp(10)
             topMargin = dp(42)
@@ -2968,6 +3053,11 @@ class PartnerDramaActivity : FragmentActivity() {
             }
     }
 
+    private fun pageCanvasDrawable(): GradientDrawable = GradientDrawable(
+        GradientDrawable.Orientation.TL_BR,
+        intArrayOf(COLOR_BACKGROUND, COLOR_MIST_BLUE, COLOR_BACKGROUND),
+    )
+
     private fun gradientDrawable(colors: IntArray, radiusDp: Int): GradientDrawable = GradientDrawable(
         GradientDrawable.Orientation.TL_BR,
         colors,
@@ -3024,18 +3114,20 @@ class PartnerDramaActivity : FragmentActivity() {
         private const val INSTALLATION_KEY = "anonymous_installation_id"
         private const val TAG = "JoyeDramaPlayer"
 
-        private const val COLOR_BACKGROUND = 0xFFF7F8FA.toInt()
+        private const val COLOR_BACKGROUND = 0xFFFCFBF8.toInt()
         private const val COLOR_CARD = 0xFFFFFFFF.toInt()
-        private const val COLOR_SURFACE = 0xFFF0F2F8.toInt()
-        private const val COLOR_ACCENT = 0xFFFF7043.toInt()
-        private const val COLOR_PURPLE = 0xFFFFB347.toInt()
-        private const val COLOR_INK = 0xFF24212B.toInt()
-        private const val COLOR_PLUM = 0xFF4D356D.toInt()
-        private const val COLOR_CORAL = 0xFFFF6B4A.toInt()
-        private const val COLOR_SUNSET = 0xFFFFAC52.toInt()
-        private const val COLOR_AQUA = 0xFF3EC6C1.toInt()
-        private const val COLOR_TEXT_PRIMARY = 0xFF1C1C1C.toInt()
-        private const val COLOR_TEXT_MUTED = 0xFF7A7A7A.toInt()
+        private const val COLOR_SURFACE = 0xFFF4F3EF.toInt()
+        private const val COLOR_ACCENT = 0xFFFF6D4A.toInt()
+        private const val COLOR_PURPLE = 0xFFF0B061.toInt()
+        private const val COLOR_INK = 0xFF19202B.toInt()
+        private const val COLOR_PLUM = 0xFF493B61.toInt()
+        private const val COLOR_CORAL = 0xFFFF6D4A.toInt()
+        private const val COLOR_SUNSET = 0xFFFFA45B.toInt()
+        private const val COLOR_AQUA = 0xFF65CFCB.toInt()
+        private const val COLOR_MIST_BLUE = 0xFFEAF7FA.toInt()
+        private const val COLOR_WARM_PEACH = 0xFFFFEEE5.toInt()
+        private const val COLOR_TEXT_PRIMARY = 0xFF19202B.toInt()
+        private const val COLOR_TEXT_MUTED = 0xFF7E8490.toInt()
 
         fun intent(context: Context): Intent = Intent(context, PartnerDramaActivity::class.java)
     }
