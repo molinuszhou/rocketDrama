@@ -177,6 +177,7 @@ class RewardsApiClient(
     )
 
     data class Achievement(val code: String, val gems: Long, val entitlement: String)
+    data class LedgerEntry(val type: String, val gemsDelta: Long, val cashWalletDelta: String, val availableBalanceDelta: String, val createdAt: String)
 
     data class Snapshot(
         val businessDate: String,
@@ -210,6 +211,7 @@ class RewardsApiClient(
         val rvDailyLimit: Int,
         val lifecycleDay: Int,
         val geoTier: String,
+        val ledger: List<LedgerEntry> = emptyList(),
     ) {
         val rewardsEnabled: Boolean get() = true
         val ruleVersion: String get() = "postgresql-v8"
@@ -379,6 +381,7 @@ class RewardsApiClient(
         val pendingEpisodeRewards = parseEpisodeRewards(json.optJSONArray("episode_reward_claims"))
         val achievements = parseAchievements(json.optJSONArray("achievements"))
         val crowns = parseCrowns(json.optJSONArray("crown_progress"))
+        val ledger = parseLedger(json.optJSONArray("ledger"))
         return Snapshot(
             businessDate = json.optString("business_date"),
             wallet = Wallet(
@@ -455,7 +458,7 @@ class RewardsApiClient(
                 damping.optDouble("tier1_multiplier", 1.0).toFloat(), damping.optDouble("tier2_multiplier", 1.0).toFloat(), damping.optDouble("tier3_multiplier", 1.0).toFloat(),
             ),
             withdrawal = Withdrawal(withdrawal.optBoolean("enabled"), withdrawal.optBoolean("eligible"), withdrawal.optString("reason"), withdrawal.optString("threshold", "0.00")),
-            achievements = achievements, crownProgress = crowns, rvCountToday = today.optInt("rv_count"), rvDailyLimit = today.optInt("rv_daily_limit", 20), lifecycleDay = user.optInt("lifecycle_day"), geoTier = user.optString("geo_tier", "t3"),
+            achievements = achievements, crownProgress = crowns, rvCountToday = today.optInt("rv_count"), rvDailyLimit = today.optInt("rv_daily_limit", 20), lifecycleDay = user.optInt("lifecycle_day"), geoTier = user.optString("geo_tier", "t3"), ledger = ledger,
         )
     }
 
@@ -484,6 +487,13 @@ class RewardsApiClient(
             val state = item.optString("state", "PENDING")
             val status = when (state) { "PENDING" -> "CLAIMABLE"; "CLAIMED" -> "DOUBLE_READY"; else -> "CLAIMED" }
             add(RewardTask("cycle-${item.optInt("cycle_number")}", "十集追剧加奖 · 第 ${item.optInt("cycle_number")} 轮", "完成第 ${item.optInt("round_from")}-${item.optInt("round_to")} 集有效观看获得额外宝石", item.optInt("round_to"), item.optInt("round_to"), item.optLong("base_reward_gems").coerceAtMost(Int.MAX_VALUE.toLong()).toInt(), state == "CLAIMED", status, item.optInt("cycle_number")))
+        }
+    }
+
+    private fun parseLedger(array: JSONArray?): List<LedgerEntry> = buildList {
+        for (index in 0 until (array?.length() ?: 0)) {
+            val item = array!!.getJSONObject(index)
+            add(LedgerEntry(item.optString("type"), item.optLong("gems_delta"), item.optString("cash_wallet_delta", "0.00"), item.optString("available_balance_delta", "0.00"), item.optString("created_at")))
         }
     }
 

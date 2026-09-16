@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.bytedance.sdk.shortplay.api.PSSDK
 import com.bytedance.sdk.shortplay.api.ShortPlay
+import com.bytedance.sdk.shortplay.api.ShortPlayFragment
 import com.dramaflow.app.BuildConfig
 import com.dramaflow.app.i18n.AppLanguage
 import java.util.UUID
@@ -31,6 +32,7 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
         val coverUrl: String,
         val language: String,
         val genres: List<String>,
+        internal val nativeShortPlay: ShortPlay,
     )
 
     data class Category(
@@ -193,6 +195,44 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
         })
     }
 
+    /** Production search adapter. The test build uses local catalog filtering while the SDK switch is disabled. */
+    fun search(keyword: String, pageSize: Int = DEFAULT_PAGE_SIZE, onSuccess: (List<DramaCard>) -> Unit, onFailure: (String) -> Unit) {
+        if (!initialized && !PSSDK.hasInitialized()) { onFailure("Short-drama SDK is not initialized"); return }
+        PSSDK.searchDrama(keyword.trim(), false, FIRST_PAGE, pageSize, object : PSSDK.FeedListResultListener {
+            override fun onSuccess(result: PSSDK.FeedListLoadResult<ShortPlay>?) = onSuccess(result?.dataList.orEmpty().map(::toCard))
+            override fun onFail(error: PSSDK.ErrorInfo?) = onFailure("Short-drama search failed: ${error?.code ?: -1} ${error?.msg.orEmpty()}")
+        })
+    }
+
+    /** Creates the provider player only for a production SDK card; the caller owns its Fragment transaction. */
+    fun createDetailFragment(card: DramaCard, onClose: () -> Unit): ShortPlayFragment {
+        return PSSDK.createDetailFragment(
+            card.nativeShortPlay,
+            PSSDK.DetailPageConfig.Builder()
+                .hideLeftTopCloseAndTitle(true, object : PSSDK.ShortPlayDetailPageCloseListener {
+                    override fun onCloseClicked(): Boolean { onClose(); return true }
+                })
+                .enableAutoPlayNext(true)
+                .displayBottomExtraView(false)
+                .build(),
+            object : PSSDK.ShortPlayDetailPageListener {
+                override fun onOverScroll(direction: Int) = Unit
+                override fun onProgressChange(shortPlay: ShortPlay?, episodeIndex: Int, progress: Int, duration: Int) = Unit
+                override fun onPlayFailed(error: PSSDK.ErrorInfo?): Boolean = false
+                override fun onShortPlayPlayed(shortPlay: ShortPlay?, episodeIndex: Int, episode: com.bytedance.sdk.shortplay.api.EpisodeData?) = Unit
+                override fun onItemSelected(position: Int, itemType: PSSDK.ShortPlayDetailPageListener.ItemType?, episodeIndex: Int) = Unit
+                override fun onVideoPlayStateChanged(shortPlay: ShortPlay?, episodeIndex: Int, state: Int) = Unit
+                override fun onVideoPlayCompleted(shortPlay: ShortPlay?, episodeIndex: Int) = Unit
+                override fun onEnterImmersiveMode() = Unit
+                override fun onExitImmersiveMode() = Unit
+                override fun isNeedBlock(shortPlay: ShortPlay?, episodeIndex: Int): Boolean = false
+                override fun showAdIfNeed(shortPlay: ShortPlay?, episodeIndex: Int, listener: PSSDK.ShortPlayBlockResultListener?) { listener?.onShortPlayUnlocked() }
+                override fun onVideoInfoFetched(shortPlay: ShortPlay?, episodeIndex: Int, info: PSSDK.VideoPlayInfo?) = Unit
+                override fun onObtainPlayerControlViews(): MutableList<android.view.View> = mutableListOf()
+            },
+        ) ?: error("PSSDK did not create a drama detail page")
+    }
+
     private fun toCard(shortPlay: ShortPlay): DramaCard {
         val genres = buildList {
             shortPlay.categories.orEmpty().mapNotNullTo(this) { it.name?.trim()?.takeIf(String::isNotBlank) }
@@ -206,6 +246,7 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
             coverUrl = shortPlay.coverImage.orEmpty(),
             language = shortPlay.language.orEmpty(),
             genres = genres,
+            nativeShortPlay = shortPlay,
         )
     }
 

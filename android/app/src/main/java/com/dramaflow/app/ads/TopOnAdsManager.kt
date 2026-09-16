@@ -3,11 +3,13 @@ package com.dramaflow.app.ads
 import android.app.Activity
 import android.content.Context
 import android.graphics.Color
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.ViewGroup
 import android.view.Window
+import android.view.WindowManager
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -94,6 +96,7 @@ class TopOnAdsManager(
     private data class SafeAdWindowState(
         val statusBarColor: Int,
         val navigationBarColor: Int,
+        val cutoutMode: Int,
     )
 
     /**
@@ -459,8 +462,12 @@ class TopOnAdsManager(
     private fun prepareSafeWindowForAd(activity: Activity) {
         val window = activity.window ?: return
         if (safeAdWindows.containsKey(activity)) return
-        safeAdWindows[activity] = SafeAdWindowState(window.statusBarColor, window.navigationBarColor)
+        val originalCutoutMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) window.attributes.layoutInDisplayCutoutMode else 0
+        safeAdWindows[activity] = SafeAdWindowState(window.statusBarColor, window.navigationBarColor, originalCutoutMode)
         WindowCompat.setDecorFitsSystemWindows(window, true)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.attributes = window.attributes.apply { layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_NEVER }
+        }
         window.statusBarColor = Color.BLACK
         window.navigationBarColor = Color.BLACK
         WindowInsetsControllerCompat(window, window.decorView).show(WindowInsetsCompat.Type.systemBars())
@@ -469,6 +476,9 @@ class TopOnAdsManager(
     private fun restoreAppWindowAfterAd(activity: Activity) {
         val state = safeAdWindows.remove(activity) ?: return
         val window: Window = activity.window ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.attributes = window.attributes.apply { layoutInDisplayCutoutMode = state.cutoutMode }
+        }
         window.statusBarColor = state.statusBarColor
         window.navigationBarColor = state.navigationBarColor
     }

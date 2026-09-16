@@ -103,9 +103,12 @@ android {
 
     buildTypes {
         debug {
+            buildConfigField("boolean", "SCREENSHOT_PROTECTION_ENABLED", "false")
             // Debug 使用 TOPON_DEMO_MODE 的构建参数；默认 false，显式开启后自动使用官方 Demo 凭据。
         }
         release {
+            // Release activity enables FLAG_SECURE; debug remains screenshot-friendly for device verification.
+            buildConfigField("boolean", "SCREENSHOT_PROTECTION_ENABLED", "true")
             // 防止错误把官方 Demo 凭据带入正式白包。
             buildConfigField("boolean", "TOPON_DEMO_MODE", "false")
             isMinifyEnabled = true

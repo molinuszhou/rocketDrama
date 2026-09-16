@@ -15,7 +15,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
-        startActivity(PartnerDramaActivity.intent(this))
+        if (savedInstanceState == null) startActivity(PartnerDramaActivity.intent(this))
         finish()
     }
 }
