@@ -378,10 +378,10 @@ class PartnerDramaActivity : FragmentActivity() {
 
     private fun createTasksPage(): View = scrollPage { content ->
         content.setPadding(0, 0, 0, dp(86))
-        content.addView(createRewardsHeroHeader(), matchParams())
-        content.addView(createDramaCoinMissionPanel(), matchParams(top = 12, bottom = 14))
-        content.addView(createDailyBenefitsPanel(), matchParams(bottom = 18))
         val snapshot = rewardsSnapshot
+        content.addView(createRewardsHeroHeader(snapshot), matchParams())
+        content.addView(createDramaCoinMissionPanel(snapshot), matchParams(top = 12, bottom = 14))
+        content.addView(createDailyBenefitsPanel(snapshot), matchParams(bottom = 18))
         if (snapshot == null) {
             content.addView(createInlineNotice(if (rewardsLoading) "正在同步奖励服务…" else "奖励服务尚未连接。"))
         } else {
@@ -389,17 +389,17 @@ class PartnerDramaActivity : FragmentActivity() {
         }
     }
 
-    private fun createRewardsHeroHeader(): View = LinearLayout(this).apply {
+    private fun createRewardsHeroHeader(snapshot: RewardsApiClient.Snapshot?): View = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         setPadding(dp(22), dp(24), dp(22), dp(26))
         background = gradientDrawable(intArrayOf(0xFFFF8A24.toInt(), 0xFFFF5B4D.toInt()), 0)
         addView(TextView(this@PartnerDramaActivity).apply { text = "JoyeDrama"; textSize = 25f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE) })
         addView(TextView(this@PartnerDramaActivity).apply { text = "看剧有礼 · 金币兑换现金"; textSize = 14f; setTextColor(0xFFFFF3E8.toInt()); setPadding(0, dp(5), 0, dp(20)) })
         val row = LinearLayout(this@PartnerDramaActivity).apply { gravity = Gravity.CENTER_VERTICAL }
-        val wallet = rewardsSnapshot?.wallet
-        row.addView(createRewardBalance("金币", wallet?.coins?.toString() ?: "378", compact = false), LinearLayout.LayoutParams(0, dp(86), 1f))
+        val wallet = snapshot?.wallet
+        row.addView(createRewardBalance("金币", wallet?.coins?.toString() ?: "—", compact = false), LinearLayout.LayoutParams(0, dp(86), 1f))
         row.addView(View(this@PartnerDramaActivity).apply { setBackgroundColor(0x66FFFFFF) }, LinearLayout.LayoutParams(dp(1), dp(60)).apply { marginStart = dp(10); marginEnd = dp(10) })
-        row.addView(createRewardBalance("现金", "${wallet?.cashWallet ?: "0.00"} 美元", compact = true), LinearLayout.LayoutParams(0, dp(86), 1f))
+        row.addView(createRewardBalance("现金", wallet?.cashWallet?.let { "\$$it" } ?: "—", compact = true), LinearLayout.LayoutParams(0, dp(86), 1f))
         addView(row)
         addView(TextView(this@PartnerDramaActivity).apply { text = "自动兑换现金  ⓘ"; textSize = 14f; setTextColor(0xFFFFF3E8.toInt()); setPadding(dp(2), dp(10), 0, 0) })
     }
@@ -413,18 +413,21 @@ class PartnerDramaActivity : FragmentActivity() {
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
     }
 
-    private fun createDramaCoinMissionPanel(): View = LinearLayout(this).apply {
+    private fun createDramaCoinMissionPanel(snapshot: RewardsApiClient.Snapshot?): View = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(18), dp(18), dp(16)); background = roundedDrawable(Color.WHITE, 24)
         addView(createRewardPanelTitle("看短剧赚金币", "看剧越多，金币越多，轻松赚现金", "去看剧") { activeTab = MainTab.HOME; renderActiveTab() })
         val row = LinearLayout(this@PartnerDramaActivity).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        listOf("0/1686" to "看剧5分钟", "686" to "看剧10分钟", "915" to "看剧15分钟", "915" to "看剧20分钟", "686" to "看剧30分钟").forEachIndexed { index, item ->
-            row.addView(createCoinMilestone(item.first, item.second), LinearLayout.LayoutParams(dp(108), dp(136)).apply { if (index > 0) marginStart = dp(8) })
+        val watchTasks = snapshot?.tasks?.take(5).orEmpty()
+        if (watchTasks.isEmpty()) {
+            row.addView(createCoinMilestone("—", "同步中"), LinearLayout.LayoutParams(dp(108), dp(136)))
+        } else watchTasks.forEachIndexed { index, task ->
+            row.addView(createCoinMilestone("${task.progress}/${task.target}", task.title, task.rewardCoins), LinearLayout.LayoutParams(dp(108), dp(136)).apply { if (index > 0) marginStart = dp(8) })
         }
         addView(android.widget.HorizontalScrollView(this@PartnerDramaActivity).apply { isHorizontalScrollBarEnabled = false; addView(row) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(144)).apply { topMargin = dp(12) })
         addView(View(this@PartnerDramaActivity).apply { setBackgroundColor(0xFFF0F0F0.toInt()) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)).apply { topMargin = dp(14); bottomMargin = dp(14) })
-        addView(createRewardPanelTitle("追剧挑战赛  🔥 1228", "完成追剧任务，获得相应金币奖励", "去追剧") { activeTab = MainTab.HOME; renderActiveTab() })
+        addView(createRewardPanelTitle("追剧挑战赛", "完成追剧任务，获得相应金币奖励", "去追剧") { activeTab = MainTab.HOME; renderActiveTab() })
         val challengeRow = LinearLayout(this@PartnerDramaActivity).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        listOf("看剧1分钟" to "404", "再看12集" to "421", "追完1部剧" to "403").forEachIndexed { index, item -> challengeRow.addView(createChallengeItem(item.first, item.second), LinearLayout.LayoutParams(0, dp(86), 1f).apply { if (index > 0) marginStart = dp(8) }) }
+        snapshot?.tasks?.take(3)?.forEachIndexed { index, task -> challengeRow.addView(createChallengeItem(task.title, task.rewardCoins.toString()), LinearLayout.LayoutParams(0, dp(86), 1f).apply { if (index > 0) marginStart = dp(8) }) }
         addView(challengeRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(86)).apply { topMargin = dp(12) })
     }
 
@@ -438,11 +441,11 @@ class PartnerDramaActivity : FragmentActivity() {
         addView(TextView(this@PartnerDramaActivity).apply { text = "$action ›"; textSize = 14f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE); background = roundedDrawable(COLOR_ACCENT, 22); setPadding(dp(14), dp(9), dp(14), dp(9)); setOnClickListener { onClick() }; isClickable = true })
     }
 
-    private fun createCoinMilestone(value: String, label: String): View = LinearLayout(this).apply {
+    private fun createCoinMilestone(value: String, label: String, reward: Int = 0): View = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER; setPadding(dp(7), dp(7), dp(7), dp(7)); background = gradientDrawable(intArrayOf(0xFFFFC84D.toInt(), 0xFFFFA13B.toInt()), 16)
         addView(ImageView(this@PartnerDramaActivity).apply { setImageResource(R.drawable.ic_coin_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(48), dp(48)))
         addView(TextView(this@PartnerDramaActivity).apply { text = value; textSize = 19f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE) })
-        addView(TextView(this@PartnerDramaActivity).apply { text = label; textSize = 10f; gravity = Gravity.CENTER; setTextColor(0xFFFFF5E4.toInt()); setPadding(0, dp(2), 0, 0) })
+        addView(TextView(this@PartnerDramaActivity).apply { text = if (reward > 0) "$label · +$reward" else label; textSize = 10f; gravity = Gravity.CENTER; setTextColor(0xFFFFF5E4.toInt()); setPadding(0, dp(2), 0, 0) })
     }
 
     private fun createChallengeItem(title: String, coins: String): View = LinearLayout(this).apply {
@@ -454,12 +457,16 @@ class PartnerDramaActivity : FragmentActivity() {
         addView(row)
     }
 
-    private fun createDailyBenefitsPanel(): View = LinearLayout(this).apply {
+    private fun createDailyBenefitsPanel(snapshot: RewardsApiClient.Snapshot?): View = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(18), dp(18), dp(15)); background = roundedDrawable(Color.WHITE, 24)
         addView(TextView(this@PartnerDramaActivity).apply { text = "日常福利"; textSize = 22f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY); setPadding(0, 0, 0, dp(10)) })
-        addView(createBenefitRow("签到领金币", "今日签到可领 1680 金币", "去签到") { completeDailyCheckin() })
-        addView(createBenefitRow("天天领金币", "今日签到立即领 400 金币，做任务最高领 191157 金币", "立即领取") { activeTab = MainTab.TASKS; renderActiveTab() })
-        addView(LinearLayout(this@PartnerDramaActivity).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(dp(10), dp(10), dp(10), dp(10)); background = roundedDrawable(0xFFFFF7EE.toInt(), 16); addView(ImageView(this@PartnerDramaActivity).apply { setImageResource(R.drawable.ic_coin_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(40), dp(40))); addView(TextView(this@PartnerDramaActivity).apply { text = "2220 金币待领取"; textSize = 16f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY); setPadding(dp(8), 0, 0, 0) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)); addView(TextView(this@PartnerDramaActivity).apply { text = "立即领取 ︿"; textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_ACCENT) }) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(60)).apply { topMargin = dp(5) })
+        val checkinText = snapshot?.let { if (it.checkinSignedToday) "今日已签到 · 连续 ${it.checkinStreak} 天" else "今日可领取 ${it.checkinNextRewardCoins} 金币" } ?: "同步签到奖励后显示"
+        addView(createBenefitRow("签到领金币", checkinText, if (snapshot?.checkinSignedToday == true) "已签到" else "去签到") { if (snapshot?.checkinSignedToday != true) completeDailyCheckin() })
+        val nextTask = snapshot?.tasks?.firstOrNull { it.status != "claimed" }
+        val taskText = nextTask?.let { "${it.description} · 奖励 ${it.rewardCoins} 金币" } ?: "当前没有待完成任务"
+        addView(createBenefitRow("任务奖励", taskText, if (nextTask != null) "去完成" else "已完成") { activeTab = MainTab.TASKS; renderActiveTab() })
+        val pending = snapshot?.pendingEpisodeRewards?.sumOf { it.rewardCoins } ?: 0
+        addView(LinearLayout(this@PartnerDramaActivity).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(dp(10), dp(10), dp(10), dp(10)); background = roundedDrawable(0xFFFFF7EE.toInt(), 16); addView(ImageView(this@PartnerDramaActivity).apply { setImageResource(R.drawable.ic_coin_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(40), dp(40))); addView(TextView(this@PartnerDramaActivity).apply { text = if (snapshot == null) "同步待领取奖励" else "$pending 金币待领取"; textSize = 16f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY); setPadding(dp(8), 0, 0, 0) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)); addView(TextView(this@PartnerDramaActivity).apply { text = if (pending > 0) "立即领取 ︿" else "查看奖励"; textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_ACCENT) }) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(60)).apply { topMargin = dp(5) })
     }
 
     private fun createBenefitRow(title: String, subtitle: String, action: String, onClick: () -> Unit): View = LinearLayout(this).apply {
