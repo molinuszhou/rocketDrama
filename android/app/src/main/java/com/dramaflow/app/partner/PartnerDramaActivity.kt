@@ -46,6 +46,9 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.ui.PlayerView
 import coil.load
+import coil.imageLoader
+import coil.request.CachePolicy
+import coil.request.ImageRequest
 import com.dramaflow.app.BuildConfig
 import com.dramaflow.app.R
 import com.dramaflow.app.i18n.AppLanguage
@@ -291,7 +294,10 @@ class PartnerDramaActivity : FragmentActivity() {
             region = CONTENT_REGION,
             onSuccess = { items -> runOnUiThread {
                 startupCatalogFinished = true
-                if (items.isEmpty()) startupCatalogFailure = t("catalog_empty") else catalogItems = items
+                if (items.isEmpty()) startupCatalogFailure = t("catalog_empty") else {
+                    catalogItems = items
+                    preloadCatalogCovers(items)
+                }
                 updateStartupProgress(88, if (items.isEmpty()) t("catalog_empty") else t("startup_content_ready"))
                 completeStartupWhenReady()
             } },
@@ -301,6 +307,24 @@ class PartnerDramaActivity : FragmentActivity() {
                 completeStartupWhenReady()
             } },
         )
+    }
+
+    /** 在目录请求完成后把所有封面写入 Coil 缓存，进入页面时不再逐张冷加载。 */
+    private fun preloadCatalogCovers(items: List<LocalDrama>) {
+        items.asSequence()
+            .map { it.coverImage.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .forEach { url ->
+                imageLoader.enqueue(
+                    ImageRequest.Builder(applicationContext)
+                        .data(url)
+                        .memoryCachePolicy(CachePolicy.ENABLED)
+                        .diskCachePolicy(CachePolicy.ENABLED)
+                        .networkCachePolicy(CachePolicy.ENABLED)
+                        .build()
+                )
+            }
     }
 
     private fun completeStartupWhenReady() {
@@ -576,7 +600,7 @@ class PartnerDramaActivity : FragmentActivity() {
 
     private fun createCrownRoadPanel(snapshot: RewardsApiClient.Snapshot?): View = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
-        setPadding(dp(18), dp(18), dp(18), dp(16))
+        setPadding(dp(16), dp(16), dp(16), dp(15))
         background = roundedDrawable(Color.WHITE, 24)
         addView(createRewardPanelTitle(t("crown_road"), t("crown_road_subtitle"), t("crown_accelerate"), R.drawable.ic_crown) {
             snapshot?.crownProgress?.firstOrNull { !it.earned }?.let(::showCrownRewardedUpgradeDialog)
@@ -585,10 +609,31 @@ class PartnerDramaActivity : FragmentActivity() {
         if (crowns.isEmpty()) {
             addView(createInlineNotice(t("ledger_note")), matchParams(top = 12))
         } else {
+            val row = LinearLayout(this@PartnerDramaActivity).apply { gravity = Gravity.CENTER_VERTICAL }
             crowns.forEachIndexed { index, level ->
-                addView(createCrownLevelRow(level, crowns), matchParams(top = if (index == 0) 12 else 8))
+                if (index > 0) row.addView(View(this@PartnerDramaActivity).apply { setBackgroundColor(0xFFFFCBB8.toInt()) }, LinearLayout.LayoutParams(dp(20), dp(3)))
+                row.addView(createCrownMilestone(level), LinearLayout.LayoutParams(0, dp(146), 1f))
             }
+            addView(android.widget.HorizontalScrollView(this@PartnerDramaActivity).apply { isHorizontalScrollBarEnabled = false; addView(row) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(154)).apply { topMargin = dp(12) })
         }
+    }
+
+    private fun createCrownMilestone(level: RewardsApiClient.CrownProgress): View = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.CENTER
+        val badge = FrameLayout(this@PartnerDramaActivity).apply {
+            background = roundedDrawable(if (level.earned) 0xFFFFF0E5.toInt() else 0xFFFFF8F2.toInt(), 40)
+            addView(ImageView(this@PartnerDramaActivity).apply {
+                setImageResource(if (level.earned) R.drawable.reward_gem_crystal else R.drawable.ic_crown)
+                scaleType = ImageView.ScaleType.CENTER_INSIDE
+                imageTintList = if (level.earned) null else ColorStateList.valueOf(COLOR_CORAL)
+            }, FrameLayout.LayoutParams(dp(62), dp(62), Gravity.CENTER))
+            addView(TextView(this@PartnerDramaActivity).apply { text = level.levelRank.toString(); textSize = 11f; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_PRIMARY); background = roundedDrawable(Color.WHITE, 20) }, FrameLayout.LayoutParams(dp(22), dp(22), Gravity.TOP or Gravity.END))
+        }
+        addView(badge, LinearLayout.LayoutParams(dp(76), dp(76)))
+        addView(TextView(this@PartnerDramaActivity).apply { text = t(crownTitleKey(level.code)); textSize = 12f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_PRIMARY); maxLines = 1; setPadding(0, dp(4), 0, 0) })
+        addView(TextView(this@PartnerDramaActivity).apply { text = "+${formatGems(level.gems)} ${t("gems")}"; textSize = 12f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_CORAL); setPadding(0, dp(3), 0, 0) })
+        addView(TextView(this@PartnerDramaActivity).apply { text = "${level.rounds.current}/${level.rounds.target}"; textSize = 10f; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(3), 0, 0) })
     }
 
     private fun createCrownLevelRow(level: RewardsApiClient.CrownProgress, all: List<RewardsApiClient.CrownProgress>): View = LinearLayout(this).apply {
