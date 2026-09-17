@@ -389,8 +389,8 @@ class PartnerDramaActivity : FragmentActivity() {
         catalogPage = page
         root.removeAllViews()
         root.addView(page, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        // 奖励中心自己展示资产；我的页面保持个人资料首屏干净，其他内容页保留固定资产栏。
-        if (activeTab != MainTab.TASKS && activeTab != MainTab.PROFILE) {
+        // 奖励中心的资产在其首屏 hero 内展示；其他页面保留固定资产栏，滚动不影响余额可见性。
+        if (activeTab != MainTab.TASKS) {
             root.addView(createPersistentAssetHeader(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(120), Gravity.TOP))
         }
         root.addView(createBottomNavigation(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(68), Gravity.BOTTOM))
@@ -774,7 +774,7 @@ class PartnerDramaActivity : FragmentActivity() {
     }
 
     private fun scrollPage(build: (LinearLayout) -> Unit): View {
-        // 奖励页从顶部开始；我的页面虽然不显示资产栏，但保留原有标题顶部留白。
+        // 常规页面为固定资产栏预留 126dp 高度；奖励页使用自己的首屏 hero，因此从顶部开始。
         val topInset = if (activeTab == MainTab.TASKS) 0 else 128
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
