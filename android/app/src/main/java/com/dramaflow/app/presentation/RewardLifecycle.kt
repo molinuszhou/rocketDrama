@@ -103,6 +103,17 @@ internal fun DramaAppActivity.applyRewardsSnapshot(snapshot: RewardsApiClient.Sn
         if (previousGems != null && snapshot.wallet.coins > previousGems) {
             root.post { animateClaimedGems(previousGems, snapshot.wallet.coins) }
         }
+        val pending = snapshot.ring.rewardCoins
+        if (snapshot.ring.claimable && pending >= 10_000 && pending > lastFloatingClaimPromptedGems && !fullscreenAdInProgress) {
+            lastFloatingClaimPromptedGems = pending
+            root.post {
+                if (!isFinishing && !isDestroyed && !fullscreenAdInProgress) {
+                    showBrandedChoiceDialog(t("gems_ready_title"), t("gems_ready_message", pending), t("claim_all"), { requestRewardedClaimAllEpisodeRewards() }, t("later"))
+                }
+            }
+        } else if (!snapshot.ring.claimable) {
+            lastFloatingClaimPromptedGems = 0
+        }
     }
 
 internal fun DramaAppActivity.showStartupCheckinWhenReady() {
@@ -134,7 +145,7 @@ internal fun DramaAppActivity.showWelcomeRewardDialog(snapshot: RewardsApiClient
         val dialog = AlertDialog.Builder(this).create()
         val page = FrameLayout(this).apply { background = gradientDrawable(intArrayOf(0xFFFFE2D1.toInt(), 0xFFF5EDFF.toInt(), 0xFFDDF7F4.toInt()), 0) }
         addWelcomeConfetti(page)
-        val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; setPadding(dp(30), dp(42), dp(30), dp(28)) }
+        val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; setPadding(dp(30), dp(18), dp(30), dp(18)) }
         val gem = ImageView(this@showWelcomeRewardDialog).apply { setImageResource(R.drawable.reward_gem_crystal); scaleType = ImageView.ScaleType.CENTER_INSIDE }
         content.addView(gem, LinearLayout.LayoutParams(dp(154), dp(154)))
         content.addView(TextView(this@showWelcomeRewardDialog).apply { text = t("welcome_title"); textSize = 30f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_PRIMARY); setPadding(0, dp(6), 0, 0) })
@@ -149,7 +160,11 @@ internal fun DramaAppActivity.showWelcomeRewardDialog(snapshot: RewardsApiClient
         content.addView(TextView(this@showWelcomeRewardDialog).apply { text = t("later"); textSize = 14f; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(18), 0, 0); isClickable = true; setOnClickListener { dialog.dismiss(); onFinished() } })
         page.addView(content, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
         dialog.setView(page); dialog.setCanceledOnTouchOutside(false); dialog.setOnCancelListener { onFinished() }; dialog.show()
-        dialog.window?.apply { setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT)); setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT) }
+        dialog.window?.apply {
+            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+            setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            attributes = attributes.apply { gravity = Gravity.CENTER }
+        }
         gem.animate().scaleX(1.14f).scaleY(1.14f).setDuration(320L).setInterpolator(AccelerateDecelerateInterpolator()).withEndAction { gem.animate().scaleX(1f).scaleY(1f).setDuration(420L).start() }.start()
     }
 

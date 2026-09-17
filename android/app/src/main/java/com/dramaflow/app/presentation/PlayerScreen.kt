@@ -16,6 +16,7 @@ import android.text.Editable
 import android.text.TextWatcher
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -108,8 +109,17 @@ internal fun DramaAppActivity.showPlayer(drama: LocalDrama, startIndex: Int, res
                 playerIsPaused = !isPlaying && player.playbackState == Player.STATE_READY
                 updatePauseOverlayVisibility(playerIsPaused && !fullscreenAdInProgress && !pauseNativeAdInProgress)
                 if (isPlaying) {
+                    val now = SystemClock.elapsedRealtime()
+                    if (episodePlaybackStartedAtElapsedMillis == 0L) episodePlaybackStartedAtElapsedMillis = now
+                    if (episodePlaybackPausedAtElapsedMillis > 0L) {
+                        episodePlaybackPausedDurationMillis += now - episodePlaybackPausedAtElapsedMillis
+                        episodePlaybackPausedAtElapsedMillis = 0L
+                    }
                     window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 } else {
+                    if (episodePlaybackStartedAtElapsedMillis > 0L && episodePlaybackPausedAtElapsedMillis == 0L) {
+                        episodePlaybackPausedAtElapsedMillis = SystemClock.elapsedRealtime()
+                    }
                     window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 }
             }
@@ -233,21 +243,23 @@ internal fun DramaAppActivity.createPlayerChrome(): View {
 
 internal fun DramaAppActivity.createPlayerTopBar(): View {
         val shell = FrameLayout(this)
-        val row = LinearLayout(this).apply {
-            gravity = Gravity.CENTER_VERTICAL; setPadding(dp(14), 0, dp(14), 0)
-            addView(ImageView(this@createPlayerTopBar).apply {
-                setImageResource(R.drawable.ic_arrow_back); imageTintList = ColorStateList.valueOf(Color.WHITE); scaleType = ImageView.ScaleType.CENTER_INSIDE
-                background = roundedDrawable(0x5A0D0B12, 15); contentDescription = t("back"); isClickable = true; setOnClickListener { showCatalog() }
-            }, LinearLayout.LayoutParams(dp(44), dp(44)))
-            addView(View(this@createPlayerTopBar), LinearLayout.LayoutParams(0, 1, 1f))
-            addView(createPlayerAssetStrip(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42)))
+        val back = ImageView(this).apply {
+            setImageResource(R.drawable.ic_arrow_back)
+            imageTintList = ColorStateList.valueOf(Color.WHITE)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            background = roundedDrawable(0x5A0D0B12, 15)
+            contentDescription = t("back")
+            isClickable = true
+            setOnClickListener { showCatalog() }
         }
-        shell.addView(row, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44), Gravity.TOP).apply { topMargin = dp(14) })
+        val assets = createPlayerAssetStrip()
+        shell.addView(back, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.TOP or Gravity.START).apply { topMargin = dp(14); marginStart = dp(14) })
+        shell.addView(assets, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(15) })
         ViewCompat.setOnApplyWindowInsetsListener(shell) { _, insets ->
             val safeTop = insets.getInsets(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()).top
-            val params = row.layoutParams as FrameLayout.LayoutParams
-            params.topMargin = maxOf(safeTop, dp(12)) + dp(8)
-            row.layoutParams = params
+            val margin = maxOf(safeTop, dp(12)) + dp(8)
+            (back.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = margin; back.layoutParams = params }
+            (assets.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = margin + dp(1); assets.layoutParams = params }
             insets
         }
         ViewCompat.requestApplyInsets(shell)
@@ -308,14 +320,19 @@ internal fun DramaAppActivity.switchDramaBySwipe(forward: Boolean = true) {
         } else switch()
     }
 
+/** The mid-roll clock starts only when this episode actually plays and excludes all interruptions. */
 internal fun DramaAppActivity.requestMidEpisodeInterstitialIfEligible(positionSeconds: Int) {
         val snapshot = rewardsSnapshot ?: return
         val policy = snapshot.interstitial
         val episodeKey = episodeKey(currentEpisodeIndex)
         if (!playerShown || playerIsPaused || fullscreenAdInProgress || !policy.midEpisodeEnabled) return
-        if (positionSeconds < policy.midEpisodeTriggerSeconds || !midEpisodeInterstitialRequestedEpisodeKeys.add(episodeKey)) return
+        val startedAt = episodePlaybackStartedAtElapsedMillis
+        if (startedAt <= 0L) return
+        val viewedMillis = (SystemClock.elapsedRealtime() - startedAt - episodePlaybackPausedDurationMillis).coerceAtLeast(0L)
+        val viewedSeconds = (viewedMillis / 1_000L).toInt()
+        if (viewedSeconds < policy.midEpisodeTriggerSeconds || !midEpisodeInterstitialRequestedEpisodeKeys.add(episodeKey)) return
         showPlaybackActionInterstitial("int_episode_midroll", episodeId = selectedEpisode()?.id, onShown = {}, onUnavailable = { message ->
-            logStatus("剧中插屏未展示：$message")
+            logStatus("Mid-roll unavailable: $message")
         })
     }
 
@@ -476,59 +493,39 @@ internal fun DramaAppActivity.transparentPlayerIcon(label: String, description: 
 
 internal fun DramaAppActivity.showPlaybackSpeedPicker() {
         val speeds = floatArrayOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
-        val labels = speeds.map { "${it}x" }.toTypedArray()
+        val labels = speeds.map { "${it}x" }
         val selected = speeds.indexOfFirst { it == playerSpeed }.coerceAtLeast(0)
-        AlertDialog.Builder(this)
-            .setTitle(t("playback_speed"))
-            .setSingleChoiceItems(labels, selected) { dialog, which ->
-                val applySpeed = {
-                    playerSpeed = speeds[which]
-                    exoPlayer?.setPlaybackSpeed(playerSpeed)
-                    speedButton?.text = labels[which]
-                    resumeAfterFullscreenAdIfNeeded()
-                }
-                dialog.dismiss()
-                val policy = rewardsSnapshot?.interstitial
-                val pendingGems = rewardsSnapshot?.ring?.rewardCoins ?: 0
-                val rewardThresholdReached = policy != null && pendingGems >= policy.actionRewardThresholdGems
-                if (policy?.speedEnabled == true && rewardThresholdReached) {
-                    showPlaybackActionInterstitial("int_speed", onShown = applySpeed, onUnavailable = { message ->
-                        logStatus("倍速插屏未展示：$message")
-                        applySpeed()
-                    })
-                } else {
-                    applySpeed()
-                }
+        showBrandedOptionsDialog(t("playback_speed"), labels, selected) { which ->
+            val applySpeed = {
+                playerSpeed = speeds[which]
+                exoPlayer?.setPlaybackSpeed(playerSpeed)
+                speedButton?.text = labels[which]
+                resumeAfterFullscreenAdIfNeeded()
             }
-            .setNegativeButton(t("cancel"), null)
-            .show()
+            val policy = rewardsSnapshot?.interstitial
+            val pendingGems = rewardsSnapshot?.ring?.rewardCoins ?: 0
+            val rewardThresholdReached = policy != null && pendingGems >= policy.actionRewardThresholdGems
+            if (policy?.speedEnabled == true && rewardThresholdReached) {
+                showPlaybackActionInterstitial("int_speed", onShown = applySpeed, onUnavailable = { message ->
+                    logStatus("Speed interstitial unavailable: $message")
+                    applySpeed()
+                })
+            } else applySpeed()
+        }
     }
 
 internal fun DramaAppActivity.showPlaybackMoreControls() {
         val muteLabel = if (playerMuted) t("restore_sound") else t("mute")
-        AlertDialog.Builder(this)
-            .setTitle(t("playback_settings"))
-            .setItems(arrayOf(muteLabel, t("increase_brightness"), t("restore_brightness"), t("immersive_mode"), t("reload_episode"))) { _, which ->
-                when (which) {
-                    0 -> {
-                        playerMuted = !playerMuted
-                        exoPlayer?.volume = if (playerMuted) 0f else 1f
-                        toast(if (playerMuted) t("muted") else t("sound_restored"))
-                    }
-                    1 -> {
-                        window.attributes = window.attributes.apply { screenBrightness = 1f }
-                        toast(t("brightness_increased"))
-                    }
-                    2 -> {
-                        window.attributes = window.attributes.apply { screenBrightness = -1f }
-                        toast(t("brightness_restored"))
-                    }
-                    3 -> enterImmersivePlayerMode()
-                    4 -> selectEpisode(currentEpisodeIndex)
-                }
+        val options = listOf(muteLabel, t("increase_brightness"), t("restore_brightness"), t("immersive_mode"), t("reload_episode"))
+        showBrandedOptionsDialog(t("playback_settings"), options) { which ->
+            when (which) {
+                0 -> { playerMuted = !playerMuted; exoPlayer?.volume = if (playerMuted) 0f else 1f; toast(if (playerMuted) t("muted") else t("sound_restored")) }
+                1 -> { window.attributes = window.attributes.apply { screenBrightness = 1f }; toast(t("brightness_increased")) }
+                2 -> { window.attributes = window.attributes.apply { screenBrightness = -1f }; toast(t("brightness_restored")) }
+                3 -> enterImmersivePlayerMode()
+                4 -> selectEpisode(currentEpisodeIndex)
             }
-            .setNegativeButton(t("close"), null)
-            .show()
+        }
     }
 
 internal fun DramaAppActivity.enterImmersivePlayerMode(announce: Boolean = true) {

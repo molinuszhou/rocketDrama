@@ -163,7 +163,5 @@ internal fun DramaAppActivity.formatWalletTotal(wallet: RewardsApiClient.Wallet,
 internal fun DramaAppActivity.showCashoutEligibilityNotice() {
         val dynamicReason = rewardsSnapshot?.withdrawal?.reason?.takeIf { it.isNotBlank() }
             ?: t("cashout_minimum_notice")
-        AlertDialog.Builder(this).setTitle(t("request_cashout"))
-            .setMessage(dynamicReason)
-            .setPositiveButton(t("done"), null).show()
+        showBrandedChoiceDialog(t("request_cashout"), dynamicReason, t("done"))
     }

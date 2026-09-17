@@ -141,7 +141,10 @@ internal fun DramaAppActivity.showEpisodePicker() {
         container.addView(gridScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(390)))
         sheet.setView(container)
         sheet.show()
-        sheet.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        sheet.window?.apply {
+            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+            setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
     }
 
 internal fun DramaAppActivity.selectEpisode(index: Int) {
@@ -156,7 +159,14 @@ internal fun DramaAppActivity.selectEpisode(index: Int) {
             return
         }
         completedEpisodeKeys.remove(episodeKey(index))
+        // A replay is a new viewing session: timing and per-episode ad capacity must not inherit prior runs.
         midEpisodeInterstitialRequestedEpisodeKeys.remove(episodeKey(index))
+        interstitialRequestedEpisodeKeys.remove(episodeKey(index))
+        interstitialCountByEpisodeKey.remove("${selectedDrama?.id}:${episode.id}")
+        episodePlaybackStartedAtElapsedMillis = 0L
+        episodePlaybackPausedAtElapsedMillis = 0L
+        episodePlaybackPausedDurationMillis = 0L
+        exoPlayer?.pause()
         currentEpisodeIndex = index
         refreshFloatingRewardWheels()
         playerProgressSeconds = 0
@@ -217,25 +227,32 @@ internal fun DramaAppActivity.startNextEpisodeAutomatically(completedIndex: Int,
         }
     }
 
-    /** 免费集数用完后由用户明确确认；确认后才展示插屏并请求内容服务解锁。 */
-internal fun DramaAppActivity.unlockEpisodeThenAutoPlay(index: Int) {
+    /** 免费集数用完后由用户明确确认；优先展示激励广告解锁。 */
+internal fun DramaAppActivity.unlockEpisodeThenAutoPlay(
+    index: Int,
+    onUnlocked: () -> Unit = {},
+    onDeclined: () -> Unit = {},
+) {
         if (episodeTransitionInProgress) return
-        val episode = selectedDrama?.episodes?.getOrNull(index) ?: return
-        AlertDialog.Builder(this)
-            .setTitle(t("free_episodes_used"))
-            .setMessage(t("unlock_episode_message", index + 1))
-            .setNegativeButton(t("later")) { _, _ ->
+        selectedDrama?.episodes?.getOrNull(index) ?: return
+        showBrandedChoiceDialog(
+            title = t("free_episodes_used"),
+            message = t("unlock_episode_message", index + 1),
+            primaryLabel = t("unlock_with_ad"),
+            onPrimary = { startEpisodeUnlockAfterConfirmation(index, onUnlocked) },
+            secondaryLabel = t("later"),
+            onSecondary = {
                 episodeTransitionInProgress = false
                 exoPlayer?.pause()
                 playerIsPaused = true
                 updatePauseOverlayVisibility(true)
-            }
-            .setPositiveButton(t("unlock_with_ad")) { _, _ -> startEpisodeUnlockAfterConfirmation(index) }
-            .show()
+                onDeclined()
+            },
+        )
     }
 
     /** 用户确认后完整观看激励广告；服务端结算成功后才向内容服务申请本集解锁并自动播放。 */
-internal fun DramaAppActivity.startEpisodeUnlockAfterConfirmation(index: Int) {
+internal fun DramaAppActivity.startEpisodeUnlockAfterConfirmation(index: Int, onUnlocked: () -> Unit = {}) {
         val episode = selectedDrama?.episodes?.getOrNull(index) ?: run {
             episodeTransitionInProgress = false
             return
@@ -254,6 +271,7 @@ internal fun DramaAppActivity.startEpisodeUnlockAfterConfirmation(index: Int) {
                 applyRewardsSnapshot(action.snapshot)
                 settleEpisodeUnlockAfterAd(index, unlockMethod = "AD_REWARDED") {
                     selectEpisode(index)
+                    onUnlocked()
                 }
             },
             onSettlementUnavailable = { message ->
@@ -317,25 +335,43 @@ internal fun DramaAppActivity.recordCompletedEpisodeForRewards(index: Int, onCon
             validWatchSeconds = rewardsSnapshot?.unlock?.validWatchSeconds ?: 60,
             onSuccess = { reward -> runOnUiThread {
                 applyRewardsSnapshot(reward.snapshot)
-                when {
-                    reward.randomChestsCreated > 0 -> showRandomChestEarnedDialog(
-                        reward.randomChestsCreated,
-                        reward.snapshot.chest.availableCount,
-                        onContinuePlayback,
-                    )
-                    reward.episodeRewardCoins > 0 -> {
-                        toast(t("episode_reward_pending", reward.episodeRewardCoins))
-                        onContinuePlayback()
-                    }
-                    else -> onContinuePlayback()
-                }
+                if (reward.randomChestsCreated > 0) {
+                    routeChestAfterEpisode(index, reward.randomChestsCreated, reward.snapshot.chest.availableCount, onContinuePlayback)
+                } else if (reward.episodeRewardCoins > 0) {
+                    toast(t("episode_reward_pending", reward.episodeRewardCoins))
+                    onContinuePlayback()
+                } else onContinuePlayback()
             } },
             onFailure = { message -> runOnUiThread {
-                logStatus("观看奖励同步失败：$message")
+                logStatus("Watch reward sync failed: $message")
                 onContinuePlayback()
             } },
         )
     }
+
+/** A new chest never obscures the preferred next-episode unlock. It appears 15s after a successful unlock. */
+internal fun DramaAppActivity.routeChestAfterEpisode(
+    completedIndex: Int,
+    createdCount: Int,
+    availableCount: Int,
+    onContinuePlayback: () -> Unit,
+) {
+    val nextIndex = completedIndex + 1
+    val nextIsLocked = selectedDrama?.episodes?.indices?.contains(nextIndex) == true && needsUnlock(nextIndex)
+    if (!nextIsLocked) {
+        showRandomChestEarnedDialog(createdCount, availableCount, onContinuePlayback)
+        return
+    }
+    unlockEpisodeThenAutoPlay(
+        index = nextIndex,
+        onUnlocked = {
+            root.postDelayed({
+                if (!isFinishing && !isDestroyed) showRandomChestEarnedDialog(createdCount, availableCount) {}
+            }, 15_000L)
+        },
+        onDeclined = { showRandomChestEarnedDialog(createdCount, availableCount, onContinuePlayback) },
+    )
+}
 
 internal fun DramaAppActivity.showRandomChestEarnedDialog(createdCount: Int, availableCount: Int, onContinuePlayback: () -> Unit) {
         val dialog = AlertDialog.Builder(this).create()
@@ -392,6 +428,10 @@ internal fun DramaAppActivity.showRandomChestEarnedDialog(createdCount: Int, ava
         content.addView(actions, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         dialog.setView(content)
         dialog.show()
+        dialog.window?.apply {
+            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+            setLayout((resources.displayMetrics.widthPixels * 0.90f).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
         chestImage.animate().alpha(1f).scaleX(1.10f).scaleY(1.10f).setDuration(260L).withEndAction {
             chestImage.animate().scaleX(1f).scaleY(1f).setDuration(180L).start()
         }.start()

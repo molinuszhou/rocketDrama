@@ -111,21 +111,18 @@ internal fun DramaAppActivity.refreshFloatingRewardWheels() {
 internal fun DramaAppActivity.updateFloatingRewardBoostButton(button: TextView) {
         val episodeId = selectedEpisode()?.id
         val boosted = episodeId != null && isEpisodeRewardBoosted(episodeId)
-        button.text = if (boosted) t("reward_doubled") else t("double_episode_reward")
-        button.setTextColor(if (boosted) 0xFFFFE7A0.toInt() else Color.WHITE)
-        button.background = gradientDrawable(
-                if (boosted) intArrayOf(0xFFFFD180.toInt(), 0xFFFFB74D.toInt()) else intArrayOf(0xFFFF9A62.toInt(), 0xFFFF5C63.toInt()),
-            14,
-        )
-        button.isClickable = episodeId != null
-        button.alpha = if (boosted) 0.78f else 1f
-        button.setOnClickListener {
-            when {
-                episodeId == null -> toast(t("episode_not_loaded"))
-                boosted -> toast(t("reward_doubled_notice"))
-                else -> requestEpisodeRewardBoost(episodeId)
-            }
+        if (boosted) {
+            button.visibility = View.GONE
+            button.isClickable = false
+            return
         }
+        button.visibility = View.VISIBLE
+        button.text = t("double_episode_reward")
+        button.setTextColor(Color.WHITE)
+        button.background = gradientDrawable(intArrayOf(0xFFFF9A62.toInt(), 0xFFFF5C63.toInt()), 14)
+        button.isClickable = episodeId != null
+        button.alpha = 1f
+        button.setOnClickListener { if (episodeId == null) toast(t("episode_not_loaded")) else requestEpisodeRewardBoost(episodeId) }
     }
 
 internal fun DramaAppActivity.updateFloatingRewardWheel(label: TextView) {
@@ -188,27 +185,22 @@ internal fun DramaAppActivity.showEpisodeRewardClaimDialog() {
         val snapshot = rewardsSnapshot ?: return
         val ring = snapshot.ring
         if (!ring.claimable || ring.rewardCoins <= 0) { toast(t("no_pending_gems")); return }
-        AlertDialog.Builder(this)
-            .setTitle(t("claim_episode_rewards"))
-            .setMessage(t("claim_episode_rewards_message", ring.rewardCoins))
-            .setNegativeButton(t("later"), null)
-            .setPositiveButton(t("watch_ad_claim")) { _, _ -> requestRewardedClaimAllEpisodeRewards() }
-            .show()
+        showBrandedChoiceDialog(
+            title = t("claim_episode_rewards"),
+            message = t("claim_episode_rewards_message", ring.rewardCoins),
+            primaryLabel = t("watch_ad_claim"),
+            onPrimary = { requestRewardedClaimAllEpisodeRewards() },
+            secondaryLabel = t("later"),
+        )
     }
 
+/** Tapping the boost starts the rewarded request immediately; successful settlement removes the control. */
 internal fun DramaAppActivity.requestEpisodeRewardBoost(episodeId: String) {
-        AlertDialog.Builder(this)
-            .setTitle(t("double_episode_reward"))
-            .setMessage(t("double_episode_reward_message"))
-            .setNegativeButton(t("not_now"), null)
-            .setPositiveButton(t("watch_ad_double")) { _, _ ->
-                requestRewardedAction("rv_episode_reward_boost", targetId = episodeId, onSettled = { action ->
-                    applyRewardsSnapshot(action.snapshot)
-                    resumeAfterFullscreenAdIfNeeded()
-                    toast(t("reward_doubled_notice"))
-                })
-            }
-            .show()
+        requestRewardedAction("rv_episode_reward_boost", targetId = episodeId, onSettled = { action ->
+            applyRewardsSnapshot(action.snapshot)
+            resumeAfterFullscreenAdIfNeeded()
+            toast(t("reward_double_activated"))
+        })
     }
 
 internal fun DramaAppActivity.requestRewardedClaimAllEpisodeRewards() {
@@ -227,7 +219,7 @@ internal fun DramaAppActivity.requestRewardedClaimAllEpisodeRewards() {
                 resumeAfterFullscreenAdIfNeeded()
                 toast(t("claim_failed", message))
             } })
-        })
+        }, fallbackToInterstitialWhenUnavailable = true)
     }
 
 internal fun DramaAppActivity.createCheckinCard(): View {
@@ -321,19 +313,12 @@ internal fun DramaAppActivity.createRewardsWalletSummary(): View {
 internal fun DramaAppActivity.showWithdrawalDetailsDialog(wallet: RewardsApiClient.Wallet) {
         val release = wallet.release
         val details = "可提现余额：${formatCurrencyAmount(wallet, wallet.availableBalance, wallet.availableBalanceUsdReference, includeUsdReference = true)}\n\n${rewardsSnapshot?.withdrawal?.reason.orEmpty()}\n\n预计明日可转入：${formatCurrencyAmount(wallet, release.expectedTomorrowTransfer, release.expectedTomorrowTransferUsdReference, includeUsdReference = true)}\n本次广告加速预计额外转入：${formatCurrencyAmount(wallet, release.expectedBoostTransfer, release.expectedBoostTransferUsdReference, includeUsdReference = true)}"
-        AlertDialog.Builder(this).setTitle(t("withdrawal_details")).setMessage(details)
-            .setNegativeButton(t("close"), null)
-            .setPositiveButton("广告加速") { _, _ -> showWalletReleaseBoostDialog() }.show()
+        showBrandedChoiceDialog(t("withdrawal_details"), details, t("ad_boost"), { showWalletReleaseBoostDialog() }, t("close"))
     }
 
 internal fun DramaAppActivity.showWalletReleaseBoostDialog() {
         val release = rewardsSnapshot?.wallet?.release ?: return
-        AlertDialog.Builder(this)
-            .setTitle(t("ad_boost"))
-            .setMessage(t("ad_boost_message", formatCurrencyAmount(rewardsSnapshot?.wallet ?: return, release.expectedBoostTransfer, release.expectedBoostTransferUsdReference, includeUsdReference = true)))
-            .setNegativeButton(t("not_now"), null)
-            .setPositiveButton(t("watch_ad_claim")) { _, _ -> requestWalletReleaseBoost() }
-            .show()
+        showBrandedChoiceDialog(t("ad_boost"), t("ad_boost_message", formatCurrencyAmount(rewardsSnapshot?.wallet ?: return, release.expectedBoostTransfer, release.expectedBoostTransferUsdReference, includeUsdReference = true)), t("watch_ad_claim"), { requestWalletReleaseBoost() }, t("not_now"))
     }
 
 internal fun DramaAppActivity.requestWalletReleaseBoost() {
@@ -350,12 +335,7 @@ internal fun DramaAppActivity.requestWalletReleaseBoost() {
             } else {
                 "已完成本次广告加速。预计明日可转入 $tomorrowText。"
             }
-            AlertDialog.Builder(this)
-                .setTitle("转入进度已更新")
-                .setMessage(nextMessage)
-                .setNegativeButton("稍后再说", null)
-                .setPositiveButton("继续加速") { _, _ -> showWalletReleaseBoostDialog() }
-                .show()
+            showBrandedChoiceDialog(t("transfer_updated"), nextMessage, t("continue_accelerating"), { showWalletReleaseBoostDialog() }, t("later"))
         })
     }
 
@@ -365,20 +345,15 @@ internal fun DramaAppActivity.showGemsExchangeDialog(wallet: RewardsApiClient.Wa
             hint = t("minimum_gems", wallet.minimumExchangeGems)
             setTextColor(COLOR_TEXT_PRIMARY); setHintTextColor(COLOR_TEXT_MUTED)
         }
-        AlertDialog.Builder(this).setTitle(t("exchange_gems")).setMessage(t("exchange_gems_message"))
-            .setView(input).setNegativeButton(t("cancel"), null).setPositiveButton(t("done")) { _, _ ->
-                val gems = input.text.toString().trim().toLongOrNull()
-                if (gems == null) { toast("请输入有效的宝石数量"); return@setPositiveButton }
-                rewardsApi.exchangeGems(anonymousInstallationId(), gems, { snapshot -> runOnUiThread { applyRewardsSnapshot(snapshot); toast("兑换已记入钱包余额") } }, { message -> runOnUiThread { toast(message) } })
-            }.show()
+        showBrandedInputDialog(t("exchange_gems"), t("exchange_gems_message"), input, t("done"), { value ->
+            val gems = value.toLongOrNull()
+            if (gems == null) { toast(t("valid_gem_amount")); return@showBrandedInputDialog }
+            rewardsApi.exchangeGems(anonymousInstallationId(), gems, { snapshot -> runOnUiThread { applyRewardsSnapshot(snapshot); toast(t("exchange_recorded")) } }, { message -> runOnUiThread { toast(message) } })
+        })
     }
 
 internal fun DramaAppActivity.showWalletRulesDialog(wallet: RewardsApiClient.Wallet) {
-        AlertDialog.Builder(this).setTitle(t("cashout_rules")).setMessage(
-            "宝石可兑换为钱包余额，钱包余额会按当前规则陆续转入可提现余额。\n\n" +
-                "提现资格：${rewardsSnapshot?.walletEligibilityCopy.orEmpty()}\n\n" +
-                "金额、领取和资格均以服务端账本为准。"
-        ).setPositiveButton(t("done"), null).show()
+        showBrandedChoiceDialog(t("cashout_rules"), t("wallet_rules_message", rewardsSnapshot?.walletEligibilityCopy.orEmpty()), t("done"))
     }
 
 internal fun DramaAppActivity.createChestCard(snapshot: RewardsApiClient.Snapshot): View = LinearLayout(this).apply {
@@ -464,12 +439,7 @@ internal fun DramaAppActivity.createAchievementSummary(snapshot: RewardsApiClien
     }
 
 internal fun DramaAppActivity.showCrownRewardedUpgradeDialog(crown: RewardsApiClient.CrownProgress) {
-        AlertDialog.Builder(this)
-            .setTitle("加快皇冠成长")
-            .setMessage("完整观看 ${crown.adsPerEpisode} 段广告后，将为你的皇冠成长加速。完成后可查看最新等级和宝石倍率。")
-            .setNegativeButton(t("not_now"), null)
-            .setPositiveButton("开始看广告") { _, _ -> requestCrownRewardedUpgrade(crown.adsPerEpisode, crown.title) }
-            .show()
+        showBrandedChoiceDialog(t("crown_accelerate"), t("crown_accelerate_message", crown.adsPerEpisode), t("watch_ad_claim"), { requestCrownRewardedUpgrade(crown.adsPerEpisode, crown.title) }, t("not_now"))
     }
 
 internal fun DramaAppActivity.requestCrownRewardedUpgrade(remaining: Int, title: String) {
@@ -478,12 +448,7 @@ internal fun DramaAppActivity.requestCrownRewardedUpgrade(remaining: Int, title:
             applyRewardsSnapshot(action.snapshot)
             resumeAfterFullscreenAdIfNeeded()
             if (remaining > 1) {
-                AlertDialog.Builder(this)
-                    .setTitle("成长加速中")
-                    .setMessage("已完成 1/${remaining} 段广告，再看 ${remaining - 1} 段即可完成本次加速。")
-                    .setNegativeButton("稍后继续", null)
-                    .setPositiveButton("继续观看") { _, _ -> requestCrownRewardedUpgrade(remaining - 1, title) }
-                    .show()
+                showBrandedChoiceDialog(t("crown_accelerating"), t("crown_accelerating_message", remaining - 1), t("continue_watching"), { requestCrownRewardedUpgrade(remaining - 1, title) }, t("later"))
             } else {
                 toast("已完成皇冠广告升级，${title}进度已刷新")
             }

@@ -131,6 +131,10 @@ class DramaAppActivity : FragmentActivity() {
     internal var playerControlsVisible = true
     internal var playerProgressSeconds = 0
     internal var playerDurationSeconds = 0
+    /** Mid-roll time is scoped to the current viewing session and excludes pauses, ads and background time. */
+    internal var episodePlaybackStartedAtElapsedMillis = 0L
+    internal var episodePlaybackPausedAtElapsedMillis = 0L
+    internal var episodePlaybackPausedDurationMillis = 0L
     internal var pendingResumePositionSeconds = 0
     internal var lastPersistedPlaybackSecond = -1
     internal var playerPauseOverlay: TextView? = null
@@ -167,6 +171,8 @@ class DramaAppActivity : FragmentActivity() {
     internal var cashBalanceLabel: TextView? = null
     internal var lastConfirmedGemBalance: Long? = null
     internal var gemFlightInProgress = false
+    /** Avoid repeatedly interrupting the viewer with the same accumulated-gem prompt. */
+    internal var lastFloatingClaimPromptedGems = 0
     /** Rewards page exposes this only after the hero scrolls away. */
     internal var rewardsStickyAssetHeader: View? = null
     internal var ignoreVideoTapsUntilMillis = 0L
@@ -313,29 +319,28 @@ class DramaAppActivity : FragmentActivity() {
             hint = "http://192.168.1.100:8000"
             isSingleLine = true
             setSelectAllOnFocus(true)
-            setPadding(dp(16), dp(12), dp(16), dp(12))
         }
-        AlertDialog.Builder(this)
-            .setTitle("局域网内容服务")
-            .setMessage("请输入运行自有短剧 FastAPI 服务的电脑局域网地址。手机与电脑需连接同一局域网。")
-            .setView(input)
-            .setPositiveButton("保存并重连") { _, _ ->
-                val value = input.text.toString().trim().trimEnd('/')
+        showBrandedInputDialog(
+            title = t("content_service"),
+            message = t("local_content_server_hint"),
+            input = input,
+            primaryLabel = t("save"),
+            onPrimary = { value ->
                 if (!value.startsWith("http://") && !value.startsWith("https://")) {
-                    toast("地址必须以 http:// 或 https:// 开头")
+                    toast(t("server_address_invalid"))
                 } else {
-                    serverPreferences.edit().putString(SERVER_BASE_URL_KEY, value).apply()
+                    serverPreferences.edit().putString(SERVER_BASE_URL_KEY, value.trimEnd('/')).apply()
                     catalogItems = emptyList()
                     loadLocalCatalog()
                 }
-            }
-            .setNeutralButton("恢复默认") { _, _ ->
+            },
+            secondaryLabel = t("restore_default"),
+            onSecondary = {
                 serverPreferences.edit().remove(SERVER_BASE_URL_KEY).apply()
                 catalogItems = emptyList()
                 loadLocalCatalog()
-            }
-            .setNegativeButton(t("cancel"), null)
-            .show()
+            },
+        )
     }
 
     internal fun showRewardsServerSettings() {
@@ -344,43 +349,43 @@ class DramaAppActivity : FragmentActivity() {
             hint = "http://192.168.1.100:8100"
             isSingleLine = true
             setSelectAllOnFocus(true)
-            setPadding(dp(16), dp(12), dp(16), dp(12))
         }
-        AlertDialog.Builder(this)
-            .setTitle("独立积分与奖励服务")
-            .setMessage("请输入运行 PostgreSQL 奖励服务的电脑局域网地址。它与短剧内容服务使用同一主机、不同端口，默认端口为 8100。保存后会立即请求 /v2/bootstrap 验证连接。")
-            .setView(input)
-            .setPositiveButton("保存并同步") { _, _ ->
-                val value = input.text.toString().trim().trimEnd('/')
+        showBrandedInputDialog(
+            title = t("rewards_service"),
+            message = t("local_rewards_server_hint"),
+            input = input,
+            primaryLabel = t("save"),
+            onPrimary = { value ->
                 if (!value.startsWith("http://") && !value.startsWith("https://")) {
-                    toast("地址必须以 http:// 或 https:// 开头")
+                    toast(t("server_address_invalid"))
                 } else {
-                    serverPreferences.edit().putString(REWARDS_SERVER_BASE_URL_KEY, value).apply()
+                    serverPreferences.edit().putString(REWARDS_SERVER_BASE_URL_KEY, value.trimEnd('/')).apply()
                     refreshRewardsSnapshot()
-                    toast("积分服务地址已保存")
+                    toast(t("server_saved"))
                 }
-            }
-            .setNeutralButton("恢复默认") { _, _ ->
+            },
+            secondaryLabel = t("restore_default"),
+            onSecondary = {
                 serverPreferences.edit().remove(REWARDS_SERVER_BASE_URL_KEY).apply()
                 refreshRewardsSnapshot()
-            }
-            .setNegativeButton(t("cancel"), null)
-            .show()
+            },
+        )
     }
 
     internal fun showAdPrivacySettings() {
         val granted = consentStore.read() == AdConsent.GRANTED
-        AlertDialog.Builder(this)
-            .setTitle("广告设置")
-            .setMessage(if (granted) "你已同意广告。开屏和插屏可能在合适时机展示；锁定剧集可通过激励广告解锁。" else "你当前未同意广告。免费内容可正常观看，但广告解锁不可用。")
-            .setPositiveButton(if (granted) "关闭广告" else "启用广告") { _, _ ->
+        showBrandedChoiceDialog(
+            title = t("ad_privacy"),
+            message = if (granted) t("ad_privacy_enabled_message") else t("ad_privacy_disabled_message"),
+            primaryLabel = if (granted) t("disable_ads") else t("enable_ads"),
+            onPrimary = {
                 consentStore.save(if (granted) AdConsent.DECLINED else AdConsent.GRANTED)
                 appOpenAttempted = false
                 if (!granted) maybeShowAppOpenAd()
-                toast(if (granted) "已关闭广告" else "已启用广告")
-            }
-            .setNegativeButton(t("cancel"), null)
-            .show()
+                toast(if (granted) t("ads_disabled") else t("ads_enabled"))
+            },
+            secondaryLabel = t("cancel"),
+        )
     }
 
     internal fun toggleFavorite() {
@@ -612,12 +617,11 @@ class DramaAppActivity : FragmentActivity() {
     internal fun showLanguageSettings() {
         val options = AppLanguage.options
         val selected = options.indexOfFirst { it.tag == AppLanguage.tag(this) }.coerceAtLeast(0)
-        AlertDialog.Builder(this).setTitle(t("language")).setSingleChoiceItems(options.map { it.label }.toTypedArray(), selected) { dialog, which ->
+        showBrandedOptionsDialog(t("language"), options.map { it.label }, selected) { which ->
             AppLanguage.save(this, options[which].tag)
             ShortDramaSdkManager.get(this).setContentLanguageForUi(options[which].tag)
-            dialog.dismiss()
             if (withdrawalPageShown) rewardsSnapshot?.wallet?.let(::showWithdrawalPage) else renderActiveTab()
-        }.show()
+        }
     }
 
     internal fun rewardsMarketCode(): String = Locale.getDefault().country.trim().uppercase(Locale.ROOT).ifBlank { CONTENT_REGION }

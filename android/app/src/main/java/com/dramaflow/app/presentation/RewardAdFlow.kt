@@ -73,6 +73,7 @@ internal fun DramaAppActivity.requestRewardedAction(
         episodeIndex: Int? = null,
         onSettled: ((RewardsApiClient.RewardAction) -> Unit)? = null,
         onSettlementUnavailable: ((String) -> Unit)? = null,
+        fallbackToInterstitialWhenUnavailable: Boolean = false,
     ) {
         if (fullscreenAdInProgress) { toast("广告正在展示，请稍候"); return }
         if (consentStore.read() != AdConsent.GRANTED) { toast("请先在广告与隐私中启用广告"); return }
@@ -103,12 +104,16 @@ internal fun DramaAppActivity.requestRewardedAction(
                 TopOnAdsManager.RewardedResult.Cancelled -> showRewardedFallbackInterstitial(
                     wasPlayingBeforeRewarded, "广告未完整观看，未获得奖励或解锁权益"
                 )
-                is TopOnAdsManager.RewardedResult.Unavailable -> showRewardedUnavailableNotice(
-                    wasPlayingBeforeRewarded, t("ad_loading_failed") + " ${result.reason}"
-                )
-                is TopOnAdsManager.RewardedResult.Failed -> showRewardedUnavailableNotice(
-                    wasPlayingBeforeRewarded, t("ad_loading_failed") + " (${result.code})"
-                )
+                is TopOnAdsManager.RewardedResult.Unavailable -> {
+                    val message = t("ad_loading_failed") + " ${result.reason}"
+                    if (fallbackToInterstitialWhenUnavailable) showRewardedFallbackInterstitial(wasPlayingBeforeRewarded, message)
+                    else showRewardedUnavailableNotice(wasPlayingBeforeRewarded, message)
+                }
+                is TopOnAdsManager.RewardedResult.Failed -> {
+                    val message = t("ad_loading_failed") + " (${result.code})"
+                    if (fallbackToInterstitialWhenUnavailable) showRewardedFallbackInterstitial(wasPlayingBeforeRewarded, message)
+                    else showRewardedUnavailableNotice(wasPlayingBeforeRewarded, message)
+                }
             }
         }
     }
@@ -119,11 +124,7 @@ internal fun DramaAppActivity.showRewardedUnavailableNotice(shouldResume: Boolea
         episodeTransitionInProgress = false
         resumeAfterFullscreenAd = shouldResume
         resumeAfterFullscreenAdIfNeeded()
-        AlertDialog.Builder(this)
-            .setTitle("Reward video unavailable")
-            .setMessage("$message\n\nPlease try again later. This does not affect other tasks or coin earnings.")
-            .setPositiveButton("Got it", null)
-            .show()
+        showBrandedChoiceDialog(t("ad_unavailable_title"), "$message\n\n${t("ad_unavailable_message")}", t("done"))
     }
 
     /** 激励中途退出或加载失败时，只在后台开关允许时回退一次插屏；不会授予原激励权益。 */
@@ -166,6 +167,8 @@ internal fun DramaAppActivity.resumeAfterFullscreenAdIfNeeded() {
         }
         restoreImmersiveAfterFullscreenAd = false
         resumeAfterFullscreenAd = false
+        root.requestLayout()
+        ViewCompat.requestApplyInsets(root)
     }
 
     /**
@@ -234,9 +237,11 @@ internal fun DramaAppActivity.showGemIncomeDetails() {
             text = t("done"); textSize = 15f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
             background = roundedDrawable(COLOR_CORAL, 18); setPadding(0, dp(12), 0, dp(12)); isClickable = true
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(8) })
-        val dialog = AlertDialog.Builder(this).setView(detail).create()
+        val dialog = AlertDialog.Builder(this).create()
+        dialog.setView(detail)
         detail.getChildAt(detail.childCount - 1).setOnClickListener { dialog.dismiss() }
         dialog.show()
+        dialog.window?.apply { setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT)); setLayout((resources.displayMetrics.widthPixels * 0.90f).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT) }
     }
 
 internal fun DramaAppActivity.ledgerTitle(type: String): String = when (type) {
@@ -245,8 +250,8 @@ internal fun DramaAppActivity.ledgerTitle(type: String): String = when (type) {
 
 internal fun DramaAppActivity.showRewardLedgerHint() {
         val snapshot = rewardsSnapshot
-        val message = snapshot?.let { "当前规则版本：${it.ruleVersion}。最近权益由服务端账本保存，可通过管理接口查看。" } ?: "奖励服务尚未连接。"
-        AlertDialog.Builder(this).setTitle("奖励流水").setMessage(message).setPositiveButton(t("done"), null).show()
+        val message = snapshot?.let { t("reward_ledger_hint", it.ruleVersion) } ?: t("rewards_service_unavailable")
+        showBrandedChoiceDialog(t("gem_income_details"), message, t("done"))
     }
 
 /** The ordinary asset header appears only after balances in the reward hero have scrolled out of view. */
