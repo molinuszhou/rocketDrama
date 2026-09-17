@@ -456,17 +456,22 @@ class RewardsService:
         self._verify_admin_token(authorization)
         market_code = payload["market_code"].strip().upper()
         currency_code = payload["currency_code"].strip().upper()
+        if market_code == "DEFAULT" and not payload.get("enabled", True):
+            raise ServiceError(1910, "DEFAULT 区域不能停用", 422)
         with self._transaction() as connection:
             previous = self._one(connection, "SELECT * FROM market_wallet_policy WHERE market_code = %s", (market_code,))
             old_value = str({key: str(value) for key, value in (previous or {}).items()})
+            enabled = bool(payload.get("enabled", True))
             self._execute(
                 connection,
                 """
                 INSERT INTO market_wallet_policy
                 (market_code, currency_code, currency_symbol, currency_fraction_digits,
                  currency_micros_per_10000_gems, usd_micros_per_10000_gems,
-                 withdrawal_threshold_micros, welcome_bonus_gems, daily_release_micros)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 withdrawal_threshold_micros, welcome_bonus_gems, daily_release_micros,
+                 enabled, disabled_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        CASE WHEN %s THEN NULL ELSE NOW() END)
                 ON CONFLICT (market_code) DO UPDATE SET
                     currency_code = EXCLUDED.currency_code,
                     currency_symbol = EXCLUDED.currency_symbol,
@@ -476,13 +481,15 @@ class RewardsService:
                     withdrawal_threshold_micros = EXCLUDED.withdrawal_threshold_micros,
                     welcome_bonus_gems = EXCLUDED.welcome_bonus_gems,
                     daily_release_micros = EXCLUDED.daily_release_micros,
+                    enabled = EXCLUDED.enabled,
+                    disabled_at = EXCLUDED.disabled_at,
                     updated_at = NOW()
                 """,
                 (
                     market_code, currency_code, payload["currency_symbol"], payload["currency_fraction_digits"],
                     payload["currency_micros_per_10000_gems"], payload["usd_micros_per_10000_gems"],
-                                        payload["withdrawal_threshold_micros"], payload["welcome_bonus_gems"], payload["daily_release_micros"],
-
+                    payload["withdrawal_threshold_micros"], payload["welcome_bonus_gems"],
+                    payload["daily_release_micros"], enabled, enabled,
                 ),
             )
             self._execute(
@@ -1536,14 +1543,21 @@ class RewardsService:
     @staticmethod
     def _normalise_market_code(region: str | None) -> str:
         value = (region or "").strip().upper().replace("-", "_")
-        if value in {"BR", "BRA", "BRAZIL", "PT_BR"}:
-            return "BR"
-        if value in {"ID", "IDN", "INDONESIA", "IN_ID"}:
-            return "ID"
-        return "DEFAULT"
+        aliases = {"BRA": "BR", "BRAZIL": "BR", "PT_BR": "BR", "IDN": "ID", "INDONESIA": "ID", "IN_ID": "ID"}
+        return aliases.get(value, value if value and value != "DEFAULT" else "DEFAULT")
+
+    def _active_market_or_default(self, connection: psycopg.Connection[Any], requested_market: str) -> str:
+        if requested_market == "DEFAULT":
+            return "DEFAULT"
+        row = self._one(
+            connection,
+            "SELECT market_code FROM market_wallet_policy WHERE market_code = %s AND enabled = TRUE",
+            (requested_market,),
+        )
+        return requested_market if row else "DEFAULT"
 
     def _ensure_user(self, connection: psycopg.Connection[Any], user_id: str, region: str | None = None) -> None:
-        requested_market = self._normalise_market_code(region)
+        requested_market = self._active_market_or_default(connection, self._normalise_market_code(region))
         self._execute(
             connection,
             "INSERT INTO users (user_id, market_code) VALUES (%s, %s) ON CONFLICT (user_id) DO NOTHING",
@@ -1718,6 +1732,8 @@ class RewardsService:
                 "withdrawal_threshold_micros": int(row["withdrawal_threshold_micros"]),
                 "welcome_bonus_gems": int(row["welcome_bonus_gems"]),
                 "daily_release_micros": int(row["daily_release_micros"]),
+                "enabled": bool(row.get("enabled", True)),
+                "disabled_at": row.get("disabled_at"),
             }
             for row in self._all(connection, "SELECT * FROM market_wallet_policy ORDER BY market_code")
         ]

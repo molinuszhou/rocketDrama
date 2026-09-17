@@ -186,6 +186,27 @@ def run() -> None:
     assert id_exchange["snapshot"]["wallet"]["cash_wallet"] == "10000"
     assert id_exchange["snapshot"]["wallet"]["cash_wallet_usd_reference"] == "1.00"
 
+    # 通用区域钱包管理：新增 MX，停用后新用户回退 DEFAULT；历史用户仍可读取原策略。
+    admin_auth = "Bearer smoke-admin-token"
+    service.update_market_wallet_policy(admin_auth, {
+        "market_code": "MX", "currency_code": "MXN", "currency_symbol": "$",
+        "currency_fraction_digits": 2, "currency_micros_per_10000_gems": 20_000_000,
+        "usd_micros_per_10000_gems": 1_000_000, "withdrawal_threshold_micros": 1_000_000,
+        "welcome_bonus_gems": 200_000, "daily_release_micros": 1, "enabled": True,
+    })
+    mx_user = f"v163-mx-{uuid.uuid4()}"
+    mx_initial = service.bootstrap(mx_user, "MX")
+    assert mx_initial["wallet"]["currency"]["code"] == "MXN"
+    service.update_market_wallet_policy(admin_auth, {
+        "market_code": "MX", "currency_code": "MXN", "currency_symbol": "$",
+        "currency_fraction_digits": 2, "currency_micros_per_10000_gems": 20_000_000,
+        "usd_micros_per_10000_gems": 1_000_000, "withdrawal_threshold_micros": 1_000_000,
+        "welcome_bonus_gems": 200_000, "daily_release_micros": 1, "enabled": False,
+    })
+    fallback_user = f"v163-mx-fallback-{uuid.uuid4()}"
+    assert service.bootstrap(fallback_user, "MX")["wallet"]["currency"]["code"] == "USD"
+    assert service.bootstrap(mx_user)["wallet"]["currency"]["code"] == "MXN"
+
     # 全渠道四档阻尼：在每个边界附近依次以欢迎、签到、分集、宝箱和皇冠来源结算。
     damping_user = f"v163-damping-{uuid.uuid4()}"
     service.bootstrap(damping_user, "US")

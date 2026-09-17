@@ -128,6 +128,7 @@ class MarketWalletPolicyUpdateRequest(BaseModel):
     withdrawal_threshold_micros: int = Field(gt=0, le=10_000_000_000_000)
     welcome_bonus_gems: int = Field(ge=0, le=10_000_000_000)
     daily_release_micros: int = Field(gt=0, le=10_000_000_000_000)
+    enabled: bool = True
 
 
 class CrownMultiplierUpdateRequest(BaseModel):
