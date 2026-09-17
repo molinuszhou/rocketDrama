@@ -774,8 +774,8 @@ class PartnerDramaActivity : FragmentActivity() {
     }
 
     private fun scrollPage(build: (LinearLayout) -> Unit): View {
-        // 需要固定资产栏的内容页预留顶部空间；奖励页和我的页面从顶部开始。
-        val topInset = if (activeTab == MainTab.TASKS || activeTab == MainTab.PROFILE) 0 else 128
+        // 奖励页从顶部开始；我的页面虽然不显示资产栏，但保留原有标题顶部留白。
+        val topInset = if (activeTab == MainTab.TASKS) 0 else 128
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(topInset), dp(16), dp(94))
