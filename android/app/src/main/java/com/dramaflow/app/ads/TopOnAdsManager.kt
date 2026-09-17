@@ -15,7 +15,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import android.widget.FrameLayout
 import com.dramaflow.app.BuildConfig
-import com.dramaflow.app.analytics.PartnerAnalytics
+import com.dramaflow.app.analytics.EngagementAnalytics
 import com.secmtp.sdk.core.api.ATAdInfo
 import com.secmtp.sdk.core.api.ATAdRevenueListener
 import com.secmtp.sdk.core.api.ATNetworkConfirmInfo
@@ -40,7 +40,7 @@ import com.secmtp.sdk.splashad.api.ATSplashExListener
 class TopOnAdsManager(
     private val applicationContext: Context,
     private val settings: TopOnSettings,
-    private val analytics: PartnerAnalytics = PartnerAnalytics.get(applicationContext),
+    private val analytics: EngagementAnalytics = EngagementAnalytics.get(applicationContext),
     private val rewardedPolicy: RewardedAdPolicy = RewardedAdPolicy(applicationContext),
     private val interstitialPolicy: FullscreenAdPolicy = FullscreenAdPolicy(
         applicationContext,
@@ -213,7 +213,7 @@ class TopOnAdsManager(
             return
         }
         splashRequestInFlight = true
-        Log.i(TAG, "Splash request started: mode=${if (settings.isDemoMode) "official-demo" else "partner-config"}, placement=${settings.splashPlacementId}")
+        Log.i(TAG, "Splash request started: mode=${if (settings.isDemoMode) "official-demo" else "configured-network"}, placement=${settings.splashPlacementId}")
         var delivered = false
         // TopOn 可能先回调 onAdLoadTimeout，随后仍回调 onAdLoaded(isTimeout=true)。
         // 一旦启动流程已因超时进入内容页，禁止再展示迟到的开屏，避免与新人/签到窗口叠加。
@@ -488,7 +488,7 @@ class TopOnAdsManager(
     private class TopOnRevenueListener(
         private val logicalPlacement: String,
         private val adUnitId: String,
-        private val analytics: PartnerAnalytics,
+        private val analytics: EngagementAnalytics,
     ) : ATAdRevenueListener {
         override fun onAdRevenuePaid(adInfo: ATAdInfo) {
             analytics.reportTopOnRevenue(logicalPlacement, adUnitId, adInfo)

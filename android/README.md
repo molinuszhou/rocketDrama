@@ -1,88 +1,56 @@
-# DramaFlow Android
+# JoyeDrama Android
 
-**DramaFlow** 是依据《FreeDrama 产品功能策划说明书（静态拆解版）》实现的 Android 原生交互原型。工程采用 Kotlin 与 Jetpack Compose，目标是在不阻塞首屏的前提下，提供可替换的短剧内容、激励广告、任务与钱包边界。
+**JoyeDrama** 是一个以自有产品品牌呈现的 Android 短剧客户端。应用在当前测试阶段使用本地内容服务和 Media3 播放器，同时已保留 PSSDK 内容检索、广告聚合、奖励服务和钱包的集成边界。内容供应商、广告网络与运营配置均属于内部集成层，不会出现在产品导航、活动命名或页面结构中。
 
-> **当前定位：** 已完成 Pangle Android 激励广告 SDK 的工程集成、隐私同意、频控和奖励回调保护；尚未注入 Pangle 账户参数，也尚未接入授权短剧内容、真实支付、提现或服务端奖励验签。因此，当前构建不会请求真实广告或发放真实资产。
+## 当前架构
 
-## 已实现范围
+启动路由、页面状态、播放控制、奖励流程和界面渲染按照职责拆分在 `com.dramaflow.app` 下。`LauncherActivity` 仅负责系统 SplashScreen 和进入产品活动；`DramaAppActivity` 是轻量的生命周期、路由和共享状态宿主。页面与业务流程由同一 package 中的 extension 模块组成，借助 `internal` 可见性共享宿主状态，而不会将实现细节暴露给其他 application 模块。
 
-| 产品域 | 当前实现 | 说明 |
+| 模块 | 位置 | 职责 |
 | --- | --- | --- |
-| 启动与导航 | 系统启动页、单 Activity、Compose 四 Tab | 启动路径不进行网络、广告 SDK 或大图加载。 |
-| 首页、发现与搜索 | 分类、推荐、纵向内容流、搜索历史、空态 | 目录采用缓存优先策略，离线也可立即渲染首屏。 |
-| 播放与选集 | 演示播放画面、选集、继续播放、收藏和历史 | 锁集已接入广告解锁流程，但缺少广告配置时会安全禁用。 |
-| 任务与钱包 | 签到、任务、普通领取、演示钱包与资格提示 | 现金、金币、提现资格仍为本地原型状态，生产环境必须由服务端决定。 |
-| Pangle 激励广告 | SDK 依赖、隐私同意、按需初始化、锁集解锁、双倍奖励 | 使用 `PangleAdsManager` 隔离 SDK；只在奖励回调后进入业务结算。 |
-| 广告保护 | 单请求、30 秒展示间隔、提前关闭/失败不发奖 | 客户端保护不替代服务端验签、风控与幂等。 |
-| 设置 | 广告隐私状态与重新选择入口 | 用户拒绝时不会初始化广告 SDK，普通内容浏览不受影响。 |
+| 启动路由 | `launcher/LauncherActivity.kt` | 系统 SplashScreen 与产品活动转发。 |
+| 产品宿主 | `presentation/DramaAppActivity.kt` | 生命周期、路由、共享状态、服务地址设置和播放进度持久化。 |
+| 启动协调 | `presentation/StartupCoordinator.kt` | 并行预热目录、首屏封面、奖励快照与开屏广告，并在必要资源就绪后进入主页。 |
+| 页面与通用组件 | `presentation/CatalogScreens.kt`、`AppChrome.kt`、`WalletScreen.kt` | 首页、发现、搜索、个人中心、统一资产栏、钱包与通用 View 组件。 |
+| 奖励中心 | `presentation/RewardDashboard.kt`、`RewardEngagement.kt`、`RewardLifecycle.kt`、`RewardAdFlow.kt` | 皇冠之路、签到、宝箱、新人奖励、账本、广告结算与奖励生命周期。 |
+| 播放体验 | `presentation/PlayerScreen.kt`、`EpisodeFlow.kt` | Media3 播放器、沉浸控件、手势、选集、解锁、完播奖励与续播。 |
+| UI 常量 | `presentation/PresentationConstants.kt` | 产品内共享色板、偏好键、恢复状态键与内容配置常量。 |
+| SDK 与服务边界 | `ads/`、`content/`、`local/`、`rewards/` | 广告、PSSDK、内容服务与奖励服务的隔离层。 |
+| 分析 | `analytics/EngagementAnalytics.kt` | 非产品供应商命名的埋点与广告收入分析。 |
 
-## 架构与性能取向
+> **白包命名约束：** 产品代码不使用内容供应商名称命名页面、Activity、目录或分析模块。新增集成应放入明确的 SDK 或服务适配层，避免供应商概念进入用户可见体验。
 
-应用不在 `onCreate()` 中加载广告或远程内容。内容目录由 `CacheFirstDramaRepository` 先返回磁盘缓存或本地回退目录，后续授权内容服务可调用 `replaceCatalogFromPartner()` 替换目录；广告 SDK 只在用户主动选择激励广告后异步初始化。这样的分层可以把网络与渠道依赖移出首帧关键路径。
+## 启动与首屏预加载
 
-| 层级 | 文件位置 | 职责 |
-| --- | --- | --- |
-| 入口与主题 | `MainActivity.kt`、`ui/theme/` | 原生启动页、Compose 根界面和深色主题。 |
-| 单向状态 | `AppViewModel.kt` | 路由、播放、收藏、任务、广告奖励和 Snackbar 状态。 |
-| 广告隔离层 | `ads/PangleAdsManager.kt` | Pangle 初始化、激励广告加载、展示、频控与回调防重。 |
-| 内容数据层 | `data/CacheFirstDramaRepository.kt` | 目录快照、离线回退与未来远程目录替换。 |
-| 授权内容契约 | `data/ShortDramaContentGateway.kt` | 短剧 Feed、搜索、详情、播放 URL 与权益模型的接入边界。 |
-| 页面 | `ui/MainScreens.kt`、`ui/DetailScreens.kt` | 四个主 Tab、播放器、任务、钱包、设置等页面。 |
+进入 `DramaAppActivity` 后，目录请求、奖励快照和开屏广告流程并发开始。目录返回后，首屏可能出现的最多 12 张封面将通过 Coil 写入内存和磁盘缓存。应用仅在目录、开屏流程及这批封面请求全部完成后进入主界面；封面预热设有 **1.8 秒上限**，因此慢速或失效图片不会阻塞启动。这一约束将“预加载”变成可观察的首屏交接条件，而非仅发起但不等待的后台请求。
 
-Android 官方建议将冷启动、首帧可见（TTID）和完全绘制/可交互体验纳入性能基线。本工程采用系统启动页、本地首屏目录、按路由组合和广告延迟初始化来缩短关键路径。[1] [2]
+播放器的分集与位置每三秒持久化一次。应用从后台返回时优先恢复同一 Activity 和 ExoPlayer；若进程被系统回收，启动协调器在目录预热完成后恢复已保存的剧集、分集与播放位置。
 
-## Pangle 配置
+## 奖励中心与钱包
 
-请勿把真实 App ID 或广告位 ID 提交进源码。复制 `pangle.properties.example` 的内容到开发机 `local.properties`，或在 CI 使用同名 Gradle 属性/环境变量注入：
+奖励页首屏使用一体式、可点击的宝石与钱包余额栏。用户上滑至首屏余额离开可视区域后，顶部会淡入与首页一致的资产栏；宝石入口展示收益明细，钱包入口进入钱包页。金额控件启用单行、自适应字号，覆盖最高约 200 万宝石与 200 美元的展示范围。
 
-```properties
-PANGLE_APP_ID=你的_Pangle_App_ID
-PANGLE_REWARDED_SLOT_ID=你的_激励视频广告位_ID
-```
+皇冠之路采用紧凑时间线：每级使用不同的等级图标，连线显示等级条件与当前进度，节点下方展示宝石奖励和加速倍率。每日签到只保留一个可见主标题，避免标题层级重复。钱包展示可提现余额、预计次日转入金额、广告加速提现及提现规则；真实申请仍由服务端资格策略决定。
 
-详细的 SDK 接入、隐私流程、频控、测试广告位联调步骤和服务端奖励验签要求见 [PANGLE_SETUP.md](PANGLE_SETUP.md)。Pangle 官方说明要求在初始化成功回调后加载广告，且激励广告展示需在主线程进行。[3] [4]
+## 广告、内容与安全边界
 
-## 内容服务接入
+广告展示、关闭和恢复逻辑位于 `ads/TopOnAdsManager.kt` 与奖励广告流程模块。全屏广告出现前会保存播放状态并退出沉浸式模式，关闭后自动恢复原本正在播放的剧集；广告窗口采用系统栏安全区域，降低刘海、挖孔和曲面屏边缘关闭按钮难以触达的风险。
 
-Pangle 公开 Android 文档提供的是广告变现 SDK，而不是公开剧集内容服务。拿到 Pangle/ByteDance 的短剧合作 SDK，或第三方已授权内容 API 后，应实现 `ShortDramaContentGateway` 并把转换后的目录传入 `replaceCatalogFromPartner()`。本地目录缓存会作为网络异常时的首屏回退，不需要改写现有 UI 页面。
+短剧内容在测试阶段来自局域网内容服务。PSSDK 的搜索与发现接口通过 `content/ShortDramaSdkManager.kt` 适配，生产环境使用 SDK 返回内容时保留统一的搜索结果和详情播放入口。本地服务继续作为测试和网络失败回退内容源。
 
-## 金币、阶段宝箱与资格规则
+Release 构建启用窗口防截屏标志；Debug 构建保持可截图，便于测试和问题定位。真实广告奖励、钱包入账、提现资格和支付均必须以服务端回调、验签、幂等和风控结论为准，客户端不应单独发放真实资产。
 
-金币与任务模块已改为透明的阶段化模型：基础任务奖励、广告双倍数额、每日基础金币上限、阶段点阈值和宝箱奖励都会在领取前展示。当前原型设置为每日基础金币上限 800；达到 3、6、10 个阶段点可领取固定的 60、120、220 金币宝箱。最低兑换资格为 500 金币、至少完成 3 集有效观看并完成当日签到；不满足时会明确列出缺失条件。
+## 本地验证
 
-这些参数仅用于原型展示。生产环境必须由服务端下发、签名和审计，并由服务端决定广告奖励、阶段宝箱、兑换资格和提现申请状态；客户端不应自行结算真实金额。完整规则见 [REWARD_RULES.md](REWARD_RULES.md)。
-
-## 本地构建与验证
-
-工程以 JDK 17、Android SDK Platform 35 和 Android Gradle Plugin 8.7.3 为基线。可用 Android Studio 直接打开工程同步；在当前验证环境中使用 Gradle 8.11.1 完成 Debug Kotlin 编译与 Release APK 构建。
+工程使用 **JDK 17**、Android SDK Platform 35 和 Gradle Wrapper。标准 Kotlin 编译验证命令如下：
 
 ```bash
-# 使用 Android Studio 内置 Gradle，或已安装的 Gradle 8.11.1
-./gradlew :app:assembleDebug
+cd android
+./gradlew :app:compileDebugKotlin -Dorg.gradle.java.home=/usr/lib/jvm/java-17-openjdk-amd64
 ```
 
-产物目录：
-
-```text
-app/build/outputs/apk/debug/app-debug.apk
-app/build/outputs/apk/release/app-release-unsigned.apk
-```
-
-Release APK 未签名，仅用于工程验证。正式上架必须使用受控的签名密钥、真实账号配置、隐私声明、服务端奖励校验和真机回归测试。
-
-## 后续接入顺序
-
-| 阶段 | 待接入能力 | 关键约束 |
-| --- | --- | --- |
-| 1 | Pangle 测试 App ID 与激励广告位 | 先走真机完整观看、提前关闭、无填充、频控和隐私撤回测试。 |
-| 2 | 服务端奖励验证 | 用幂等键、用户身份、业务动作与渠道回调决定最终奖励。 |
-| 3 | 授权短剧目录与播放器 | 实现 `ShortDramaContentGateway`，支持缓存、分页、播放错误回退和合法授权。 |
-| 4 | 登录、任务与钱包服务 | 金额、资格、频次和风控结论全部以服务端签名结果为准。 |
-| 5 | 性能发布 | 使用 Macrobenchmark、Baseline Profile 与真机 TTID/TTFD、帧率回归。 |
+内容服务的离线冒烟脚本可在仓库根目录执行。奖励服务的 HTTP 冒烟测试需要先启动 PostgreSQL 与奖励 API；测试地址默认是 `http://127.0.0.1:8110`，可通过 `REWARDS_TEST_BASE_URL` 覆盖。
 
 ## 参考资料
 
-[1]: https://developer.android.com/topic/performance/vitals/launch-time "Android Developers：App startup time"
-[2]: https://developer.android.com/topic/performance/appstartup/analysis-optimization "Android Developers：App startup analysis and optimization"
-[3]: https://www.pangleglobal.com/integration/android-initialize-pangle-sdk "Pangle：Initialize Pangle SDK"
-[4]: https://www.pangleglobal.com/integration/android-rewarded-video-ads "Pangle：Rewarded Video Ads"
+[Android app startup guidance](https://developer.android.com/topic/performance/vitals/launch-time) 说明了启动耗时与首帧可交互的测量方法。Pangle 及聚合广告的初始化与激励广告回调规范应以当前接入 SDK 的官方文档为准，并在真机上覆盖完整观看、提前关闭、无填充、隐私撤回、前后台切换与播放恢复场景。

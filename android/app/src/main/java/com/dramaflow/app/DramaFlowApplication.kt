@@ -3,7 +3,7 @@ package com.dramaflow.app
 import android.app.Application
 import android.util.Log
 import com.dramaflow.app.ads.TopOnSettings
-import com.dramaflow.app.analytics.PartnerAnalytics
+import com.dramaflow.app.analytics.EngagementAnalytics
 import com.dramaflow.app.content.ShortDramaSdkManager
 
 /**
@@ -15,11 +15,11 @@ import com.dramaflow.app.content.ShortDramaSdkManager
 class DramaFlowApplication : Application() {
     override fun onCreate() {
         super.onCreate()
-        PartnerAnalytics.get(this).initialize()
+        EngagementAnalytics.get(this).initialize()
 
         val settings = TopOnSettings.fromBuildConfig()
         if (settings.isConfigured) {
-            val mode = if (settings.isDemoMode) "official-demo" else "partner-config"
+            val mode = if (settings.isDemoMode) "official-demo" else "configured-network"
             // 真正初始化由 TopOnAdsManager 异步完成；它会等待 SDK 回调成功后才加载开屏广告。
             Log.i(TAG, "TopOn configuration ready for white-label build ${BuildConfig.VERSION_NAME}, mode=$mode")
         } else {

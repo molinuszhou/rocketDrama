@@ -1,0 +1,577 @@
+package com.dramaflow.app.presentation
+
+import android.animation.AnimatorSet
+import android.animation.ObjectAnimator
+import android.app.AlertDialog
+import android.content.Context
+import android.content.Intent
+import android.content.res.ColorStateList
+import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.net.Uri
+import android.os.Build
+import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
+import android.os.Handler
+import android.os.Looper
+import android.view.Gravity
+import android.view.MotionEvent
+import android.view.View
+import android.view.ViewGroup
+import android.view.animation.AccelerateDecelerateInterpolator
+import android.view.animation.LinearInterpolator
+import android.view.WindowManager
+import android.widget.Button
+import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.ProgressBar
+import android.widget.ScrollView
+import android.widget.SeekBar
+import android.widget.TextView
+import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.fragment.app.FragmentActivity
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.datasource.HttpDataSource
+import androidx.media3.ui.PlayerView
+import coil.load
+import coil.imageLoader
+import coil.request.CachePolicy
+import coil.request.ImageRequest
+import com.dramaflow.app.BuildConfig
+import com.dramaflow.app.R
+import com.dramaflow.app.presentation.DramaAppActivity.MainTab
+import com.dramaflow.app.i18n.AppLanguage
+import com.dramaflow.app.ads.AdConsent
+import com.dramaflow.app.ads.AdConsentStore
+import com.dramaflow.app.ads.TopOnAdsManager
+import com.dramaflow.app.ads.TopOnSettings
+import com.dramaflow.app.content.ShortDramaSdkManager
+import com.dramaflow.app.local.LocalDrama
+import com.dramaflow.app.local.LocalDramaApiClient
+import com.dramaflow.app.local.LocalEpisode
+import com.dramaflow.app.rewards.RewardsApiClient
+import java.text.NumberFormat
+import java.util.Locale
+import java.util.UUID
+import kotlin.random.Random
+
+internal fun DramaAppActivity.showPlayer(drama: LocalDrama, startIndex: Int, resumePositionSeconds: Int = 0) {
+        if (drama.episodes.isEmpty()) {
+            renderLoading(t("loading_episode"))
+            localDramaApi.fetchDrama(
+                baseUrl = localContentBaseUrl(),
+                dramaId = drama.id,
+                region = CONTENT_REGION,
+                userId = anonymousInstallationId(),
+                onSuccess = { detail -> runOnUiThread { showPlayer(detail, startIndex, resumePositionSeconds) } },
+                onFailure = { message -> runOnUiThread { renderFailure(t("episode_load_failed", message)) } },
+            )
+            return
+        }
+
+        releasePlayer()
+        selectedDrama = drama
+        currentEpisodeIndex = startIndex.coerceIn(0, drama.episodes.lastIndex.coerceAtLeast(0))
+        pendingResumePositionSeconds = resumePositionSeconds.coerceAtLeast(0)
+        lastPersistedPlaybackSecond = -1
+        playerProgressSeconds = pendingResumePositionSeconds
+        playerDurationSeconds = 0
+        playerIsSeeking = false
+        playerIsPaused = false
+        playerMuted = false
+        playerSpeed = 1.0f
+        playerDescriptionExpanded = false
+        playerControlsVisible = true
+        playerShown = true
+        root.removeAllViews()
+
+        val player = ExoPlayer.Builder(this).build().also { exoPlayer = it }
+        playerView = PlayerView(this).apply {
+            useController = false
+            setShutterBackgroundColor(Color.BLACK)
+            this.player = player
+        }
+        player.addListener(object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                playerIsPaused = !isPlaying && player.playbackState == Player.STATE_READY
+                updatePauseOverlayVisibility(playerIsPaused && !fullscreenAdInProgress && !pauseNativeAdInProgress)
+                if (isPlaying) {
+                    window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                } else {
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                }
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_READY) {
+                    playerDurationSeconds = player.duration.takeIf { it > 0 }?.div(1_000L)?.toInt()
+                        ?: selectedEpisode()?.durationSeconds.orZero()
+                } else if (playbackState == Player.STATE_ENDED) {
+                    handleEpisodeCompleted(currentEpisodeIndex)
+                }
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                val httpFailure = generateSequence(error as Throwable?) { it.cause }
+                    .filterIsInstance<HttpDataSource.InvalidResponseCodeException>()
+                    .firstOrNull()
+                val diagnostic = httpFailure?.let { "HTTP ${it.responseCode}" } ?: error.errorCodeName
+                logStatus("局域网视频播放失败：$diagnostic ${error.message.orEmpty()}")
+                playerIsPaused = true
+                episodeTransitionInProgress = false
+                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                playerProgressSeekBar?.isEnabled = false
+                val userMessage = when (httpFailure?.responseCode) {
+                    404 -> "视频文件未找到。请核对 Windows media 目录、片单路径与文件名。"
+                    403 -> "播放链接已失效或服务已重启。请重新进入该集。"
+                    402 -> "该分集需要先完成解锁。"
+                    500, 503 -> "Windows 视频服务暂不可用。请检查服务终端日志与本地媒体配置。"
+                    else -> "视频播放失败：$diagnostic"
+                }
+                toast("$userMessage 可在“更多”中选择重新加载本集。")
+            }
+        })
+        root.addView(playerView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        root.addView(createPlayerChrome(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        root.addView(createFloatingRewardWheel(compact = true), FrameLayout.LayoutParams(dp(96), dp(128), Gravity.END or Gravity.CENTER_VERTICAL).apply {
+            marginEnd = dp(10)
+            topMargin = dp(42)
+        })
+        selectEpisode(currentEpisodeIndex)
+        progressHandler.removeCallbacks(progressTicker)
+        progressHandler.post(progressTicker)
+    }
+
+private fun Int?.orZero(): Int = this ?: 0
+
+internal fun DramaAppActivity.createPlayerChrome(): View {
+        val chrome = FrameLayout(this).apply { isClickable = false }
+        chrome.addView(createPlayerGestureLayer(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        playerPauseOverlay = TextView(this).apply {
+            text = "▶\n${t("resume_playback")}"
+            textSize = 15f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(0x99000000.toInt())
+                setStroke(dp(2), 0xCCFFDB6A.toInt())
+            }
+            visibility = View.GONE
+            contentDescription = t("resume_playback")
+            isClickable = true
+            setOnClickListener { resumePlaybackFromPauseOverlay() }
+        }
+        chrome.addView(playerPauseOverlay, FrameLayout.LayoutParams(dp(104), dp(104), Gravity.CENTER))
+        chrome.addView(createPlayerTopBar(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(72), Gravity.TOP))
+
+        val controls = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(10), dp(14), dp(12))
+            background = topRoundedDrawable(0x9E0D0B12.toInt(), 22)
+            isClickable = true
+        }
+        playerControlsPanel = controls
+        val titleRow = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+        titleRow.addView(TextView(this).apply {
+            text = selectedDrama?.title.orEmpty()
+            textSize = 16f
+            maxLines = 1
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        titleRow.addView(transparentPlayerTextButton(t("description"), t("expand_description")) { togglePlayerDescription() }, LinearLayout.LayoutParams(dp(64), dp(32)))
+        controls.addView(titleRow)
+        playerDescriptionView = TextView(this).apply {
+            text = selectedDrama?.desc?.trim().orEmpty().ifBlank { t("no_description") }
+            textSize = 12f
+            maxLines = Int.MAX_VALUE
+            setTextColor(COLOR_TEXT_MUTED)
+            setPadding(0, dp(7), 0, dp(6))
+            visibility = View.VISIBLE
+        }
+        val descriptionScroll = ScrollView(this).apply {
+            isVerticalScrollBarEnabled = true
+            overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+            visibility = View.GONE
+            addView(playerDescriptionView, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        playerDescriptionContainer = descriptionScroll
+        controls.addView(descriptionScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(144)))
+        episodeStatusView = TextView(this).apply {
+            textSize = 12f
+            setTextColor(Color.rgb(208, 195, 216))
+            setPadding(0, dp(4), 0, 0)
+        }
+        controls.addView(episodeStatusView)
+        controls.addView(createPlayerProgressControls())
+        controls.addView(createPlayerActionRow(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)).apply { topMargin = dp(4) })
+        chrome.addView(controls, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
+
+        playerControlsRevealButton = transparentPlayerTextButton(t("show_controls"), t("show_controls")) { setPlayerControlsVisible(true) }.also { it.visibility = View.GONE }
+        chrome.addView(playerControlsRevealButton, FrameLayout.LayoutParams(dp(74), dp(38), Gravity.BOTTOM or Gravity.END).apply {
+            bottomMargin = dp(14)
+            marginEnd = dp(14)
+        })
+        updateEpisodeStatus()
+        updatePlayerProgress(0, 0)
+        return chrome
+    }
+
+internal fun DramaAppActivity.createPlayerTopBar(): View {
+        val shell = FrameLayout(this)
+        val row = LinearLayout(this).apply {
+            gravity = Gravity.CENTER_VERTICAL; setPadding(dp(14), 0, dp(14), 0)
+            addView(ImageView(this@createPlayerTopBar).apply {
+                setImageResource(R.drawable.ic_arrow_back); imageTintList = ColorStateList.valueOf(Color.WHITE); scaleType = ImageView.ScaleType.CENTER_INSIDE
+                background = roundedDrawable(0x5A0D0B12, 15); contentDescription = t("back"); isClickable = true; setOnClickListener { showCatalog() }
+            }, LinearLayout.LayoutParams(dp(44), dp(44)))
+            addView(View(this@createPlayerTopBar), LinearLayout.LayoutParams(0, 1, 1f))
+            addView(createPlayerAssetStrip(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42)))
+        }
+        shell.addView(row, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44), Gravity.TOP).apply { topMargin = dp(14) })
+        ViewCompat.setOnApplyWindowInsetsListener(shell) { _, insets ->
+            val safeTop = insets.getInsets(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()).top
+            val params = row.layoutParams as FrameLayout.LayoutParams
+            params.topMargin = maxOf(safeTop, dp(12)) + dp(8)
+            row.layoutParams = params
+            insets
+        }
+        ViewCompat.requestApplyInsets(shell)
+        return shell
+    }
+
+internal fun DramaAppActivity.createPlayerGestureLayer(): View {
+        var downX = 0f
+        var downY = 0f
+        val swipeThreshold = dp(56).toFloat()
+        val tapThreshold = dp(12).toFloat()
+        return View(this).apply {
+            contentDescription = t("player_gesture_hint")
+            setOnTouchListener { _, event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> { downX = event.x; downY = event.y; true }
+                    MotionEvent.ACTION_UP -> {
+                        val deltaX = event.x - downX; val deltaY = event.y - downY
+                        when {
+                            kotlin.math.abs(deltaX) >= swipeThreshold && kotlin.math.abs(deltaY) < swipeThreshold -> {
+                                switchDramaBySwipe(forward = deltaX < 0f)
+                            }
+                            deltaY <= -swipeThreshold && kotlin.math.abs(deltaX) < swipeThreshold -> triggerSwipeNextEpisode()
+                            deltaY >= swipeThreshold && kotlin.math.abs(deltaX) < swipeThreshold -> triggerSwipePreviousEpisode()
+                            kotlin.math.abs(deltaX) <= tapThreshold && kotlin.math.abs(deltaY) <= tapThreshold && System.currentTimeMillis() >= ignoreVideoTapsUntilMillis -> togglePlaybackFromVideoTap()
+                        }; true
+                    }
+                    MotionEvent.ACTION_CANCEL -> true
+                    else -> true
+                }
+            }
+        }
+    }
+
+internal fun DramaAppActivity.triggerSwipeNextEpisode() {
+        val now = System.currentTimeMillis(); if (now - lastSwipeNextAtMillis < 700L) return
+        lastSwipeNextAtMillis = now; startNextEpisodeAutomatically(currentEpisodeIndex, userInitiated = true)
+    }
+
+internal fun DramaAppActivity.triggerSwipePreviousEpisode() {
+        val now = System.currentTimeMillis(); if (now - lastSwipeNextAtMillis < 700L) return
+        lastSwipeNextAtMillis = now
+        if (currentEpisodeIndex <= 0) switchDramaBySwipe(forward = false) else selectEpisode(currentEpisodeIndex - 1)
+    }
+
+    /** 左右切剧：每累计指定手势次数展示一次独立插屏，广告失败不阻断切剧。 */
+internal fun DramaAppActivity.switchDramaBySwipe(forward: Boolean = true) {
+        if (catalogItems.size < 2 || fullscreenAdInProgress) return
+        val current = selectedDrama ?: return
+        val currentIndex = catalogItems.indexOfFirst { it.id == current.id }.takeIf { it >= 0 } ?: return
+        val nextDrama = catalogItems[(currentIndex + if (forward) 1 else catalogItems.lastIndex) % catalogItems.size]
+        dramaSwitchSwipeCount += 1
+        val policy = rewardsSnapshot?.interstitial
+        val shouldShow = policy?.dramaSwitchEnabled == true && dramaSwitchSwipeCount % policy.dramaSwitchEveryCount == 0
+        val switch = { showPlayer(nextDrama, 0) }
+        if (shouldShow) {
+            showPlaybackActionInterstitial("int_drama_switch", episodeId = selectedEpisode()?.id, countTowardEpisodeLimit = false, onShown = switch, onUnavailable = { reason -> logStatus("切剧插屏未展示：$reason"); switch() })
+        } else switch()
+    }
+
+internal fun DramaAppActivity.requestMidEpisodeInterstitialIfEligible(positionSeconds: Int) {
+        val snapshot = rewardsSnapshot ?: return
+        val policy = snapshot.interstitial
+        val episodeKey = episodeKey(currentEpisodeIndex)
+        if (!playerShown || playerIsPaused || fullscreenAdInProgress || !policy.midEpisodeEnabled) return
+        if (positionSeconds < policy.midEpisodeTriggerSeconds || !midEpisodeInterstitialRequestedEpisodeKeys.add(episodeKey)) return
+        showPlaybackActionInterstitial("int_episode_midroll", episodeId = selectedEpisode()?.id, onShown = {}, onUnavailable = { message ->
+            logStatus("剧中插屏未展示：$message")
+        })
+    }
+
+internal fun DramaAppActivity.completeSeekAndResume(targetSeconds: Int) {
+        val player = exoPlayer
+        if (player == null || player.playbackState != Player.STATE_READY) {
+            playerIsSeeking = false
+            toast(t("player_not_ready"))
+            return
+        }
+        player.seekTo(targetSeconds * 1_000L)
+        playerProgressSeconds = targetSeconds
+        playerIsSeeking = false
+        player.play()
+        playerIsPaused = false
+    }
+
+internal fun DramaAppActivity.createPlayerProgressControls(): View = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        val timeRow = LinearLayout(this@createPlayerProgressControls).apply { gravity = Gravity.CENTER_VERTICAL }
+        playerProgressText = TextView(this@createPlayerProgressControls).apply {
+            textSize = 11f
+            setTextColor(COLOR_TEXT_MUTED)
+            text = "00:00 / --:--"
+        }
+        timeRow.addView(playerProgressText, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        timeRow.addView(TextView(this@createPlayerProgressControls).apply {
+            text = t("seek_to")
+            textSize = 11f
+            setTextColor(COLOR_TEXT_MUTED)
+        })
+        addView(timeRow)
+        playerProgressSeekBar = SeekBar(this@createPlayerProgressControls).apply {
+            max = 1
+            progressTintList = ColorStateList.valueOf(COLOR_ACCENT)
+            thumbTintList = ColorStateList.valueOf(Color.WHITE)
+            setPadding(0, 0, 0, 0)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    if (fromUser) playerProgressText?.text = "${formatPlaybackTime(progress)} / ${formatPlaybackTime(playerDurationSeconds)}"
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) { playerIsSeeking = true }
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                    val targetSeconds = seekBar?.progress ?: return
+                    val policy = rewardsSnapshot?.interstitial
+                    val pendingGems = rewardsSnapshot?.ring?.rewardCoins ?: 0
+                    val rewardThresholdReached = policy != null && pendingGems >= policy.actionRewardThresholdGems
+                    if (policy?.seekEnabled == true && rewardThresholdReached && !seekInterstitialInProgress) {
+                        seekInterstitialInProgress = true
+                        showPlaybackActionInterstitial("int_seek", onShown = {
+                            seekInterstitialInProgress = false
+                            completeSeekAndResume(targetSeconds)
+                        }, onUnavailable = { message ->
+                            seekInterstitialInProgress = false
+                            logStatus("拖拽插屏未展示：$message")
+                            completeSeekAndResume(targetSeconds)
+                        })
+                    } else {
+                        completeSeekAndResume(targetSeconds)
+                    }
+                }
+            })
+        }
+        addView(playerProgressSeekBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(24)))
+    }
+
+internal fun DramaAppActivity.createPlayerActionRow(): View = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        val actions = listOf(
+            Triple(t("episodes"), t("episodes")) { toggleEpisodePicker() },
+            Triple("1x", t("speed")) { showPlaybackSpeedPicker() },
+            Triple(t("more"), t("more")) { showPlaybackMoreControls() },
+            Triple(if (isFavorite()) "♥" else "♡", t("favorite")) { toggleFavorite() },
+            Triple(t("hide"), t("hide")) { setPlayerControlsVisible(false) },
+        )
+        actions.forEachIndexed { index, action ->
+            val button = if (action.second == t("episodes") || action.second == t("more") || action.second == t("hide")) {
+                transparentPlayerTextButton(action.first, action.second, action.third)
+            } else {
+                transparentPlayerIcon(action.first, action.second, action.third)
+            }
+            if (action.first == "1x") speedButton = button
+            if (action.second == t("favorite")) favoriteButton = button
+            addView(button, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply {
+                if (index > 0) marginStart = dp(2)
+            })
+        }
+    }
+
+internal fun DramaAppActivity.togglePlayerDescription() {
+        playerDescriptionExpanded = !playerDescriptionExpanded
+        playerDescriptionContainer?.visibility = if (playerDescriptionExpanded) View.VISIBLE else View.GONE
+    }
+
+internal fun DramaAppActivity.transparentPlayerTextButton(label: String, description: String, onClick: () -> Unit): TextView = TextView(this).apply {
+        text = label
+        textSize = 12f
+        gravity = Gravity.CENTER
+        setTextColor(Color.WHITE)
+        background = roundedDrawable(0x26000000, 14)
+        contentDescription = description
+        setOnClickListener { onClick() }
+        isClickable = true
+    }
+
+internal fun DramaAppActivity.setPlayerControlsVisible(visible: Boolean) {
+        playerControlsVisible = visible
+        playerControlsPanel?.visibility = if (visible) View.VISIBLE else View.GONE
+        playerControlsRevealButton?.visibility = if (visible) View.GONE else View.VISIBLE
+    }
+
+    /** 视频区域单击是唯一的播放/暂停操作；Media3 会同步停止画面、音频和播放时钟。 */
+internal fun DramaAppActivity.updatePauseOverlayVisibility(visible: Boolean) {
+        playerPauseOverlay?.visibility = if (visible) View.VISIBLE else View.GONE
+    }
+
+internal fun DramaAppActivity.resumePlaybackFromPauseOverlay() {
+        val player = exoPlayer ?: return
+        if (player.playbackState == Player.STATE_IDLE) {
+            selectEpisode(currentEpisodeIndex)
+            return
+        }
+        player.play()
+        playerIsPaused = false
+        updatePauseOverlayVisibility(false)
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    }
+
+internal fun DramaAppActivity.togglePlaybackFromVideoTap() {
+        val player = exoPlayer ?: return
+        if (player.isPlaying) {
+            player.pause()
+            playerIsPaused = true
+            updatePauseOverlayVisibility(true)
+            requestPauseInterstitialIfEligible()
+        } else {
+            if (player.playbackState == Player.STATE_IDLE) {
+                selectEpisode(currentEpisodeIndex)
+                return
+            }
+            player.play()
+            playerIsPaused = false
+            updatePauseOverlayVisibility(false)
+        }
+    }
+
+internal fun DramaAppActivity.transparentPlayerIcon(label: String, description: String, onClick: () -> Unit): TextView = TextView(this).apply {
+        text = label
+        textSize = if (label.length > 1) 12f else 21f
+        gravity = Gravity.CENTER
+        setTextColor(Color.WHITE)
+        background = roundedDrawable(0x26000000, 14)
+        contentDescription = description
+        setOnClickListener { onClick() }
+        isClickable = true
+    }
+
+internal fun DramaAppActivity.showPlaybackSpeedPicker() {
+        val speeds = floatArrayOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
+        val labels = speeds.map { "${it}x" }.toTypedArray()
+        val selected = speeds.indexOfFirst { it == playerSpeed }.coerceAtLeast(0)
+        AlertDialog.Builder(this)
+            .setTitle(t("playback_speed"))
+            .setSingleChoiceItems(labels, selected) { dialog, which ->
+                val applySpeed = {
+                    playerSpeed = speeds[which]
+                    exoPlayer?.setPlaybackSpeed(playerSpeed)
+                    speedButton?.text = labels[which]
+                    resumeAfterFullscreenAdIfNeeded()
+                }
+                dialog.dismiss()
+                val policy = rewardsSnapshot?.interstitial
+                val pendingGems = rewardsSnapshot?.ring?.rewardCoins ?: 0
+                val rewardThresholdReached = policy != null && pendingGems >= policy.actionRewardThresholdGems
+                if (policy?.speedEnabled == true && rewardThresholdReached) {
+                    showPlaybackActionInterstitial("int_speed", onShown = applySpeed, onUnavailable = { message ->
+                        logStatus("倍速插屏未展示：$message")
+                        applySpeed()
+                    })
+                } else {
+                    applySpeed()
+                }
+            }
+            .setNegativeButton(t("cancel"), null)
+            .show()
+    }
+
+internal fun DramaAppActivity.showPlaybackMoreControls() {
+        val muteLabel = if (playerMuted) t("restore_sound") else t("mute")
+        AlertDialog.Builder(this)
+            .setTitle(t("playback_settings"))
+            .setItems(arrayOf(muteLabel, t("increase_brightness"), t("restore_brightness"), t("immersive_mode"), t("reload_episode"))) { _, which ->
+                when (which) {
+                    0 -> {
+                        playerMuted = !playerMuted
+                        exoPlayer?.volume = if (playerMuted) 0f else 1f
+                        toast(if (playerMuted) t("muted") else t("sound_restored"))
+                    }
+                    1 -> {
+                        window.attributes = window.attributes.apply { screenBrightness = 1f }
+                        toast(t("brightness_increased"))
+                    }
+                    2 -> {
+                        window.attributes = window.attributes.apply { screenBrightness = -1f }
+                        toast(t("brightness_restored"))
+                    }
+                    3 -> enterImmersivePlayerMode()
+                    4 -> selectEpisode(currentEpisodeIndex)
+                }
+            }
+            .setNegativeButton(t("close"), null)
+            .show()
+    }
+
+internal fun DramaAppActivity.enterImmersivePlayerMode(announce: Boolean = true) {
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowInsetsControllerCompat(window, root).apply {
+            hide(WindowInsetsCompat.Type.systemBars())
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
+        playerInImmersiveMode = true
+        setPlayerControlsVisible(false)
+        if (announce) toast(t("immersive_hint"))
+    }
+
+internal fun DramaAppActivity.exitImmersivePlayerMode() {
+        WindowInsetsControllerCompat(window, root).show(WindowInsetsCompat.Type.systemBars())
+        WindowCompat.setDecorFitsSystemWindows(window, true)
+        playerInImmersiveMode = false
+    }
+
+internal fun DramaAppActivity.updatePlayerProgress(progressSeconds: Int, durationSeconds: Int) {
+        if (playerIsPaused) return
+        playerProgressSeconds = progressSeconds.coerceAtLeast(0)
+        if (durationSeconds > 0) playerDurationSeconds = durationSeconds
+        if (!playerIsSeeking) {
+            playerProgressSeekBar?.apply {
+                max = playerDurationSeconds.coerceAtLeast(1)
+                progress = playerProgressSeconds.coerceAtMost(max)
+            }
+            playerProgressText?.text = "${formatPlaybackTime(playerProgressSeconds)} / ${if (playerDurationSeconds > 0) formatPlaybackTime(playerDurationSeconds) else "--:--"}"
+        }
+    }
+
+internal fun DramaAppActivity.formatPlaybackTime(totalSeconds: Int): String {
+        val safe = totalSeconds.coerceAtLeast(0)
+        return "%02d:%02d".format(Locale.US, safe / 60, safe % 60)
+    }
+
+internal fun DramaAppActivity.actionButton(text: String, onClick: () -> Unit): TextView = TextView(this).apply {
+        this.text = text
+        textSize = 14f
+        gravity = Gravity.CENTER
+        setTextColor(Color.WHITE)
+        background = roundedDrawable(COLOR_SURFACE, 14)
+        setOnClickListener { onClick() }
+        isClickable = true
+    }

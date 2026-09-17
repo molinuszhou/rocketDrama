@@ -31,7 +31,7 @@ import okhttp3.Response
  * 奖励、解锁和宝石账本仍只由 Rewards API 结算。任何上报失败均不会阻断广告关闭、内容播放
  * 或权益结算。
  */
-class PartnerAnalytics private constructor(private val appContext: Context) {
+class EngagementAnalytics private constructor(private val appContext: Context) {
     private val appsFlyer = AppsFlyerLib.getInstance()
     private val firebase by lazy { FirebaseAnalytics.getInstance(appContext) }
     private val httpClient = OkHttpClient()
@@ -242,10 +242,10 @@ class PartnerAnalytics private constructor(private val appContext: Context) {
         private val APPSFLYER_CUMULATIVE_THRESHOLD_USD = BigDecimal("0.01")
 
         @Volatile
-        private var instance: PartnerAnalytics? = null
+        private var instance: EngagementAnalytics? = null
 
-        fun get(context: Context): PartnerAnalytics = instance ?: synchronized(this) {
-            instance ?: PartnerAnalytics(context.applicationContext).also { instance = it }
+        fun get(context: Context): EngagementAnalytics = instance ?: synchronized(this) {
+            instance ?: EngagementAnalytics(context.applicationContext).also { instance = it }
         }
     }
 }

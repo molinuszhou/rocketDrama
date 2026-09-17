@@ -58,7 +58,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dramaflow.app.AppViewModel
-import com.dramaflow.app.partner.PartnerDramaActivity
+import com.dramaflow.app.presentation.DramaAppActivity
 import com.dramaflow.app.data.AppRoute
 import com.dramaflow.app.data.Drama
 import com.dramaflow.app.data.DramaCategory
@@ -115,7 +115,7 @@ fun HomeScreen(padding: PaddingValues, viewModel: AppViewModel) {
         item {
             Surface(
                 modifier = Modifier.fillMaxWidth().clickable {
-                    context.startActivity(Intent(context, PartnerDramaActivity::class.java))
+                    context.startActivity(Intent(context, DramaAppActivity::class.java))
                 },
                 color = Color.White,
                 shape = RoundedCornerShape(20.dp),

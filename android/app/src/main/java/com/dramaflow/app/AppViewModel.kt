@@ -54,7 +54,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** 在正式短剧内容服务完成拉取后调用，页面层会继续复用同一 Drama 模型。 */
-    fun replaceCatalogFromPartner(remoteCatalog: List<Drama>) {
+    fun replaceCatalogFromSource(remoteCatalog: List<Drama>) {
         repository.replaceCatalog(remoteCatalog)
         dramas = repository.allDramas()
         _uiState.update { it.copy(snackMessage = "短剧目录已更新：${dramas.size} 部内容可用") }

@@ -25,12 +25,12 @@
             android:value="${ADMOB_APP_ID}" />
         <uses-library android:name="org.apache.http.legacy" android:required="false" />
         <activity
-            android:name=".partner.PartnerDramaActivity"
+            android:name=".presentation.DramaAppActivity"
             android:exported="false"
             android:theme="@style/Theme.DramaFlow"
             android:configChanges="orientation|screenSize|keyboardHidden" />
         <activity
-            android:name=".MainActivity"
+            android:name=".launcher.LauncherActivity"
             android:exported="true"
             android:screenOrientation="portrait">
             <intent-filter>
