@@ -539,9 +539,9 @@ class PartnerDramaActivity : FragmentActivity() {
         val snapshot = rewardsSnapshot
         content.addView(createRewardsHeroHeader(snapshot), matchParams())
         content.addView(createCrownRoadPanel(snapshot), matchParams(top = 12, bottom = 14))
-        content.addView(createDailyBenefitsPanel(snapshot), matchParams(bottom = 14))
         if (snapshot == null) content.addView(createInlineNotice(t("ledger_note")))
         else content.addView(createRewardChestPanel(snapshot), matchParams(bottom = 16))
+        content.addView(createDailyBenefitsPanel(snapshot), matchParams(bottom = 14))
     }
 
     private fun createRewardsHeroHeader(snapshot: RewardsApiClient.Snapshot?): View = FrameLayout(this).apply {
@@ -555,7 +555,7 @@ class PartnerDramaActivity : FragmentActivity() {
         }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         addView(LinearLayout(this@PartnerDramaActivity).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(2), dp(20), dp(12))
+            setPadding(dp(20), 0, dp(20), dp(12))
             addView(TextView(this@PartnerDramaActivity).apply {
                 text = t("reward_center"); textSize = 29f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY)
             })
@@ -570,7 +570,7 @@ class PartnerDramaActivity : FragmentActivity() {
             addView(TextView(this@PartnerDramaActivity).apply {
                 text = t("reward_balance_tap_hint"); textSize = 11f; gravity = Gravity.CENTER; setTextColor(0xA619202B.toInt()); setPadding(0, dp(8), 0, 0)
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
+        }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM).apply { bottomMargin = dp(8); topMargin = -dp(8) })
     }
 
     private fun createRewardBalance(label: String, value: String, compact: Boolean, isGem: Boolean, onClick: () -> Unit): View = LinearLayout(this).apply {
@@ -614,9 +614,9 @@ class PartnerDramaActivity : FragmentActivity() {
             val row = LinearLayout(this@PartnerDramaActivity).apply { gravity = Gravity.CENTER_VERTICAL }
             crowns.forEachIndexed { index, level ->
                 if (index > 0) row.addView(TextView(this@PartnerDramaActivity).apply { text = "${level.rounds.target}"; textSize = 9f; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_MUTED); background = roundedDrawable(0xFFFFE0D3.toInt(), 8) }, LinearLayout.LayoutParams(0, dp(26), 0.22f))
-                row.addView(createCrownMilestone(level), LinearLayout.LayoutParams(0, dp(146), 1f))
+                row.addView(createCrownMilestone(level), LinearLayout.LayoutParams(0, dp(130), 1f))
             }
-            addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(154)).apply { topMargin = dp(12) })
+            addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(138)).apply { topMargin = dp(10) })
         }
     }
 
@@ -633,15 +633,15 @@ class PartnerDramaActivity : FragmentActivity() {
                     "SILVER" -> 0xFF9CA6B5.toInt()
                     else -> 0xFFE6815D.toInt()
                 })
-            }, FrameLayout.LayoutParams(dp(62), dp(62), Gravity.CENTER))
-            addView(TextView(this@PartnerDramaActivity).apply { text = level.levelRank.toString(); textSize = 11f; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_PRIMARY); background = roundedDrawable(Color.WHITE, 20) }, FrameLayout.LayoutParams(dp(22), dp(22), Gravity.TOP or Gravity.END))
+            }, FrameLayout.LayoutParams(dp(52), dp(52), Gravity.CENTER))
+            addView(TextView(this@PartnerDramaActivity).apply { text = level.levelRank.toString(); textSize = 10f; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_PRIMARY); background = roundedDrawable(Color.WHITE, 20) }, FrameLayout.LayoutParams(dp(19), dp(19), Gravity.TOP or Gravity.END))
         }
-        addView(badge, LinearLayout.LayoutParams(dp(76), dp(76)))
-        addView(TextView(this@PartnerDramaActivity).apply { text = t(crownTitleKey(level.code)); textSize = 12f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_PRIMARY); maxLines = 1; setPadding(0, dp(4), 0, 0) })
-        val reward = LinearLayout(this@PartnerDramaActivity).apply { gravity = Gravity.CENTER; addView(ImageView(this@PartnerDramaActivity).apply { setImageResource(R.drawable.reward_gem_crystal); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(20), dp(20))); addView(TextView(this@PartnerDramaActivity).apply { text = formatGems(level.gems); textSize = 11f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_CORAL); setPadding(dp(2), 0, 0, 0) }) }
+        addView(badge, LinearLayout.LayoutParams(dp(62), dp(62)))
+        addView(TextView(this@PartnerDramaActivity).apply { text = t(crownTitleKey(level.code)); textSize = 11f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_PRIMARY); maxLines = 1; setPadding(0, dp(2), 0, 0) })
+        val reward = LinearLayout(this@PartnerDramaActivity).apply { gravity = Gravity.CENTER; addView(ImageView(this@PartnerDramaActivity).apply { setImageResource(R.drawable.reward_gem_crystal); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(17), dp(17))); addView(TextView(this@PartnerDramaActivity).apply { text = formatGems(level.gems); textSize = 10f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_CORAL); setPadding(dp(2), 0, 0, 0) }) }
         addView(reward)
-        addView(TextView(this@PartnerDramaActivity).apply { text = String.format(Locale.US, "%.2fx", level.episodeRewardMultiplier); textSize = 11f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_CORAL); setPadding(0, dp(2), 0, 0) })
-        addView(TextView(this@PartnerDramaActivity).apply { text = "${level.rounds.current}/${level.rounds.target}"; textSize = 10f; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(2), 0, 0) })
+        addView(TextView(this@PartnerDramaActivity).apply { text = String.format(Locale.US, "%.2fx", level.episodeRewardMultiplier); textSize = 10f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_CORAL); setPadding(0, dp(1), 0, 0) })
+        addView(TextView(this@PartnerDramaActivity).apply { text = "${level.rounds.current}/${level.rounds.target}"; textSize = 9f; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(1), 0, 0) })
     }
 
     private fun createCrownLevelRow(level: RewardsApiClient.CrownProgress, all: List<RewardsApiClient.CrownProgress>): View = LinearLayout(this).apply {
