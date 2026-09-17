@@ -117,7 +117,7 @@ internal fun DramaAppActivity.updateFloatingRewardBoostButton(button: TextView) 
             return
         }
         button.visibility = View.VISIBLE
-        button.text = t("double_episode_reward")
+        button.text = t("floating_boost_short")
         button.setTextColor(Color.WHITE)
         button.background = gradientDrawable(intArrayOf(0xFFFF9A62.toInt(), 0xFFFF5C63.toInt()), 14)
         button.isClickable = episodeId != null
@@ -130,7 +130,7 @@ internal fun DramaAppActivity.updateFloatingRewardWheel(label: TextView) {
         label.text = when {
             ring == null -> "…"
             ring.claimable -> "+${ring.rewardCoins}"
-            else -> t("watch_to_earn")
+            else -> "0"
         }
     }
 

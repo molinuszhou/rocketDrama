@@ -68,6 +68,11 @@ class WelcomeBonusRequest(BaseModel):
     user_id: str = Field(min_length=1, max_length=128)
 
 
+class ReviewRewardClaimRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=128)
+    reference_id: str = Field(min_length=8, max_length=160)
+
+
 class EpisodeRewardClaimRequest(BaseModel):
     user_id: str = Field(min_length=1, max_length=128)
     episode_id: str = Field(min_length=1, max_length=256)
@@ -99,6 +104,7 @@ class RewardPolicyUpdateRequest(BaseModel):
     speed_interstitial_enabled: bool | None = None
     speed_interstitial_hourly_limit: int | None = Field(default=None, ge=0, le=240)
     action_interstitial_reward_threshold_gems: int | None = Field(default=None, ge=0, le=1_000_000_000)
+    review_reward_gems: int | None = Field(default=None, ge=0, le=10_000_000_000)
     crown_rewarded_ads_per_episode: int | None = Field(default=None, ge=1, le=10)
     release_boost_percent: float | None = Field(default=None, gt=0.0, le=1.0)
     release_boost_daily_limit: int | None = Field(default=None, ge=0, le=100)

@@ -162,6 +162,7 @@ internal fun DramaAppActivity.selectEpisode(index: Int) {
         // A replay is a new viewing session: timing and per-episode ad capacity must not inherit prior runs.
         midEpisodeInterstitialRequestedEpisodeKeys.remove(episodeKey(index))
         interstitialRequestedEpisodeKeys.remove(episodeKey(index))
+        actionInterstitialShownEpisodeKeys.remove("${selectedDrama?.id}:${episode.id}")
         interstitialCountByEpisodeKey.remove("${selectedDrama?.id}:${episode.id}")
         episodePlaybackStartedAtElapsedMillis = 0L
         episodePlaybackPausedAtElapsedMillis = 0L

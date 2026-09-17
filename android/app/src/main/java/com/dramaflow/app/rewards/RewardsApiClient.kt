@@ -102,6 +102,12 @@ class RewardsApiClient(
         val gems: Long,
     )
 
+    data class ReviewReward(
+        val available: Boolean = false,
+        val claimed: Boolean = false,
+        val gems: Long = 0L,
+    )
+
     data class CrownMetric(val current: Int, val target: Int)
 
     data class CrownProgress(
@@ -210,6 +216,7 @@ class RewardsApiClient(
         val episodesToNextRandomChest: Int = 0,
         val ring: Ring,
         val welcome: WelcomeReward,
+        val review: ReviewReward = ReviewReward(),
         val unlock: UnlockRule,
         val unlockedEpisodeTargets: Set<String> = emptySet(),
         val checkinSignedToday: Boolean,
@@ -346,6 +353,13 @@ class RewardsApiClient(
         }, onFailure,
     )
 
+    fun claimReviewReward(userId: String, onSuccess: (RewardAction) -> Unit, onFailure: (String) -> Unit) = post(
+        "/v2/reviews/claim", JSONObject().put("user_id", userId).put("reference_id", "review-${UUID.randomUUID()}"), { data ->
+            val result = data.optJSONObject("result") ?: JSONObject()
+            onSuccess(RewardAction(data.optBoolean("idempotent"), result.optString("action", "APP_REVIEW"), result.optLong("gems_added"), parseSnapshot(data.getJSONObject("snapshot"))))
+        }, onFailure,
+    )
+
     fun exchangeGems(userId: String, gems: Long, onSuccess: (Snapshot) -> Unit, onFailure: (String) -> Unit) = post(
         "/v2/wallet/exchange",
         JSONObject().put("user_id", userId).put("gems", gems).put("reference_id", "exchange-${UUID.randomUUID()}"),
@@ -386,6 +400,7 @@ class RewardsApiClient(
         val today = json.getJSONObject("today")
         val checkin = json.getJSONObject("checkin")
         val unlock = json.getJSONObject("episode_unlock")
+        val review = json.optJSONObject("review") ?: JSONObject()
         val chest = json.getJSONObject("chest")
         val interstitial = json.getJSONObject("interstitial")
         val withdrawal = json.getJSONObject("withdrawal")
@@ -439,6 +454,7 @@ class RewardsApiClient(
             episodesToNextRandomChest = today.optInt("episodes_to_next_random_chest", 0).coerceAtLeast(0),
             ring = (json.optJSONObject("ring") ?: JSONObject()).let { Ring(it.optBoolean("enabled", true), it.optInt("progress"), it.optInt("target", 1).coerceAtLeast(1), it.optBoolean("claimable"), it.optLong("reward_gems").coerceAtMost(Int.MAX_VALUE.toLong()).toInt(), it.optString("label", "攒币")) },
             welcome = (json.optJSONObject("welcome") ?: JSONObject()).let { WelcomeReward(it.optBoolean("available"), it.optBoolean("claimed"), it.optLong("gems")) },
+            review = ReviewReward(review.optBoolean("available"), review.optBoolean("claimed"), review.optLong("gems")),
             unlock = UnlockRule(
                 unlock.optInt("free_episodes_count", 3),
                 today.optInt("rv_daily_limit", 20),

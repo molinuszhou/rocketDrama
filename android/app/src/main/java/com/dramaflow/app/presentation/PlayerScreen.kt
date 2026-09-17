@@ -83,6 +83,10 @@ internal fun DramaAppActivity.showPlayer(drama: LocalDrama, startIndex: Int, res
         }
 
         releasePlayer()
+        // Keep the player behind the visible system bars. Top controls consume the inset exactly once,
+        // which prevents the white safe-band and clipped toolbar seen after an interstitial returns.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowInsetsControllerCompat(window, root).show(WindowInsetsCompat.Type.systemBars())
         selectedDrama = drama
         currentEpisodeIndex = startIndex.coerceIn(0, drama.episodes.lastIndex.coerceAtLeast(0))
         pendingResumePositionSeconds = resumePositionSeconds.coerceAtLeast(0)
@@ -186,7 +190,7 @@ internal fun DramaAppActivity.createPlayerChrome(): View {
             setOnClickListener { resumePlaybackFromPauseOverlay() }
         }
         chrome.addView(playerPauseOverlay, FrameLayout.LayoutParams(dp(104), dp(104), Gravity.CENTER))
-        chrome.addView(createPlayerTopBar(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(72), Gravity.TOP))
+        chrome.addView(createPlayerTopBar(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.TOP))
 
         val controls = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -242,22 +246,23 @@ internal fun DramaAppActivity.createPlayerChrome(): View {
     }
 
 internal fun DramaAppActivity.createPlayerTopBar(): View {
-        val shell = FrameLayout(this)
+        val shell = FrameLayout(this).apply { clipChildren = false; clipToPadding = false }
         val back = ImageView(this).apply {
             setImageResource(R.drawable.ic_arrow_back)
             imageTintList = ColorStateList.valueOf(Color.WHITE)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            background = roundedDrawable(0x5A0D0B12, 15)
+            background = roundedDrawable(0x720D0B12, 17)
             contentDescription = t("back")
             isClickable = true
             setOnClickListener { showCatalog() }
         }
         val assets = createPlayerAssetStrip()
-        shell.addView(back, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.TOP or Gravity.START).apply { topMargin = dp(14); marginStart = dp(14) })
+        // The back action remains safely left-aligned while balances are optically centered over the video.
+        shell.addView(back, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.TOP or Gravity.START).apply { topMargin = dp(14); marginStart = dp(16) })
         shell.addView(assets, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(15) })
         ViewCompat.setOnApplyWindowInsetsListener(shell) { _, insets ->
             val safeTop = insets.getInsets(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()).top
-            val margin = maxOf(safeTop, dp(12)) + dp(8)
+            val margin = safeTop + dp(10)
             (back.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = margin; back.layoutParams = params }
             (assets.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = margin + dp(1); assets.layoutParams = params }
             insets
@@ -378,9 +383,7 @@ internal fun DramaAppActivity.createPlayerProgressControls(): View = LinearLayou
                 override fun onStopTrackingTouch(seekBar: SeekBar?) {
                     val targetSeconds = seekBar?.progress ?: return
                     val policy = rewardsSnapshot?.interstitial
-                    val pendingGems = rewardsSnapshot?.ring?.rewardCoins ?: 0
-                    val rewardThresholdReached = policy != null && pendingGems >= policy.actionRewardThresholdGems
-                    if (policy?.seekEnabled == true && rewardThresholdReached && !seekInterstitialInProgress) {
+                    if (policy?.seekEnabled == true && !seekInterstitialInProgress) {
                         seekInterstitialInProgress = true
                         showPlaybackActionInterstitial("int_seek", onShown = {
                             seekInterstitialInProgress = false
@@ -503,9 +506,7 @@ internal fun DramaAppActivity.showPlaybackSpeedPicker() {
                 resumeAfterFullscreenAdIfNeeded()
             }
             val policy = rewardsSnapshot?.interstitial
-            val pendingGems = rewardsSnapshot?.ring?.rewardCoins ?: 0
-            val rewardThresholdReached = policy != null && pendingGems >= policy.actionRewardThresholdGems
-            if (policy?.speedEnabled == true && rewardThresholdReached) {
+            if (policy?.speedEnabled == true) {
                 showPlaybackActionInterstitial("int_speed", onShown = applySpeed, onUnavailable = { message ->
                     logStatus("Speed interstitial unavailable: $message")
                     applySpeed()

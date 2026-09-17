@@ -73,7 +73,10 @@ internal fun DramaAppActivity.createTasksPage(): View {
         val snapshot = rewardsSnapshot
         content.addView(createRewardsHeroHeader(snapshot), matchParams())
         if (snapshot == null) content.addView(createInlineNotice(t("ledger_note")), matchParams(top = 12, bottom = 14))
-        else content.addView(createRewardChestPanel(snapshot), matchParams(top = 12, bottom = 14))
+        else {
+            content.addView(createRewardChestPanel(snapshot), matchParams(top = 12, bottom = 12))
+            content.addView(createReviewRewardPanel(snapshot), matchParams(bottom = 14))
+        }
         content.addView(createDailyBenefitsPanel(snapshot), matchParams(bottom = 14))
         content.addView(createCrownRoadPanel(snapshot), matchParams(bottom = 14))
     }
@@ -141,6 +144,75 @@ internal fun DramaAppActivity.createRewardBalance(label: String, value: String, 
 }
 
 /** Crown Road uses one readable row per level so all benefits fit without horizontal compression. */
+/** A once-only store review reward. Amount and claim state are supplied by the rewards ledger. */
+internal fun DramaAppActivity.createReviewRewardPanel(snapshot: RewardsApiClient.Snapshot): View = LinearLayout(this).apply {
+    gravity = Gravity.CENTER_VERTICAL
+    setPadding(dp(15), dp(14), dp(14), dp(14))
+    background = gradientDrawable(intArrayOf(0xFFFFF5E8.toInt(), 0xFFFFE3C5.toInt()), 22)
+    addView(ImageView(this@createReviewRewardPanel).apply {
+        setImageResource(R.drawable.ic_rating_star)
+        scaleType = ImageView.ScaleType.CENTER_INSIDE
+    }, LinearLayout.LayoutParams(dp(48), dp(48)))
+    addView(LinearLayout(this@createReviewRewardPanel).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(10), 0, dp(8), 0)
+        addView(TextView(this@createReviewRewardPanel).apply {
+            text = t("review_reward_title")
+            textSize = 17f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(COLOR_TEXT_PRIMARY)
+        })
+        addView(TextView(this@createReviewRewardPanel).apply {
+            text = if (snapshot.review.claimed) t("review_reward_thanks") else t("review_reward_subtitle", formatGems(snapshot.review.gems))
+            textSize = 11f
+            maxLines = 2
+            setTextColor(COLOR_TEXT_MUTED)
+            setPadding(0, dp(3), 0, 0)
+        })
+    }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+    addView(TextView(this@createReviewRewardPanel).apply {
+        text = if (snapshot.review.claimed) t("review_reward_done") else "+${formatCompactGems(snapshot.review.gems)}"
+        textSize = 13f
+        typeface = Typeface.DEFAULT_BOLD
+        gravity = Gravity.CENTER
+        setTextColor(if (snapshot.review.claimed) COLOR_TEXT_MUTED else Color.WHITE)
+        background = roundedDrawable(if (snapshot.review.claimed) 0x55FFFFFF else COLOR_CORAL, 17)
+        setPadding(dp(11), dp(9), dp(11), dp(9))
+        isClickable = snapshot.review.available
+        alpha = if (snapshot.review.available) 1f else .72f
+        setOnClickListener { if (snapshot.review.available) requestStoreReviewReward(snapshot.review.gems) }
+    })
+}
+
+internal fun DramaAppActivity.requestStoreReviewReward(gems: Long) {
+    showBrandedChoiceDialog(
+        t("review_reward_title"),
+        t("review_reward_message", formatGems(gems)),
+        t("review_reward_action"),
+        onPrimary = {
+            val packageUri = Uri.parse("market://details?id=$packageName")
+            val webUri = Uri.parse("https://play.google.com/store/apps/details?id=$packageName")
+            val launched = runCatching { startActivity(Intent(Intent.ACTION_VIEW, packageUri)) }
+                .recoverCatching { startActivity(Intent(Intent.ACTION_VIEW, webUri)) }
+                .isSuccess
+            if (launched) pendingReviewRewardConfirmation = true
+            else showBrandedChoiceDialog(t("review_reward_title"), t("review_store_unavailable"), t("done"))
+        }, secondaryLabel = t("later"),
+    )
+}
+
+internal fun DramaAppActivity.showReviewRewardConfirmation() {
+    showBrandedChoiceDialog(
+        t("review_reward_title"), t("review_reward_confirm"), t("review_reward_claim"),
+        onPrimary = {
+            rewardsApi.claimReviewReward(anonymousInstallationId(), { action -> runOnUiThread {
+                applyRewardsSnapshot(action.snapshot)
+                toast(if (action.idempotent) t("review_reward_done") else t("gems_claimed", action.gemsAdded))
+            } }, { message -> runOnUiThread { showBrandedChoiceDialog(t("review_reward_title"), message, t("done")) } })
+        }, secondaryLabel = t("later"),
+    )
+}
+
 internal fun DramaAppActivity.createCrownRoadPanel(snapshot: RewardsApiClient.Snapshot?): View = LinearLayout(this).apply {
     orientation = LinearLayout.VERTICAL
     setPadding(dp(16), dp(16), dp(16), dp(13))

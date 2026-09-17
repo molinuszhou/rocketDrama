@@ -21,6 +21,7 @@ from app.schemas import (
     InterstitialShownRequest,
     RewardedCompleteRequest,
     RewardPolicyUpdateRequest,
+    ReviewRewardClaimRequest,
     TenRoundClaimRequest,
     WelcomeBonusRequest,
     WatchEventRequest,
@@ -99,6 +100,11 @@ def checkin(payload: CheckinRequest) -> dict:
 @app.post("/v2/welcome/claim", response_model=ApiEnvelope)
 def claim_welcome_bonus(payload: WelcomeBonusRequest) -> dict:
     return {"code": 0, "data": service.claim_welcome_bonus(payload.user_id)}
+
+
+@app.post("/v2/reviews/claim", response_model=ApiEnvelope)
+def claim_review_reward(payload: ReviewRewardClaimRequest) -> dict:
+    return {"code": 0, "data": service.claim_review_reward(payload.user_id, payload.reference_id)}
 
 
 @app.post("/v2/episode-rewards/claim", response_model=ApiEnvelope)

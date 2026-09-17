@@ -167,6 +167,12 @@ internal fun DramaAppActivity.resumeAfterFullscreenAdIfNeeded() {
         }
         restoreImmersiveAfterFullscreenAd = false
         resumeAfterFullscreenAd = false
+        // TopOn temporarily enables decor fitting for the advertisement safe band. Restore the player canvas
+        // before recalculating controls, otherwise the status-bar inset is applied twice after an ad closes.
+        if (playerShown && !playerInImmersiveMode) {
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+            WindowInsetsControllerCompat(window, root).show(WindowInsetsCompat.Type.systemBars())
+        }
         root.requestLayout()
         ViewCompat.requestApplyInsets(root)
     }
@@ -185,6 +191,10 @@ internal fun DramaAppActivity.showPlaybackActionInterstitial(
     ) {
         val policy = rewardsSnapshot?.interstitial
         val episodeKey = episodeId?.let { "${selectedDrama?.id}:$it" }
+        val isSessionActionPlacement = placementId in setOf("int_seek", "int_speed", "int_episode_midroll")
+        if (isSessionActionPlacement && episodeKey != null && episodeKey in actionInterstitialShownEpisodeKeys) {
+            onUnavailable("本次观看已展示插屏"); return
+        }
         if (countTowardEpisodeLimit && policy != null && policy.episodeInterstitialLimit > 0 && episodeKey != null && (interstitialCountByEpisodeKey[episodeKey] ?: 0) >= policy.episodeInterstitialLimit) {
             onUnavailable("本集插屏次数已达上限"); return
         }
@@ -200,6 +210,7 @@ internal fun DramaAppActivity.showPlaybackActionInterstitial(
                 TopOnAdsManager.FullscreenResult.Shown -> {
                     resumeAfterFullscreenAdIfNeeded()
                     val settled = {
+                        if (isSessionActionPlacement && episodeKey != null) actionInterstitialShownEpisodeKeys.add(episodeKey)
                         if (countTowardEpisodeLimit && episodeKey != null) interstitialCountByEpisodeKey[episodeKey] = (interstitialCountByEpisodeKey[episodeKey] ?: 0) + 1
                         onShown()
                     }

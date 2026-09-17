@@ -157,6 +157,8 @@ class DramaAppActivity : FragmentActivity() {
     internal val sessionUnlockedEpisodeKeys = mutableSetOf<String>()
     internal val interstitialRequestedEpisodeKeys = mutableSetOf<String>()
     internal val midEpisodeInterstitialRequestedEpisodeKeys = mutableSetOf<String>()
+    /** First successful seek/speed/mid-roll per viewing session wins; unavailable ads never reserve the slot. */
+    internal val actionInterstitialShownEpisodeKeys = mutableSetOf<String>()
     internal var seekInterstitialInProgress = false
     /** 仅统计“剧中/拖动/倍速/激励回退”等受每集互斥约束的插屏；横滑切剧有独立频控。 */
     internal val interstitialCountByEpisodeKey = mutableMapOf<String, Int>()
@@ -173,6 +175,8 @@ class DramaAppActivity : FragmentActivity() {
     internal var gemFlightInProgress = false
     /** Avoid repeatedly interrupting the viewer with the same accumulated-gem prompt. */
     internal var lastFloatingClaimPromptedGems = 0
+    /** Store review confirmation is deferred until the user returns from the external store surface. */
+    internal var pendingReviewRewardConfirmation = false
     /** Rewards page exposes this only after the hero scrolls away. */
     internal var rewardsStickyAssetHeader: View? = null
     internal var ignoreVideoTapsUntilMillis = 0L
@@ -219,6 +223,10 @@ class DramaAppActivity : FragmentActivity() {
     override fun onPostResume() {
         super.onPostResume()
         if (!startupContentInitializationStarted) maybeShowAppOpenAd()
+        if (pendingReviewRewardConfirmation && !fullscreenAdInProgress) {
+            pendingReviewRewardConfirmation = false
+            root.post { if (!isFinishing && !isDestroyed) showReviewRewardConfirmation() }
+        }
         if (resumePlaybackWhenForeground && playerShown && !fullscreenAdInProgress && !pauseNativeAdInProgress) {
             exoPlayer?.play()
             playerIsPaused = false
@@ -401,6 +409,7 @@ class DramaAppActivity : FragmentActivity() {
 
     internal fun showCatalog() {
         exitImmersivePlayerMode()
+        WindowCompat.setDecorFitsSystemWindows(window, true)
         playerShown = false
         activeTab = MainTab.HOME
         releasePlayer()

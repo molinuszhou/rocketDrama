@@ -244,6 +244,27 @@ class RewardsService:
         # v7 起欢迎奖励必须由 rv_welcome_bonus 广告事件结算；保留方法仅防止旧客户端绕过广告。
         raise ServiceError(1601, "欢迎奖励需要完整观看激励广告，请升级客户端后重试", 409)
 
+    def claim_review_reward(self, user_id: str, reference_id: str) -> dict[str, Any]:
+        """Grant the server-configured, once-only review reward after an explicit client confirmation.
+
+        Android store surfaces do not provide a verifiable star-rating callback. The UI therefore opens the
+        store first and requires a second explicit confirmation; the ledger enforces one grant per user.
+        """
+        with self._transaction() as connection:
+            self._ensure_user(connection, user_id)
+            existing = self._one(connection, "SELECT gems FROM app_review_rewards WHERE user_id = %s FOR UPDATE", (user_id,))
+            if existing:
+                return {"idempotent": True, "result": {"action": "APP_REVIEW", "gems_added": 0}, "snapshot": self._snapshot(connection, user_id)}
+            policy = self._policy(connection)
+            configured_gems = int(policy["review_reward_gems"])
+            self._execute(
+                connection,
+                "INSERT INTO app_review_rewards (user_id, gems, reference_id) VALUES (%s, %s, %s)",
+                (user_id, configured_gems, reference_id),
+            )
+            credited = self._credit_gems(connection, user_id, configured_gems, policy, "APP_REVIEW", "app_review", reference_id)
+            return {"idempotent": False, "result": {"action": "APP_REVIEW", "gems_added": credited}, "snapshot": self._snapshot(connection, user_id)}
+
     def _legacy_claim_welcome_bonus(self, user_id: str) -> dict[str, Any]:
         with self._transaction() as connection:
             self._ensure_user(connection, user_id)
@@ -417,7 +438,7 @@ class RewardsService:
             "reward_claim_interstitial_enabled", "mid_episode_interstitial_enabled", "mid_episode_interstitial_trigger_seconds",
             "mid_episode_interstitial_hourly_limit", "seek_interstitial_enabled", "seek_interstitial_hourly_limit",
             "next_episode_interstitial_enabled", "speed_interstitial_enabled", "speed_interstitial_hourly_limit",
-            "action_interstitial_reward_threshold_gems", "rv_daily_limit", "episode_interstitial_limit",
+            "action_interstitial_reward_threshold_gems", "review_reward_gems", "rv_daily_limit", "episode_interstitial_limit",
             "drama_switch_interstitial_enabled", "drama_switch_interstitial_every_count", "drama_switch_interstitial_hourly_limit",
             "rewarded_fallback_interstitial_enabled", "gems_earned_cap", "gem_damping_tier1_threshold",
             "gem_damping_tier2_threshold", "gem_damping_tier3_threshold", "gem_damping_tier1_multiplier",
@@ -1257,6 +1278,7 @@ class RewardsService:
         chest_counts = {item["source_kind"]: int(item["count"]) for item in chest_rows}
         achievements = self._all(connection, "SELECT code, gems, virtual_entitlement, earned_at FROM user_achievements WHERE user_id = %s ORDER BY earned_at", (user_id,))
         welcome = self._one(connection, "SELECT gems, state FROM welcome_rewards WHERE user_id = %s", (user_id,))
+        review = self._one(connection, "SELECT gems, claimed_at FROM app_review_rewards WHERE user_id = %s", (user_id,))
         recent_ledger = self._all(
             connection,
             """
@@ -1339,6 +1361,11 @@ class RewardsService:
                 "available": welcome is not None and welcome["state"] == "PENDING",
                 "claimed": welcome is not None and welcome["state"] == "CLAIMED",
                 "gems": int(welcome["gems"]) if welcome else 0,
+            },
+            "review": {
+                "available": review is None,
+                "claimed": review is not None,
+                "gems": int(review["gems"]) if review else int(policy["review_reward_gems"]),
             },
             "ring": {
                 "enabled": True,
@@ -1758,6 +1785,7 @@ class RewardsService:
             "speed_interstitial_enabled": bool(policy["speed_interstitial_enabled"]),
             "speed_interstitial_hourly_limit": int(policy["speed_interstitial_hourly_limit"]),
             "action_interstitial_reward_threshold_gems": int(policy["action_interstitial_reward_threshold_gems"]),
+            "review_reward_gems": int(policy["review_reward_gems"]),
             "crown_rewarded_ads_per_episode": int(policy["crown_rewarded_ads_per_episode"]),
             "release_boost_percent": float(policy["release_boost_percent"]),
             "release_boost_daily_limit": int(policy["release_boost_daily_limit"]),
