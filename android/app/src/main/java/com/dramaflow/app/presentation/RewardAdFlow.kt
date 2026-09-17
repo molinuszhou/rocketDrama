@@ -175,6 +175,20 @@ internal fun DramaAppActivity.resumeAfterFullscreenAdIfNeeded() {
         }
         root.requestLayout()
         ViewCompat.requestApplyInsets(root)
+        // Some ad networks restore decor fitting one frame after their close callback. Re-dispatch
+        // insets after that frame as well, so the back button and balance strip share one baseline.
+        root.post {
+            root.requestLayout()
+            ViewCompat.requestApplyInsets(root)
+        }
+        root.postDelayed({
+            if (!isFinishing && !isDestroyed && playerShown) {
+                WindowCompat.setDecorFitsSystemWindows(window, false)
+                WindowInsetsControllerCompat(window, root).show(WindowInsetsCompat.Type.systemBars())
+                root.requestLayout()
+                ViewCompat.requestApplyInsets(root)
+            }
+        }, 120L)
     }
 
     /**
