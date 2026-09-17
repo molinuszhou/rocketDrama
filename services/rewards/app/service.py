@@ -1292,6 +1292,8 @@ class RewardsService:
                 "currency": currency,
                 "total_gems_earned": user["total_gems_earned"],
                 "exchange_rate_gems": 10000,
+                "exchange_value_per_10000_gems": self._money(int(wallet_policy["currency_micros_per_10000_gems"]), wallet_policy),
+                "exchange_value_per_10000_gems_usd_reference": self._usd_reference_money(int(wallet_policy["usd_micros_per_10000_gems"]), wallet_policy),
                 "minimum_exchange_gems": policy["minimum_exchange_gems"],
                 "release": {
                     "released_today": user["last_wallet_release_date"] == business_date,

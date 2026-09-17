@@ -141,31 +141,76 @@ internal fun DramaAppActivity.showStartupCheckinWhenReady() {
         }
     }
 
+/** Full-screen welcome celebration: content is genuinely centered inside a transparent full-window Dialog. */
 internal fun DramaAppActivity.showWelcomeRewardDialog(snapshot: RewardsApiClient.Snapshot, onFinished: () -> Unit) {
-        val dialog = AlertDialog.Builder(this).create()
-        val page = FrameLayout(this).apply { background = gradientDrawable(intArrayOf(0xFFFFE2D1.toInt(), 0xFFF5EDFF.toInt(), 0xFFDDF7F4.toInt()), 0) }
+        val dialog = android.app.Dialog(this)
+        dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
+        val page = FrameLayout(this).apply {
+            background = gradientDrawable(intArrayOf(0xFFFFE2D1.toInt(), 0xFFF5EDFF.toInt(), 0xFFDDF7F4.toInt()), 0)
+        }
         addWelcomeConfetti(page)
-        val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; setPadding(dp(30), dp(18), dp(30), dp(18)) }
-        val gem = ImageView(this@showWelcomeRewardDialog).apply { setImageResource(R.drawable.reward_gem_crystal); scaleType = ImageView.ScaleType.CENTER_INSIDE }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(30), dp(20), dp(30), dp(20))
+        }
+        val gem = ImageView(this@showWelcomeRewardDialog).apply {
+            setImageResource(R.drawable.reward_gem_crystal)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+        }
         content.addView(gem, LinearLayout.LayoutParams(dp(154), dp(154)))
-        content.addView(TextView(this@showWelcomeRewardDialog).apply { text = t("welcome_title"); textSize = 30f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_PRIMARY); setPadding(0, dp(6), 0, 0) })
-        content.addView(TextView(this@showWelcomeRewardDialog).apply { text = t("welcome_subtitle"); textSize = 15f; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(8), dp(0), dp(20)) })
-        content.addView(TextView(this@showWelcomeRewardDialog).apply { text = "+${formatGems(snapshot.welcome.gems)} ${t("gems")}"; textSize = 34f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_CORAL); background = roundedDrawable(0xB8FFFFFF.toInt(), 20); setPadding(dp(22), dp(14), dp(22), dp(14)) })
-        content.addView(TextView(this@showWelcomeRewardDialog).apply { text = t("welcome_reward_message", snapshot.welcome.gems); textSize = 13f; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(16), 0, dp(16)) })
+        content.addView(TextView(this@showWelcomeRewardDialog).apply {
+            text = t("welcome_title"); textSize = 30f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_PRIMARY); setPadding(0, dp(6), 0, 0)
+        })
+        content.addView(TextView(this@showWelcomeRewardDialog).apply {
+            text = t("welcome_subtitle"); textSize = 15f; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(8), 0, dp(16))
+        })
+        content.addView(TextView(this@showWelcomeRewardDialog).apply {
+            text = "+${formatGems(snapshot.welcome.gems)} ${t("gems")}"; textSize = 34f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_CORAL)
+            background = roundedDrawable(0xB8FFFFFF.toInt(), 20); setPadding(dp(22), dp(14), dp(22), dp(14))
+        })
+        val cashValue = formatWelcomeRewardCashValue(snapshot)
+        content.addView(TextView(this@showWelcomeRewardDialog).apply {
+            text = cashValue?.let { t("welcome_cash_value", it) } ?: t("welcome_cash_value_syncing")
+            textSize = 13f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_PURPLE); setPadding(0, dp(10), 0, 0)
+        })
+        content.addView(TextView(this@showWelcomeRewardDialog).apply {
+            text = t("welcome_reward_message", snapshot.welcome.gems); textSize = 13f; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(12), dp(0), dp(16))
+        })
         content.addView(TextView(this@showWelcomeRewardDialog).apply {
             text = t("watch_ad_claim"); textSize = 17f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
             background = gradientDrawable(intArrayOf(COLOR_CORAL, COLOR_SUNSET), 18); setPadding(dp(18), dp(15), dp(18), dp(15)); isClickable = true
             setOnClickListener { dialog.dismiss(); claimWelcomeBonus { onFinished() } }
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)))
-        content.addView(TextView(this@showWelcomeRewardDialog).apply { text = t("later"); textSize = 14f; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(18), 0, 0); isClickable = true; setOnClickListener { dialog.dismiss(); onFinished() } })
+        content.addView(TextView(this@showWelcomeRewardDialog).apply {
+            text = t("later"); textSize = 14f; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(18), 0, 0); isClickable = true
+            setOnClickListener { dialog.dismiss(); onFinished() }
+        })
         page.addView(content, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
-        dialog.setView(page); dialog.setCanceledOnTouchOutside(false); dialog.setOnCancelListener { onFinished() }; dialog.show()
+        dialog.setContentView(page)
+        dialog.setCanceledOnTouchOutside(false)
+        dialog.setOnCancelListener { onFinished() }
+        dialog.show()
         dialog.window?.apply {
             setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
             setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-            attributes = attributes.apply { gravity = Gravity.CENTER }
+            setGravity(Gravity.CENTER)
+            attributes = attributes.apply { dimAmount = 0f }
         }
-        gem.animate().scaleX(1.14f).scaleY(1.14f).setDuration(320L).setInterpolator(AccelerateDecelerateInterpolator()).withEndAction { gem.animate().scaleX(1f).scaleY(1f).setDuration(420L).start() }.start()
+        gem.animate().scaleX(1.14f).scaleY(1.14f).setDuration(320L).setInterpolator(AccelerateDecelerateInterpolator()).withEndAction {
+            gem.animate().scaleX(1f).scaleY(1f).setDuration(420L).start()
+        }.start()
+    }
+
+/** Uses the server-provided market policy rather than a client-side hardcoded gem-to-cash rate. */
+internal fun DramaAppActivity.formatWelcomeRewardCashValue(snapshot: RewardsApiClient.Snapshot): String? {
+        val wallet = snapshot.wallet
+        val rate = wallet.exchangeRateGems.coerceAtLeast(1L)
+        val localPerRate = wallet.exchangeValuePer10000Gems.toBigDecimalOrNull() ?: return null
+        val usdPerRate = wallet.exchangeValuePer10000GemsUsdReference.toBigDecimalOrNull() ?: return null
+        if (localPerRate.signum() <= 0 || usdPerRate.signum() <= 0) return null
+        val multiplier = java.math.BigDecimal(snapshot.welcome.gems).divide(java.math.BigDecimal(rate), 8, java.math.RoundingMode.HALF_UP)
+        return formatCurrencyAmount(wallet, localPerRate.multiply(multiplier).toPlainString(), usdPerRate.multiply(multiplier).toPlainString(), includeUsdReference = true)
     }
 
 internal fun DramaAppActivity.addWelcomeConfetti(host: FrameLayout) {

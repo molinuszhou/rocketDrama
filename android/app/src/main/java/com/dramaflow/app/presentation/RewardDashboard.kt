@@ -81,35 +81,46 @@ internal fun DramaAppActivity.createTasksPage(): View {
     return scroll
 }
 
-/** Reward hero keeps copy in the upper visual safe area and places both balances in one actionable glass bar. */
+/** A compact, inset-aware hero: headline sits below the status bar and the image has no empty lower band. */
 internal fun DramaAppActivity.createRewardsHeroHeader(snapshot: RewardsApiClient.Snapshot?): View = FrameLayout(this).apply {
-    minimumHeight = dp(202)
+    minimumHeight = dp(204)
     clipToOutline = true
     background = gradientDrawable(intArrayOf(0xFFFFCF9E.toInt(), 0xFFFFEAC8.toInt(), COLOR_WARM_PEACH), 0)
     addView(ImageView(this@createRewardsHeroHeader).apply {
-        setImageResource(R.drawable.bg_rewards_hero); scaleType = ImageView.ScaleType.CENTER_CROP; alpha = 0.98f
-    }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-    addView(LinearLayout(this@createRewardsHeroHeader).apply {
+        setImageResource(R.drawable.bg_rewards_hero)
+        scaleType = ImageView.ScaleType.CENTER_CROP
+        // Shift the crop upward slightly so the crystal remains visible while removing the lower empty area.
+        translationY = -dp(12).toFloat()
+        alpha = 0.98f
+    }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT).apply { bottomMargin = -dp(24) })
+    val foreground = LinearLayout(this@createRewardsHeroHeader).apply {
         orientation = LinearLayout.VERTICAL
-        setPadding(dp(20), dp(34), dp(20), dp(4))
+        setPadding(dp(20), dp(48), dp(20), dp(2))
         addView(TextView(this@createRewardsHeroHeader).apply {
             text = t("reward_center"); textSize = 27f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY); includeFontPadding = false
         })
         addView(TextView(this@createRewardsHeroHeader).apply {
-            text = t("rewards_subtitle"); textSize = 13f; setTextColor(0xB819202B.toInt()); setPadding(0, dp(5), 0, dp(10))
+            text = t("rewards_subtitle"); textSize = 13f; setTextColor(0xB819202B.toInt()); setPadding(0, dp(5), 0, dp(7))
         })
         val wallet = snapshot?.wallet
         val balanceBar = LinearLayout(this@createRewardsHeroHeader).apply {
-            gravity = Gravity.CENTER_VERTICAL; background = roundedDrawable(0xF5FFFFFF.toInt(), 22); setPadding(dp(7), dp(6), dp(7), dp(6)); clipToOutline = true
-            addView(createRewardBalance(t("gems"), wallet?.coins?.let(::formatGems) ?: "—", isGem = true) { showGemIncomeDetails() }, LinearLayout.LayoutParams(0, dp(72), 1f))
-            addView(View(this@createRewardsHeroHeader).apply { setBackgroundColor(0x16202733) }, LinearLayout.LayoutParams(dp(1), dp(40)))
-            addView(createRewardBalance(t("wallet_balance"), wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—", isGem = false) { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) }, LinearLayout.LayoutParams(0, dp(72), 1f))
+            gravity = Gravity.CENTER_VERTICAL; background = roundedDrawable(0xF5FFFFFF.toInt(), 22); setPadding(dp(7), dp(4), dp(7), dp(4)); clipToOutline = true
+            addView(createRewardBalance(t("gems"), wallet?.coins?.let(::formatGems) ?: "—", isGem = true) { showGemIncomeDetails() }, LinearLayout.LayoutParams(0, dp(64), 1f))
+            addView(View(this@createRewardsHeroHeader).apply { setBackgroundColor(0x16202733) }, LinearLayout.LayoutParams(dp(1), dp(36)))
+            addView(createRewardBalance(t("wallet_balance"), wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—", isGem = false) { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) }, LinearLayout.LayoutParams(0, dp(64), 1f))
         }
-        addView(balanceBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(76)))
+        addView(balanceBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(68)))
         addView(TextView(this@createRewardsHeroHeader).apply {
-            text = t("reward_balance_tap_hint"); textSize = 10f; gravity = Gravity.CENTER; setTextColor(0xA619202B.toInt()); setPadding(0, dp(6), 0, 0)
+            text = t("reward_balance_tap_hint"); textSize = 10f; gravity = Gravity.CENTER; setTextColor(0xA619202B.toInt()); setPadding(0, dp(4), 0, 0)
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-    }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP))
+    }
+    addView(foreground, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP))
+    ViewCompat.setOnApplyWindowInsetsListener(this) { _, insets ->
+        val safeTop = insets.getInsets(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()).top
+        foreground.setPadding(dp(20), maxOf(dp(48), safeTop + dp(20)), dp(20), dp(2))
+        insets
+    }
+    ViewCompat.requestApplyInsets(this)
 }
 
 internal fun DramaAppActivity.createRewardBalance(label: String, value: String, isGem: Boolean, onClick: () -> Unit): View = LinearLayout(this).apply {
