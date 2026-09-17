@@ -259,12 +259,12 @@ internal fun DramaAppActivity.createPlayerTopBar(): View {
         val assets = createPlayerAssetStrip()
         // The back action remains safely left-aligned while balances are optically centered over the video.
         shell.addView(back, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.TOP or Gravity.START).apply { topMargin = dp(14); marginStart = dp(16) })
-        shell.addView(assets, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(15) })
+        shell.addView(assets, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(14) })
         ViewCompat.setOnApplyWindowInsetsListener(shell) { _, insets ->
             val safeTop = insets.getInsets(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()).top
             val margin = safeTop + dp(10)
             (back.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = margin; back.layoutParams = params }
-            (assets.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = margin + dp(1); assets.layoutParams = params }
+            (assets.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = margin; assets.layoutParams = params }
             insets
         }
         ViewCompat.requestApplyInsets(shell)

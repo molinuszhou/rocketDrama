@@ -71,7 +71,7 @@ internal fun DramaAppActivity.createTasksPage(): View {
     val scroll = scrollPage { content ->
         content.setPadding(0, 0, 0, dp(86))
         val snapshot = rewardsSnapshot
-        content.addView(createRewardsHeroHeader(snapshot), matchParams())
+        content.addView(createRewardsHeroHeader(snapshot), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(204)))
         if (snapshot == null) content.addView(createInlineNotice(t("ledger_note")), matchParams(top = 12, bottom = 14))
         else {
             content.addView(createRewardChestPanel(snapshot), matchParams(top = 12, bottom = 12))
