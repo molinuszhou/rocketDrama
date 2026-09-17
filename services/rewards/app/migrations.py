@@ -28,6 +28,7 @@ def apply_runtime_migrations(settings: Settings) -> None:
         ("013_v163_damping_thresholds_v3", sql_directory / "013_v163_damping_thresholds_v3.sql"),
         ("014_market_wallet_policy_management", sql_directory / "014_market_wallet_policy_management.sql"),
         ("015_app_review_reward", sql_directory / "015_app_review_reward.sql"),
+        ("016_crown_road_effective_rounds", sql_directory / "016_crown_road_effective_rounds.sql"),
     )
     with psycopg.connect(settings.database_url, autocommit=True) as connection:
         with connection.cursor() as cursor:

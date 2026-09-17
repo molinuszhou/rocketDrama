@@ -1200,21 +1200,18 @@ class RewardsService:
                 "SELECT COUNT(*) AS count FROM watch_events WHERE user_id = %s AND recorded_at >= %s",
                 (user_id, start),
             )["count"])
+            # Only ads explicitly started from Crown Road advance Crown Road.
+            # Unlock, check-in, chest, wallet, review and other rewarded ads are excluded.
             rewarded_rounds = int(self._one(
                 connection,
-                "SELECT COUNT(*) AS count FROM rewarded_ad_events WHERE user_id = %s AND processed_at >= %s",
+                "SELECT COUNT(*) AS count FROM rewarded_ad_events WHERE user_id = %s AND placement_id = 'rv_crown_upgrade' AND processed_at >= %s",
                 (user_id, start),
             )["count"])
             equivalent_rounds = rewarded_rounds // max(1, int(policy["crown_rewarded_ads_per_episode"]))
             rounds = watched_rounds + equivalent_rounds
             if rounds < item["required_rounds"]:
                 continue
-            signins = self._one(connection, "SELECT COUNT(*) AS count FROM checkins WHERE user_id = %s AND created_at >= %s", (user_id, start))["count"]
-            if signins < item["required_signin_days"]:
-                continue
             rvs = rewarded_rounds
-            if rvs < item["required_rv_count"]:
-                continue
             self._execute(
                 connection,
                 "INSERT INTO user_achievements (user_id, code, gems, virtual_entitlement) VALUES (%s, %s, %s, %s)",
@@ -1461,8 +1458,9 @@ class RewardsService:
         for row in rows:
             start = now - timedelta(hours=int(row["window_hours"]))
             watched_rounds = int(self._one(connection, "SELECT COUNT(*) AS count FROM watch_events WHERE user_id = %s AND recorded_at >= %s", (user_id, start))["count"])
-            signins = int(self._one(connection, "SELECT COUNT(*) AS count FROM checkins WHERE user_id = %s AND created_at >= %s", (user_id, start))["count"])
-            rvs = int(self._one(connection, "SELECT COUNT(*) AS count FROM rewarded_ad_events WHERE user_id = %s AND processed_at >= %s", (user_id, start))["count"])
+            # Crown Road uses watched episodes plus only its own explicit upgrade ads.
+            signins = 0
+            rvs = int(self._one(connection, "SELECT COUNT(*) AS count FROM rewarded_ad_events WHERE user_id = %s AND placement_id = 'rv_crown_upgrade' AND processed_at >= %s", (user_id, start))["count"])
             ads_per_episode = max(1, int(self._policy(connection)["crown_rewarded_ads_per_episode"]))
             equivalent_rounds = rvs // ads_per_episode
             rounds = watched_rounds + equivalent_rounds
@@ -1482,8 +1480,8 @@ class RewardsService:
                 "watched_rounds": {"current": watched_rounds, "target": row["required_rounds"]},
                 "ad_equivalent_rounds": equivalent_rounds,
                 "ads_per_episode": ads_per_episode,
-                "signins": {"current": signins, "target": row["required_signin_days"]},
-                "rewarded_ads": {"current": rvs, "target": row["required_rv_count"]},
+                "signins": {"current": 0, "target": 0},
+                "rewarded_ads": {"current": rvs, "target": 0},
                 "progress": round(progress, 4),
             })
         return result

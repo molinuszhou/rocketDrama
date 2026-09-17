@@ -261,7 +261,7 @@ internal fun DramaAppActivity.createCrownLevelRow(level: RewardsApiClient.CrownP
             backgroundTintList = ColorStateList.valueOf(0x20FF8A62)
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(5)))
         addView(TextView(this@createCrownLevelRow).apply {
-            text = t("crown_level_progress", level.rounds.current, level.rounds.target, level.signins.current, level.signins.target, level.rewardedAds.current, level.rewardedAds.target)
+            text = t("crown_effective_progress", level.rounds.current, level.rounds.target)
             textSize = 9f; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(4), 0, 0)
         })
     }

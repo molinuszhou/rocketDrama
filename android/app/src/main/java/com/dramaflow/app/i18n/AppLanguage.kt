@@ -224,6 +224,7 @@ object AppLanguage {
         "ledger_other" to all("Gem reward", "Recompensa de gemas", "Recompensa de gemas", "Récompense en gemmes", "Hadiah permata", "宝石奖励", "寶石獎勵"),
         "crown_road" to all("Crown Road", "Caminho da Coroa", "Camino de la Corona", "Crown Road", "Jalan Mahkota", "皇冠之路", "皇冠之路"),
         "crown_road_subtitle" to all("Each level unlocks stronger episode rewards.", "Cada nível libera recompensas maiores.", "Cada nivel desbloquea mejores recompensas.", "Chaque niveau débloque des récompenses d'épisode plus élevées.", "Setiap level membuka hadiah episode lebih kuat.", "每一级解锁更高的追剧宝石权益。", "每一級解鎖更高的追劇寶石權益。"),
+        "crown_effective_progress" to all("Effective watch progress %1\$d/%2\$d episodes", "Progresso de visualização %1\$d/%2\$d episódios", "Progreso de visualización %1\$d/%2\$d episodios", "Progression de visionnage %1\$d/%2\$d épisodes", "Progress menonton %1\$d/%2\$d episode", "有效追剧进度 %1\$d/%2\$d 集", "有效追劇進度 %1\$d/%2\$d 集"),
         "crown_accelerate" to all("Accelerate", "Acelerar", "Acelerar", "Accélérer", "Percepat", "加速成长", "加速成長"),
         "crown_multiplier" to all("%1\$s× episode gems", "%1\$s× gemas por episódio", "%1\$s× gemas por episodio", "%1\$s× gemmes par épisode", "%1\$s× permata episode", "每集 %1\$s 倍", "每集 %1\$s 倍"),
         "crown_metric_watch" to all("Watch", "Assistir", "Ver", "Regarder", "Tonton", "追剧", "追劇"),
