@@ -63,9 +63,9 @@ def run() -> None:
     assert initial["wallet"]["exchange_rate_gems"] == 10_000
     assert initial["wallet"]["currency"]["code"] == "USD"
     assert initial["gem_damping"]["cap"] == 2_000_000
-    assert initial["gem_damping"]["tier1_threshold"] == 500_000
-    assert initial["gem_damping"]["tier2_threshold"] == 900_000
-    assert initial["gem_damping"]["tier3_threshold"] == 1_200_000
+    assert initial["gem_damping"]["tier1_threshold"] == 700_000
+    assert initial["gem_damping"]["tier2_threshold"] == 1_400_000
+    assert initial["gem_damping"]["tier3_threshold"] == 1_900_000
     assert initial["gem_damping"]["tier4_multiplier"] == 0.25
     assert initial["gem_damping"]["scope"] == "ALL_GEM_SOURCES"
     assert initial["wallet"]["release"]["boost_cap"] == 10
@@ -194,13 +194,13 @@ def run() -> None:
         def total_at(value: int) -> None:
             service._execute(connection, "UPDATE users SET total_gems_earned = %s, gems_balance = %s WHERE user_id = %s", (value, value, damping_user))  # noqa: SLF001
 
-        total_at(499_999)
+        total_at(699_999)
         assert service._credit_gems(connection, damping_user, 10, policy, "WELCOME_BONUS", "damping", event_id("welcome")) == 10  # noqa: SLF001
         assert service._credit_gems(connection, damping_user, 10, policy, "SIGN_IN", "damping", event_id("signin")) == 7  # noqa: SLF001
-        total_at(899_999)
+        total_at(1_399_999)
         assert service._credit_gems(connection, damping_user, 10, policy, "EPISODE_REWARD_CLAIM", "damping", event_id("episode")) == 7  # noqa: SLF001
         assert service._credit_gems(connection, damping_user, 10, policy, "RANDOM_CHEST_OPEN", "damping", event_id("chest")) == 4  # noqa: SLF001
-        total_at(1_199_999)
+        total_at(1_899_999)
         assert service._credit_gems(connection, damping_user, 10, policy, "ACHIEVEMENT", "damping", event_id("crown")) == 4  # noqa: SLF001
         assert service._credit_gems(connection, damping_user, 10, policy, "EPISODE_REWARD_CLAIM", "damping", event_id("tier4")) == 2  # noqa: SLF001
         total_at(1_999_999)

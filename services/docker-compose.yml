@@ -24,6 +24,7 @@ services:
       - ./rewards/sql/010_v163_localized_wallet_and_rewards.sql:/docker-entrypoint-initdb.d/010_v163_localized_wallet_and_rewards.sql:ro
       - ./rewards/sql/011_v163_round_gem_values.sql:/docker-entrypoint-initdb.d/011_v163_round_gem_values.sql:ro
       - ./rewards/sql/012_v163_round_gem_values_v2.sql:/docker-entrypoint-initdb.d/012_v163_round_gem_values_v2.sql:ro
+      - ./rewards/sql/013_v163_damping_thresholds_v3.sql:/docker-entrypoint-initdb.d/013_v163_damping_thresholds_v3.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
