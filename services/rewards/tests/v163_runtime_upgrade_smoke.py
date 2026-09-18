@@ -23,7 +23,7 @@ def run() -> None:
     with service._transaction() as connection:  # noqa: SLF001 - upgrade verification needs direct migration marker access
         marker = service._one(  # noqa: SLF001
             connection,
-            "SELECT version FROM schema_migrations WHERE version = '010_v163_localized_wallet_and_rewards'",
+            "SELECT version FROM schema_migrations WHERE version = '019_direct_cash_wallet_tasks_and_ad_cooldowns'",
         )
         assert marker is not None
         columns = service._all(  # noqa: SLF001
@@ -31,21 +31,25 @@ def run() -> None:
             """
             SELECT column_name FROM information_schema.columns
             WHERE table_name = 'reward_policy'
-              AND column_name IN ('gem_damping_tier3_threshold', 'gem_damping_tier4_multiplier')
+              AND column_name IN ('gem_damping_tier3_threshold', 'gem_damping_tier4_multiplier', 'interstitial_rewarded_skip_threshold')
             ORDER BY column_name
             """,
         )
         assert {row["column_name"] for row in columns} == {
             "gem_damping_tier3_threshold",
             "gem_damping_tier4_multiplier",
+            "interstitial_rewarded_skip_threshold",
         }
 
     user_id = f"v163-runtime-br-{uuid.uuid4()}"
     snapshot = service.bootstrap(user_id, "pt-BR")
     assert snapshot["user"]["market_code"] == "BR"
     assert snapshot["wallet"]["currency"]["code"] == "BRL"
+    assert snapshot["wallet"]["cash_mode"] is True
+    assert snapshot["welcome"]["cash"] == "30.00"
     assert snapshot["gem_damping"]["scope"] == "ALL_GEM_SOURCES"
-    assert snapshot["interstitial"]["mid_episode_trigger_seconds"] == 45
+    assert snapshot["interstitial"]["mid_episode_trigger_seconds"] == 120
+    assert snapshot["interstitial"]["cooldown_seconds"] == 60
 
     updated = service.update_market_wallet_policy(
         "Bearer smoke-admin-token",
@@ -57,7 +61,7 @@ def run() -> None:
             "currency_micros_per_10000_gems": 3_000_000,
             "usd_micros_per_10000_gems": 1_000_000,
             "withdrawal_threshold_micros": 3_000_000,
-            "welcome_bonus_gems": 200_000,
+            "welcome_bonus_gems": 100_000,
             "daily_release_micros": 60_000,
         },
     )
@@ -71,10 +75,11 @@ def run() -> None:
         assert response.status_code == 200
         data = response.json()["data"]
         assert data["wallet"]["currency"]["code"] == "BRL"
-        assert data["wallet"]["exchange_rate_gems"] == 10_000
-        assert data["interstitial"]["mid_episode_trigger_seconds"] == 45
+        assert data["wallet"]["cash_mode"] is True
+        assert data["wallet"]["currency"]["code"] == "BRL"
+        assert data["interstitial"]["mid_episode_trigger_seconds"] == 120
 
-    print("PostgreSQL v1.6.3 runtime-upgrade smoke test passed; incremental migration and market-wallet admin update verified")
+    print("PostgreSQL v1.6.4 runtime-upgrade smoke test passed; direct-cash migration and market-wallet admin update verified")
 
 
 if __name__ == "__main__":

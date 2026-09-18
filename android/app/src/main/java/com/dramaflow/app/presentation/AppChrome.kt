@@ -76,7 +76,7 @@ internal fun DramaAppActivity.createInlineNotice(message: String): View = TextVi
         background = roundedDrawable(COLOR_CARD, 16)
     }
 
-    /** 非奖励页固定在顶部的资产栏；点击宝石进入奖励页，点击钱包进入提现页。 */
+    /** Non-reward pages expose one simple, direct-cash wallet. */
     /** 固定资产栏使用系统状态栏/挖孔 inset；真实设备上不会再被顶部传感器或状态栏遮挡。 */
 internal fun DramaAppActivity.createPersistentAssetHeader(): View {
         val shell = FrameLayout(this).apply { background = pageCanvasDrawable() }
@@ -86,9 +86,7 @@ internal fun DramaAppActivity.createPersistentAssetHeader(): View {
             val wallet = rewardsSnapshot?.wallet
             val balanceBar = LinearLayout(this@createPersistentAssetHeader).apply {
                 gravity = Gravity.CENTER_VERTICAL; background = roundedDrawable(0xF2FFFFFF.toInt(), 20); setPadding(dp(5), dp(4), dp(5), dp(4)); clipToOutline = true
-                addView(createAssetPill(icon = R.drawable.reward_gem_crystal, label = t("gems"), value = wallet?.coins?.let(::formatGems) ?: "—", isGem = true) { showGemIncomeDetails() }, LinearLayout.LayoutParams(0, dp(48), 1f))
-                addView(View(this@createPersistentAssetHeader).apply { setBackgroundColor(0x15202733) }, LinearLayout.LayoutParams(dp(1), dp(30)))
-                addView(createAssetPill(icon = R.drawable.ic_wallet, label = t("wallet_balance"), value = wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—", isGem = false) { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) }, LinearLayout.LayoutParams(0, dp(48), 1f))
+                addView(createAssetPill(icon = R.drawable.ic_wallet, label = t("wallet_balance"), value = wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—", isGem = false) { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
             }
             addView(balanceBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)))
         }
@@ -112,12 +110,12 @@ internal fun DramaAppActivity.createAssetPill(icon: Int, label: String, value: S
         contentDescription = "$label $value"
         setOnClickListener { onClick() }
         val image = ImageView(this@createAssetPill).apply { setImageResource(icon); scaleType = ImageView.ScaleType.CENTER_INSIDE }
-        if (isGem) gemBalanceAnchor = image
+        if (isGem) gemBalanceAnchor = image else cashBalanceAnchor = image
         addView(image, LinearLayout.LayoutParams(dp(40), dp(40)))
         addView(LinearLayout(this@createAssetPill).apply {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(5), 0, 0, 0)
             val valueView = TextView(this@createAssetPill).apply { text = value; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY); maxLines = 1; includeFontPadding = false; letterSpacing = -0.02f; setAutoSizeTextTypeUniformWithConfiguration(10, 15, 1, android.util.TypedValue.COMPLEX_UNIT_SP) }
-            if (isGem) gemBalanceLabel = valueView else cashBalanceLabel = valueView
+        if (isGem) gemBalanceLabel = valueView else cashBalanceLabel = valueView
             addView(valueView)
             addView(TextView(this@createAssetPill).apply { text = label; textSize = 9f; setTextColor(COLOR_TEXT_MUTED); maxLines = 1 })
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
@@ -208,19 +206,43 @@ internal fun DramaAppActivity.animateClaimedGems(previous: Long, current: Long) 
             }
         })
         animation.start()
-    }
+}
+
+/** The v1.6.4 direct-cash wallet uses the same restrained confirmation motion without a Gem balance. */
+internal fun DramaAppActivity.animateClaimedCash(previous: String, current: String) {
+        val target = cashBalanceAnchor ?: return
+        if (!target.isAttachedToWindow || gemFlightInProgress) return
+        gemFlightInProgress = true
+        val wallet = rewardsSnapshot?.wallet
+        cashBalanceLabel?.text = wallet?.let { formatCurrencyAmount(it, previous, null, includeUsdReference = false) } ?: previous
+        val rootLocation = IntArray(2); val targetLocation = IntArray(2)
+        root.getLocationOnScreen(rootLocation); target.getLocationOnScreen(targetLocation)
+        val fly = ImageView(this).apply { setImageResource(R.drawable.ic_wallet); scaleType = ImageView.ScaleType.CENTER_INSIDE; alpha = 0f }
+        val size = dp(42); val startX = root.width / 2f - size / 2f; val startY = root.height * 0.53f - size / 2f
+        root.addView(fly, FrameLayout.LayoutParams(size, size).apply { leftMargin = startX.toInt(); topMargin = startY.toInt() })
+        val endX = targetLocation[0] - rootLocation[0] + target.width / 2f - startX - size / 2f
+        val endY = targetLocation[1] - rootLocation[1] + target.height / 2f - startY - size / 2f
+        AnimatorSet().apply {
+            playTogether(ObjectAnimator.ofFloat(fly, View.ALPHA, 0f, 1f, 1f, 0f), ObjectAnimator.ofFloat(fly, View.TRANSLATION_X, 0f, endX), ObjectAnimator.ofFloat(fly, View.TRANSLATION_Y, 0f, endY), ObjectAnimator.ofFloat(fly, View.SCALE_X, 1.25f, .55f), ObjectAnimator.ofFloat(fly, View.SCALE_Y, 1.25f, .55f))
+            duration = 680L; interpolator = AccelerateDecelerateInterpolator()
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    (fly.parent as? ViewGroup)?.removeView(fly)
+                    cashBalanceLabel?.text = wallet?.let { formatCurrencyAmount(it, current, null, includeUsdReference = false) } ?: current
+                    target.animate().scaleX(1.12f).scaleY(1.12f).setDuration(110L).withEndAction { target.animate().scaleX(1f).scaleY(1f).setDuration(140L).start() }.start()
+                    gemFlightInProgress = false
+                }
+            })
+            start()
+        }
+}
 
 internal fun DramaAppActivity.createPlayerAssetStrip(): View = LinearLayout(this).apply {
         gravity = Gravity.CENTER_VERTICAL; setPadding(dp(8), dp(5), dp(9), dp(5)); background = roundedDrawable(0xD9141720.toInt(), 18)
         val wallet = rewardsSnapshot?.wallet
-        val gem = ImageView(this@createPlayerAssetStrip).apply { setImageResource(R.drawable.reward_gem_crystal); scaleType = ImageView.ScaleType.CENTER_INSIDE; isClickable = true; contentDescription = t("gems"); setOnClickListener { showGemIncomeDetails() } }
-        gemBalanceAnchor = gem
-        addView(gem, LinearLayout.LayoutParams(dp(30), dp(30)))
-        val gems = TextView(this@createPlayerAssetStrip).apply { text = wallet?.coins?.let(::formatGems) ?: "—"; textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(dp(4), 0, dp(8), 0) }
-        gemBalanceLabel = gems
-        addView(gems)
-        addView(View(this@createPlayerAssetStrip).apply { setBackgroundColor(0x55FFFFFF); }, LinearLayout.LayoutParams(dp(1), dp(20)))
-        addView(ImageView(this@createPlayerAssetStrip).apply { setImageResource(R.drawable.ic_wallet); scaleType = ImageView.ScaleType.CENTER_INSIDE; isClickable = true; contentDescription = t("wallet"); setOnClickListener { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) } }, LinearLayout.LayoutParams(dp(24), dp(24)).apply { marginStart = dp(6) })
+        val walletIcon = ImageView(this@createPlayerAssetStrip).apply { setImageResource(R.drawable.ic_wallet); scaleType = ImageView.ScaleType.CENTER_INSIDE; isClickable = true; contentDescription = t("wallet"); setOnClickListener { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) } }
+        cashBalanceAnchor = walletIcon
+        addView(walletIcon, LinearLayout.LayoutParams(dp(30), dp(30)))
         val cash = TextView(this@createPlayerAssetStrip).apply { text = wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—"; textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(dp(3), 0, 0, 0); isClickable = true; setOnClickListener { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) } }
         cashBalanceLabel = cash
         addView(cash)

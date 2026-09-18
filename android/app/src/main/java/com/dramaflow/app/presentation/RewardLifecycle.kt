@@ -3,6 +3,7 @@ package com.dramaflow.app.presentation
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
 import android.app.AlertDialog
+import android.provider.CalendarContract
 import android.content.Context
 import android.content.Intent
 import android.content.res.ColorStateList
@@ -100,10 +101,12 @@ internal fun DramaAppActivity.refreshRewardsSnapshot() {
 
 internal fun DramaAppActivity.applyRewardsSnapshot(snapshot: RewardsApiClient.Snapshot) {
         val previousGems = rewardsSnapshot?.wallet?.coins ?: lastConfirmedGemBalance
+        val previousCash = rewardsSnapshot?.wallet?.cashWallet ?: lastConfirmedCashBalance
         rewardsSnapshot = snapshot
         unlockedEpisodeKeys.clear()
         unlockedEpisodeKeys.addAll(snapshot.unlockedEpisodeTargets)
         lastConfirmedGemBalance = snapshot.wallet.coins
+        lastConfirmedCashBalance = snapshot.wallet.cashWallet
         refreshFloatingRewardWheels()
         if (startupContentInitializationStarted && !playerShown) {
             if (withdrawalPageShown) showWithdrawalPage(snapshot.wallet) else if (catalogItems.isNotEmpty()) renderActiveTab()
@@ -111,7 +114,9 @@ internal fun DramaAppActivity.applyRewardsSnapshot(snapshot: RewardsApiClient.Sn
         updateEpisodeStatus()
         if (startupContentInitializationStarted) showStartupCheckinWhenReady()
         // 只有服务端确认余额增加时播放动效；首次同步和余额不变不会触发。
-        if (previousGems != null && snapshot.wallet.coins > previousGems) {
+        if (snapshot.wallet.cashMode && previousCash != null && (snapshot.wallet.cashWallet.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO) > (previousCash.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO)) {
+            root.post { animateClaimedCash(previousCash, snapshot.wallet.cashWallet) }
+        } else if (!snapshot.wallet.cashMode && previousGems != null && snapshot.wallet.coins > previousGems) {
             root.post { animateClaimedGems(previousGems, snapshot.wallet.coins) }
         }
         val pending = snapshot.ring.rewardCoins
@@ -119,7 +124,7 @@ internal fun DramaAppActivity.applyRewardsSnapshot(snapshot: RewardsApiClient.Sn
             lastFloatingClaimPromptedGems = pending
             root.post {
                 if (!isFinishing && !isDestroyed && !fullscreenAdInProgress) {
-                    showBrandedChoiceDialog(t("gems_ready_title"), t("gems_ready_message", pending), t("claim_all"), { requestRewardedClaimAllEpisodeRewards() }, t("later"))
+                    showBrandedChoiceDialog("现金奖励待领取", "完成一段广告后，可将 ${formatCurrencyAmount(snapshot.wallet, snapshot.ring.rewardCash, snapshot.ring.rewardCashUsdReference, true)} 存入钱包。", t("claim_all"), { requestRewardedClaimAllEpisodeRewards() }, t("later"))
                 }
             }
         } else if (!snapshot.ring.claimable) {
@@ -166,7 +171,7 @@ internal fun DramaAppActivity.showWelcomeRewardDialog(snapshot: RewardsApiClient
             setPadding(dp(30), dp(20), dp(30), dp(20))
         }
         val gem = ImageView(this@showWelcomeRewardDialog).apply {
-            setImageResource(R.drawable.reward_gem_crystal)
+            setImageResource(R.drawable.ic_wallet)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
         }
         content.addView(gem, LinearLayout.LayoutParams(dp(154), dp(154)))
@@ -177,16 +182,16 @@ internal fun DramaAppActivity.showWelcomeRewardDialog(snapshot: RewardsApiClient
             text = t("welcome_subtitle"); textSize = 15f; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(8), 0, dp(16))
         })
         content.addView(TextView(this@showWelcomeRewardDialog).apply {
-            text = "+${formatGems(snapshot.welcome.gems)} ${t("gems")}"; textSize = 34f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_CORAL)
+            text = formatWelcomeRewardCashValue(snapshot) ?: "—"; textSize = 34f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_CORAL)
             background = roundedDrawable(0xB8FFFFFF.toInt(), 20); setPadding(dp(22), dp(14), dp(22), dp(14))
         })
         val cashValue = formatWelcomeRewardCashValue(snapshot)
         content.addView(TextView(this@showWelcomeRewardDialog).apply {
-            text = cashValue?.let { t("welcome_cash_value", it) } ?: t("welcome_cash_value_syncing")
+            text = cashValue?.let { t("welcome_cash_ready") } ?: t("welcome_cash_value_syncing")
             textSize = 13f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_PURPLE); setPadding(0, dp(10), 0, 0)
         })
         content.addView(TextView(this@showWelcomeRewardDialog).apply {
-            text = t("welcome_reward_message", snapshot.welcome.gems); textSize = 13f; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(12), dp(0), dp(16))
+            text = t("welcome_cash_claim_message"); textSize = 13f; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(12), dp(0), dp(16))
         })
         content.addView(TextView(this@showWelcomeRewardDialog).apply {
             text = t("watch_ad_claim"); textSize = 17f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
@@ -216,6 +221,7 @@ internal fun DramaAppActivity.showWelcomeRewardDialog(snapshot: RewardsApiClient
 /** Uses the server-provided market policy rather than a client-side hardcoded gem-to-cash rate. */
 internal fun DramaAppActivity.formatWelcomeRewardCashValue(snapshot: RewardsApiClient.Snapshot): String? {
         val wallet = snapshot.wallet
+        if (wallet.cashMode) return formatCurrencyAmount(wallet, snapshot.welcome.cash, snapshot.welcome.cashUsdReference, includeUsdReference = true)
         val rate = wallet.exchangeRateGems.coerceAtLeast(1L)
         val localPerRate = wallet.exchangeValuePer10000Gems.toBigDecimalOrNull() ?: return null
         val usdPerRate = wallet.exchangeValuePer10000GemsUsdReference.toBigDecimalOrNull() ?: return null
@@ -254,7 +260,7 @@ internal fun DramaAppActivity.showCheckinRewardDialog(snapshot: RewardsApiClient
             text = when {
                 snapshot == null -> t("checkin_syncing")
                 snapshot.checkinSignedToday -> t("checkin_done_message", snapshot.checkinStreak)
-                else -> t("today_day_reward", snapshot.checkinTodayIndex, snapshot.checkinNextRewardCoins)
+                else -> t("checkin_day_cash", snapshot.checkinTodayIndex, formatRewardUnitsAsCash(snapshot, snapshot.checkinNextRewardCoins.toLong()))
             }
             textSize = 24f
             gravity = Gravity.CENTER
@@ -267,7 +273,7 @@ internal fun DramaAppActivity.showCheckinRewardDialog(snapshot: RewardsApiClient
             text = when {
                 snapshot == null -> t("checkin_syncing")
                 snapshot.checkinSignedToday -> t("checkin_open_chest_hint")
-                else -> t("checkin_ad_reward", snapshot.checkinNextRewardCoins)
+                else -> t("checkin_watch_ad_cash", formatRewardUnitsAsCash(snapshot, snapshot.checkinNextRewardCoins.toLong()))
             }
             textSize = 14f
             gravity = Gravity.CENTER
@@ -358,7 +364,7 @@ internal fun DramaAppActivity.createCheckinTierStrip(snapshot: RewardsApiClient.
                         setPadding(0, dp(3), 0, dp(2))
                     })
                     addView(TextView(this@createCheckinTierStrip).apply {
-                        text = if (snapshot == null) t("syncing") else "+${formatCompactGems(coins.toLong())}"
+                        text = if (snapshot == null) t("syncing") else formatRewardUnitsAsCash(snapshot, coins.toLong())
                         textSize = if (isToday) 13f else 10f
                         typeface = if (isToday) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
                         gravity = Gravity.CENTER
@@ -376,13 +382,38 @@ internal fun DramaAppActivity.completeDailyCheckin() {
             applyRewardsSnapshot(action.snapshot)
             resumeAfterFullscreenAdIfNeeded()
             if (action.idempotent) {
-                toast("今天已经签到")
+                toast(t("checkin_completed_today"))
                 if (action.snapshot.chest.availableCount > 0) showRandomChestEarnedDialog(0, action.snapshot.chest.availableCount) {}
             } else {
-                toast("签到成功，获得 ${action.gemsAdded} 宝石")
-                if (action.snapshot.chest.availableCount > 0) showRandomChestEarnedDialog(0, action.snapshot.chest.availableCount) {}
+                toast(t("checkin_cash_success"))
+                showCheckinCalendarReminderPrompt {
+                    if (action.snapshot.chest.availableCount > 0) showRandomChestEarnedDialog(0, action.snapshot.chest.availableCount) {}
+                }
             }
         })
     }
+
+/** Opens the system calendar's add-event surface; Android owns permissions and final confirmation. */
+internal fun DramaAppActivity.showCheckinCalendarReminderPrompt(onFinished: () -> Unit = {}) {
+    showBrandedChoiceDialog(t("calendar_reminder_title"), t("calendar_reminder_message"), t("calendar_reminder_open"), {
+        val reminderTime = java.util.Calendar.getInstance().apply {
+            add(java.util.Calendar.DATE, 1)
+            set(java.util.Calendar.HOUR_OF_DAY, 19)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }
+        val start = reminderTime.timeInMillis
+        val intent = Intent(Intent.ACTION_INSERT).setData(CalendarContract.Events.CONTENT_URI)
+            .putExtra(CalendarContract.Events.TITLE, t("calendar_reminder_event"))
+            .putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, start)
+            .putExtra(CalendarContract.EXTRA_EVENT_END_TIME, start + 15 * 60 * 1000L)
+            .putExtra(CalendarContract.Events.HAS_ALARM, true)
+            .putExtra(CalendarContract.Reminders.MINUTES, 0)
+            .putExtra(CalendarContract.Events.DESCRIPTION, t("calendar_reminder_description"))
+        runCatching { startActivity(intent) }.onFailure { toast(t("calendar_unavailable")) }
+        onFinished()
+    }, t("not_now"), onSecondary = onFinished)
+}
 
     /** 全屏广告展示时暂停原视频；TopOn 回调已保证在广告关闭后才会进入这里的结果分支。 */

@@ -14,6 +14,7 @@ from app.schemas import (
     ClaimAllEpisodeRewardsRequest,
     CrownMultiplierUpdateRequest,
     DampingUpdateRequest,
+    EpisodeTaskClaimRequest,
     EpisodeRewardClaimRequest,
     GemsExchangeRequest,
     HealthResponse,
@@ -21,6 +22,7 @@ from app.schemas import (
     InterstitialShownRequest,
     RewardedCompleteRequest,
     RewardPolicyUpdateRequest,
+    RewardedSkippedRequest,
     ReviewRewardClaimRequest,
     TenRoundClaimRequest,
     WelcomeBonusRequest,
@@ -90,6 +92,23 @@ def watch_event(payload: WatchEventRequest) -> dict:
             watched_seconds=payload.watched_seconds,
         ),
     }
+
+
+@app.post("/v2/episode-tasks/claim", response_model=ApiEnvelope)
+def claim_episode_task(payload: EpisodeTaskClaimRequest) -> dict:
+    return {
+        "code": 0,
+        "data": service.claim_episode_task(
+            payload.user_id,
+            payload.milestone_episode_count,
+            payload.reference_id,
+        ),
+    }
+
+
+@app.post("/v2/ads/rewarded/skipped", response_model=ApiEnvelope)
+def rewarded_skipped(payload: RewardedSkippedRequest) -> dict:
+    return {"code": 0, "data": service.record_rewarded_skipped(payload.user_id, payload.context)}
 
 
 @app.post("/v2/checkins", response_model=ApiEnvelope)

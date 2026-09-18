@@ -134,7 +134,7 @@ internal fun DramaAppActivity.updateFloatingRewardWheel(label: TextView) {
         val ring = rewardsSnapshot?.ring
         label.text = when {
             ring == null -> "…"
-            ring.claimable -> "+${ring.rewardCoins}"
+            ring.claimable -> rewardsSnapshot?.wallet?.let { formatCurrencyAmount(it, ring.rewardCash, null, false) } ?: "…"
             else -> "0"
         }
     }
@@ -146,7 +146,7 @@ internal fun DramaAppActivity.createRingCard(): View {
             setPadding(dp(16), dp(14), dp(16), dp(14))
             background = roundedDrawable(COLOR_CARD, 18)
             val circle = TextView(this@createRingCard).apply {
-                text = if (ring?.claimable == true) "+${ring.rewardCoins}" else t("watch_to_earn")
+                text = if (ring?.claimable == true) rewardsSnapshot?.wallet?.let { formatCurrencyAmount(it, ring.rewardCash, null, false) } ?: "…" else t("watch_to_earn")
                 textSize = 14f
                 typeface = Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER
@@ -159,7 +159,7 @@ internal fun DramaAppActivity.createRingCard(): View {
                 setPadding(dp(12), 0, 0, 0)
                 addView(TextView(this@createRingCard).apply { text = t("watch_tasks"); textSize = 16f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
                 addView(TextView(this@createRingCard).apply {
-                    text = ring?.let { if (it.claimable) t("ring_claimable", it.rewardCoins) else t("ring_collecting") } ?: t("wallet_syncing")
+                    text = ring?.let { if (it.claimable) rewardsSnapshot?.wallet?.let { wallet -> "待领取 ${formatCurrencyAmount(wallet, it.rewardCash, it.rewardCashUsdReference, true)} 现金奖励" } ?: t("wallet_syncing") else "完成剧集后可领取现金奖励" } ?: t("wallet_syncing")
                     textSize = 12f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(4), 0, 0)
                 })
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
@@ -189,10 +189,10 @@ internal fun DramaAppActivity.isEpisodeRewardBoosted(episodeId: String): Boolean
 internal fun DramaAppActivity.showEpisodeRewardClaimDialog() {
         val snapshot = rewardsSnapshot ?: return
         val ring = snapshot.ring
-        if (!ring.claimable || ring.rewardCoins <= 0) { toast(t("no_pending_gems")); return }
+        if (!ring.claimable || ring.rewardCoins <= 0) { toast("暂无待领取的现金奖励"); return }
         showBrandedChoiceDialog(
             title = t("claim_episode_rewards"),
-            message = t("claim_episode_rewards_message", ring.rewardCoins),
+            message = "完整观看广告后，可将 ${formatCurrencyAmount(snapshot.wallet, ring.rewardCash, ring.rewardCashUsdReference, true)} 现金奖励存入钱包。",
             primaryLabel = t("watch_ad_claim"),
             onPrimary = { requestRewardedClaimAllEpisodeRewards() },
             secondaryLabel = t("later"),
@@ -219,7 +219,7 @@ internal fun DramaAppActivity.requestRewardedClaimAllEpisodeRewards() {
             rewardsApi.claimAllEpisodeRewards(anonymousInstallationId(), adEventId, { action -> runOnUiThread {
                 applyRewardsSnapshot(action.snapshot)
                 resumeAfterFullscreenAdIfNeeded()
-                toast(if (action.idempotent) t("no_pending_gems") else t("gems_claimed", action.gemsAdded))
+                toast(if (action.idempotent) "暂无待领取的现金奖励" else "现金奖励已存入钱包")
             } }, { message -> runOnUiThread {
                 resumeAfterFullscreenAdIfNeeded()
                 toast(t("claim_failed", message))
@@ -266,7 +266,7 @@ internal fun DramaAppActivity.createWelcomeRewardCard(snapshot: RewardsApiClient
         background = gradientDrawable(intArrayOf(0xFFFFA5B8.toInt(), 0xFFFFD8A7.toInt()), 20)
         addView(TextView(this@createWelcomeRewardCard).apply { text = t("newcomer_reward"); textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
         addView(TextView(this@createWelcomeRewardCard).apply {
-            text = t("welcome_reward_message", snapshot.welcome.gems)
+            text = "新人现金奖励 ${formatWelcomeRewardCashValue(snapshot) ?: "—"}"
             textSize = 13f; setTextColor(0xECFFFFFF.toInt()); setPadding(0, dp(6), 0, dp(13))
         })
         addView(TextView(this@createWelcomeRewardCard).apply {
@@ -281,20 +281,20 @@ internal fun DramaAppActivity.claimWelcomeBonus(onCompleted: (() -> Unit)? = nul
         requestRewardedAction("rv_welcome_bonus", onSettled = { action ->
             applyRewardsSnapshot(action.snapshot)
             resumeAfterFullscreenAdIfNeeded()
-            toast(if (action.idempotent) t("welcome_claimed") else t("welcome_received", action.gemsAdded))
+            toast(if (action.idempotent) t("welcome_claimed") else "新人现金奖励已存入钱包")
             onCompleted?.invoke()
         })
     }
 
 internal fun DramaAppActivity.createRewardsWalletSummary(): View {
         val wallet = rewardsSnapshot?.wallet
-        if (wallet == null) return createInlineNotice("正在同步奖励账本，连接成功后将展示宝石和钱包余额。")
+        if (wallet == null) return createInlineNotice("正在同步奖励账本，连接成功后将展示现金钱包余额。")
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(18), dp(18), dp(16))
             background = gradientDrawable(intArrayOf(0xFFFFF0E5.toInt(), 0xFFFFFFFF.toInt()), 22)
             addView(TextView(this@createRewardsWalletSummary).apply { text = t("wallet"); textSize = 20f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
             val balances = LinearLayout(this@createRewardsWalletSummary).apply { orientation = LinearLayout.HORIZONTAL }
-            listOf(t("gems") to wallet.coins.toString(), t("cash_balance") to formatCurrencyAmount(wallet, wallet.cashWallet, wallet.cashWalletUsdReference, includeUsdReference = true)).forEachIndexed { index, item ->
+            listOf(t("wallet_balance") to formatWalletTotal(wallet, includeUsdReference = true)).forEachIndexed { index, item ->
                 balances.addView(LinearLayout(this@createRewardsWalletSummary).apply {
                     orientation = LinearLayout.VERTICAL; setPadding(dp(12), dp(12), dp(10), dp(12)); background = roundedDrawable(0xCCFFFFFF.toInt(), 14)
                     addView(TextView(this@createRewardsWalletSummary).apply { text = item.first; textSize = 12f; setTextColor(COLOR_TEXT_MUTED) })
@@ -304,26 +304,22 @@ internal fun DramaAppActivity.createRewardsWalletSummary(): View {
             addView(balances)
             val actions = LinearLayout(this@createRewardsWalletSummary).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(14), 0, 0) }
             actions.addView(TextView(this@createRewardsWalletSummary).apply {
-                text = t("exchange_gems"); textSize = 14f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
-                background = roundedDrawable(COLOR_ACCENT, 14); setOnClickListener { showGemsExchangeDialog(wallet) }; isClickable = true
-            }, LinearLayout.LayoutParams(0, dp(42), 1f))
-            actions.addView(TextView(this@createRewardsWalletSummary).apply {
                 text = t("withdraw"); textSize = 14f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_PRIMARY)
                 background = roundedDrawable(0xCCFFFFFF.toInt(), 14); setOnClickListener { showWithdrawalPage(wallet) }; isClickable = true
-            }, LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginStart = dp(9) })
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)))
             addView(actions)
         }
     }
 
 internal fun DramaAppActivity.showWithdrawalDetailsDialog(wallet: RewardsApiClient.Wallet) {
         val release = wallet.release
-        val details = "可提现余额：${formatCurrencyAmount(wallet, wallet.availableBalance, wallet.availableBalanceUsdReference, includeUsdReference = true)}\n\n${rewardsSnapshot?.withdrawal?.reason.orEmpty()}\n\n预计明日可转入：${formatCurrencyAmount(wallet, release.expectedTomorrowTransfer, release.expectedTomorrowTransferUsdReference, includeUsdReference = true)}\n本次广告加速预计额外转入：${formatCurrencyAmount(wallet, release.expectedBoostTransfer, release.expectedBoostTransferUsdReference, includeUsdReference = true)}"
+        val details = "钱包余额：${formatWalletTotal(wallet, includeUsdReference = true)}\n\n${rewardsSnapshot?.withdrawal?.reason.orEmpty()}\n\n观看广告可额外获得：${formatCurrencyAmount(wallet, release.boostAmount, release.expectedBoostTransferUsdReference, includeUsdReference = true)}"
         showBrandedChoiceDialog(t("withdrawal_details"), details, t("ad_boost"), { showWalletReleaseBoostDialog() }, t("close"))
     }
 
 internal fun DramaAppActivity.showWalletReleaseBoostDialog() {
         val release = rewardsSnapshot?.wallet?.release ?: return
-        showBrandedChoiceDialog(t("ad_boost"), t("ad_boost_message", formatCurrencyAmount(rewardsSnapshot?.wallet ?: return, release.expectedBoostTransfer, release.expectedBoostTransferUsdReference, includeUsdReference = true)), t("watch_ad_claim"), { requestWalletReleaseBoost() }, t("not_now"))
+        showBrandedChoiceDialog("广告加速", "观看一段广告即可额外领取 ${formatCurrencyAmount(rewardsSnapshot?.wallet ?: return, release.boostAmount, release.expectedBoostTransferUsdReference, includeUsdReference = true)} 现金奖励。今日已完成 ${release.boostUsed}/${if (release.boostCap == 0) "不限" else release.boostCap} 次。", t("watch_ad_claim"), { requestWalletReleaseBoost() }, t("not_now"))
     }
 
 internal fun DramaAppActivity.requestWalletReleaseBoost() {
@@ -331,16 +327,11 @@ internal fun DramaAppActivity.requestWalletReleaseBoost() {
             applyRewardsSnapshot(action.snapshot)
             resumeAfterFullscreenAdIfNeeded()
             val wallet = action.snapshot.wallet
-            val transferred = action.releasedMicros / 1_000_000.0
             val updatedRelease = wallet.release
-            val transferredText = formatCurrencyAmount(wallet, String.format(Locale.US, "%.6f", transferred), null, includeUsdReference = false)
-            val tomorrowText = formatCurrencyAmount(wallet, updatedRelease.expectedTomorrowTransfer, updatedRelease.expectedTomorrowTransferUsdReference, includeUsdReference = true)
-            val nextMessage = if (transferred > 0.0) {
-                "已加快转入进度，本次额外转入 $transferredText 到可提现余额。预计明日可转入 $tomorrowText。"
-            } else {
-                "已完成本次广告加速。预计明日可转入 $tomorrowText。"
-            }
-            showBrandedChoiceDialog(t("transfer_updated"), nextMessage, t("continue_accelerating"), { showWalletReleaseBoostDialog() }, t("later"))
+            val received = formatCurrencyAmount(wallet, action.cashAdded, action.cashAddedUsdReference, includeUsdReference = true)
+            val nextMessage = if (action.idempotent) "今日该次现金奖励已经结算。" else "已领取 $received 现金奖励，已直接存入钱包。"
+            val canContinue = updatedRelease.boostAvailable
+            showBrandedChoiceDialog("现金奖励已到账", nextMessage, if (canContinue) t("continue_accelerating") else t("done"), { if (canContinue) showWalletReleaseBoostDialog() }, if (canContinue) t("later") else null)
         })
     }
 
@@ -368,7 +359,7 @@ internal fun DramaAppActivity.createChestCard(snapshot: RewardsApiClient.Snapsho
         addView(TextView(this@createChestCard).apply { text = "随机宝箱"; textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
         addView(TextView(this@createChestCard).apply {
             text = when {
-                snapshot.chest.availableCount > 0 -> "当前有 ${snapshot.chest.availableCount} 个可开启宝箱（每日 ${snapshot.chest.dailyAvailableCount} 个、追剧 ${snapshot.chest.watchAvailableCount} 个）。每次看完激励广告随机获得 ${snapshot.chest.minCoins}–${snapshot.chest.maxCoins} 宝石。"
+                snapshot.chest.availableCount > 0 -> "当前有 ${snapshot.chest.availableCount} 个可开启现金宝箱。每次完整观看广告可获得 ${formatCurrencyAmount(snapshot.wallet, snapshot.chest.minCash, null, false)} 现金奖励。"
                 snapshot.chest.episodesToNextChest > 0 -> "暂时没有可开启宝箱。每累计 ${snapshot.chest.episodesPerChest} 集有效观看可获得 1 个；再看 ${snapshot.chest.episodesToNextChest} 集即可获得下一只。"
                 else -> "暂时没有可开启宝箱；每日会自动获得宝箱，每累计 ${snapshot.chest.episodesPerChest} 集有效观看也会获得 1 个。"
             }
@@ -394,7 +385,7 @@ internal fun DramaAppActivity.requestRandomChestOpen(onFinished: () -> Unit = {}
             onSettled = { action ->
                 applyRewardsSnapshot(action.snapshot)
                 resumeAfterFullscreenAdIfNeeded()
-                toast("随机宝箱开启：+${action.gemsAdded} 宝石")
+                toast("随机宝箱开启，现金奖励已存入钱包")
                 onFinished()
             },
             onSettlementUnavailable = { message ->
@@ -415,7 +406,7 @@ internal fun DramaAppActivity.createAchievementSummary(snapshot: RewardsApiClien
         val next = crowns.firstOrNull { !it.earned }
         if (next == null) {
             addView(TextView(this@createAchievementSummary).apply { text = "皇冠成长 · 已达成"; textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(0xFFFFDB6A.toInt()) })
-            addView(TextView(this@createAchievementSummary).apply { text = "皇冠头像已解锁，追剧宝石奖励已提升至最高倍率。"; textSize = 13f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(7), 0, 0) })
+            addView(TextView(this@createAchievementSummary).apply { text = "皇冠头像已解锁，追剧现金奖励已提升至最高档。"; textSize = 13f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(7), 0, 0) })
         } else {
             addView(TextView(this@createAchievementSummary).apply {
                 text = "皇冠成长 · ${current?.title ?: "新手"}"
@@ -431,7 +422,7 @@ internal fun DramaAppActivity.createAchievementSummary(snapshot: RewardsApiClien
                 backgroundTintList = ColorStateList.valueOf(0x33333333)
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(8)))
             addView(TextView(this@createAchievementSummary).apply {
-                text = "继续追剧和签到积累成长；越高档位，后续每集宝石倍率提升越明显"
+                text = "继续追剧即可升级；越高档位，后续每集现金奖励越高"
                 textSize = 12f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(10), 0, dp(9))
             })
             addView(TextView(this@createAchievementSummary).apply {

@@ -103,7 +103,9 @@ internal fun DramaAppActivity.requestRewardedAction(
                         episodeIndex = episodeIndex, proof = testRewardProof(),
                         onSuccess = { action -> runOnUiThread {
                             fullscreenAdInProgress = false; applyRewardsSnapshot(action.snapshot)
-                            if (onSettled != null) onSettled.invoke(action) else { resumeAfterFullscreenAdIfNeeded(); toast("已结算 ${action.gemsAdded} 宝石") }
+                            playbackInterstitialShownAtElapsedMillis.clear()
+                            playbackInterstitialShownAtElapsedMillis.add(SystemClock.elapsedRealtime())
+                            if (onSettled != null) onSettled.invoke(action) else { resumeAfterFullscreenAdIfNeeded(); toast("现金奖励已结算") }
                         } },
                         onFailure = { message -> runOnUiThread {
                             fullscreenAdInProgress = false
@@ -116,9 +118,7 @@ internal fun DramaAppActivity.requestRewardedAction(
                 }
                 TopOnAdsManager.RewardedResult.Cancelled -> {
                     fullscreenAdInProgress = false
-                    showRewardedFallbackInterstitial(
-                    wasPlayingBeforeRewarded, "广告未完整观看，未获得奖励或解锁权益"
-                    )
+                    recordRewardedSkipThenMaybeShowInterstitial(wasPlayingBeforeRewarded)
                 }
                 is TopOnAdsManager.RewardedResult.Unavailable -> {
                     fullscreenAdInProgress = false
@@ -135,6 +135,20 @@ internal fun DramaAppActivity.requestRewardedAction(
             }
         } }
     }
+
+/** A fallback interstitial is eligible only after the configured number of user-cancelled rewarded ads. */
+internal fun DramaAppActivity.recordRewardedSkipThenMaybeShowInterstitial(shouldResume: Boolean, context: String = "rewarded_cancelled") {
+        if (!rewardsApi.isConfigured) { showRewardedUnavailableNotice(shouldResume, "广告未完整观看，未获得奖励或解锁权益"); return }
+        rewardsApi.recordRewardedSkipped(anonymousInstallationId(), context, { snapshot -> runOnUiThread {
+            applyRewardsSnapshot(snapshot)
+            val policy = snapshot.interstitial
+            if (policy.rewardedFallbackEnabled && (policy.rewardedSkipThreshold <= 0 || policy.rewardedSkipCount >= policy.rewardedSkipThreshold)) {
+                showRewardedFallbackInterstitial(shouldResume, "广告未完整观看，未获得奖励或解锁权益")
+            } else {
+                resumeAfterFullscreenAd = shouldResume; resumeAfterFullscreenAdIfNeeded(); toast("广告未完整观看，未获得奖励。")
+            }
+        } }, { _ -> runOnUiThread { showRewardedUnavailableNotice(shouldResume, "广告未完整观看，未获得奖励或解锁权益") } })
+}
 
     /** 无激励广告资源时直接在内容层展示说明，不再触发会遮挡说明的插屏回退。 */
 internal fun DramaAppActivity.showRewardedUnavailableNotice(shouldResume: Boolean, message: String) {
@@ -214,6 +228,9 @@ internal fun DramaAppActivity.showPlaybackActionInterstitial(
         val episodeKey = episodeId?.let { "${selectedDrama?.id}:$it" }
         val now = SystemClock.elapsedRealtime()
         playbackInterstitialShownAtElapsedMillis.removeAll { now - it >= 60 * 60 * 1_000L }
+        if (policy != null && policy.cooldownSeconds > 0 && playbackInterstitialShownAtElapsedMillis.lastOrNull()?.let { now - it < policy.cooldownSeconds * 1_000L } == true) {
+            onUnavailable("插屏冷却期未结束"); return
+        }
         if (policy != null && policy.globalHourlyLimit > 0 && playbackInterstitialShownAtElapsedMillis.size >= policy.globalHourlyLimit) {
             onUnavailable("本小时插屏展示已达总上限"); return
         }

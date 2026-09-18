@@ -43,8 +43,6 @@ class RewardsService:
     def bootstrap(self, user_id: str, region: str | None = None) -> dict[str, Any]:
         with self._transaction() as connection:
             self._ensure_user(connection, user_id, region)
-            # 不依赖客户端定时器：用户回到应用时，服务端按 UTC+8 业务日补算已披露的钱包释放额度。
-            self._apply_wallet_release_on_active_day(connection, user_id)
             self._ensure_random_chests(connection, user_id, self._business_date(), self._policy(connection))
             return self._snapshot(connection, user_id)
 
@@ -117,13 +115,26 @@ class RewardsService:
             )
             self._execute(
                 connection,
-                "UPDATE daily_counters SET rv_count = rv_count + 1, last_rv_at = NOW() WHERE user_id = %s AND business_date = %s",
+                """
+                UPDATE daily_counters
+                SET rv_count = rv_count + 1,
+                    last_rv_at = NOW(),
+                    last_interstitial_at = NOW(),
+                    rewarded_decline_count = 0,
+                    last_rewarded_declined_at = NULL
+                WHERE user_id = %s AND business_date = %s
+                """,
                 (user_id, business_date),
             )
-            # 关联该次广告与对应的权益动作。插屏冷却从该广告完成时重新开始。
-            credited_gems = self._link_rewarded_event(connection, user_id, business_date, placement_id, target_id, ad_event_id)
-            if credited_gems is not None:
-                result["gems_added"] = credited_gems
+            # Associate the ad with the entitlement and settle cash directly into the single wallet.
+            # The historical Gems field remains an internal damping/progress unit only.
+            credited_units = self._link_rewarded_event(connection, user_id, business_date, placement_id, target_id, ad_event_id)
+            if credited_units is not None:
+                wallet_policy = self._wallet_policy(connection, user_id)
+                credited_micros = self._reward_units_to_micros(credited_units, wallet_policy)
+                result["gems_added"] = credited_units  # legacy API compatibility; never presented as Gems by v1.6.4.
+                result["cash_added"] = self._money(credited_micros, wallet_policy)
+                result["cash_added_usd_reference"] = self._usd_reference_money(credited_micros, wallet_policy)
                 self._execute(
                     connection,
                     "UPDATE rewarded_ad_events SET result_payload = %s::jsonb WHERE ad_event_id = %s",
@@ -184,6 +195,7 @@ class RewardsService:
             )["count"])
             episode_reward = self._create_episode_reward_claim(connection, user_id, business_date, episode_id, policy)
             chests_created = self._ensure_random_chests(connection, user_id, business_date, policy, lifetime_episode_count)
+            self._ensure_episode_task_claims(connection, user_id, lifetime_episode_count)
             achievements = self._award_achievements_if_due(connection, user_id, policy)
             result = {
                 "gems_added": 0,
@@ -194,6 +206,73 @@ class RewardsService:
                 "achievements_awarded": achievements,
             }
             return {"idempotent": False, "result": result, "snapshot": self._snapshot(connection, user_id)}
+
+    def claim_episode_task(self, user_id: str, milestone_episode_count: int, reference_id: str) -> dict[str, Any]:
+        """Claim one completed watch-episode milestone directly into the user's cash wallet."""
+        with self._transaction() as connection:
+            self._ensure_user(connection, user_id)
+            policy = self._policy(connection)
+            task = self._one(
+                connection,
+                "SELECT reward_gems FROM episode_task_policy WHERE milestone_episode_count = %s",
+                (milestone_episode_count,),
+            )
+            if not task:
+                raise ServiceError(1221, "该追剧任务不存在", 404)
+            lifetime_episode_count = int(self._one(
+                connection, "SELECT COUNT(*) AS count FROM watch_events WHERE user_id = %s", (user_id,)
+            )["count"])
+            if lifetime_episode_count < milestone_episode_count:
+                raise ServiceError(1222, "追剧任务尚未完成", 409)
+            self._ensure_episode_task_claims(connection, user_id, lifetime_episode_count)
+            claim = self._one(
+                connection,
+                """
+                SELECT state FROM episode_task_claims
+                WHERE user_id = %s AND milestone_episode_count = %s FOR UPDATE
+                """,
+                (user_id, milestone_episode_count),
+            )
+            if not claim or claim["state"] != "PENDING":
+                return {"idempotent": True, "result": {"action": "EPISODE_TASK_CLAIM", "cash_added": "0.00"}, "snapshot": self._snapshot(connection, user_id)}
+            credited_units = self._credit_gems(
+                connection, user_id, int(task["reward_gems"]), policy,
+                "EPISODE_TASK_CLAIM", "episode_task", reference_id,
+            )
+            self._execute(
+                connection,
+                "UPDATE episode_task_claims SET state = 'CLAIMED', claimed_at = NOW() WHERE user_id = %s AND milestone_episode_count = %s",
+                (user_id, milestone_episode_count),
+            )
+            wallet_policy = self._wallet_policy(connection, user_id)
+            credited_micros = self._reward_units_to_micros(credited_units, wallet_policy)
+            return {
+                "idempotent": False,
+                "result": {
+                    "action": "EPISODE_TASK_CLAIM",
+                    "cash_added": self._money(credited_micros, wallet_policy),
+                    "cash_added_usd_reference": self._usd_reference_money(credited_micros, wallet_policy),
+                },
+                "snapshot": self._snapshot(connection, user_id),
+            }
+
+    def record_rewarded_skipped(self, user_id: str, context: str) -> dict[str, Any]:
+        """Record a deliberately skipped/cancelled rewarded placement for cooldown-based interstitial rules."""
+        with self._transaction() as connection:
+            self._ensure_user(connection, user_id)
+            business_date = self._business_date()
+            self._daily_counter(connection, user_id, business_date, lock=True)
+            self._execute(
+                connection,
+                """
+                UPDATE daily_counters
+                SET rewarded_decline_count = rewarded_decline_count + 1,
+                    last_rewarded_declined_at = NOW()
+                WHERE user_id = %s AND business_date = %s
+                """,
+                (user_id, business_date),
+            )
+            return {"context": context, "snapshot": self._snapshot(connection, user_id)}
 
     def checkin(self, user_id: str) -> dict[str, Any]:
         # v7 起签到必须由 rv_checkin_complete 广告事件结算；保留方法仅防止旧客户端绕过广告。
@@ -272,7 +351,9 @@ class RewardsService:
                 (user_id, configured_gems, reference_id),
             )
             credited = self._credit_gems(connection, user_id, configured_gems, policy, "APP_REVIEW", "app_review", reference_id)
-            return {"idempotent": False, "result": {"action": "APP_REVIEW", "gems_added": credited}, "snapshot": self._snapshot(connection, user_id)}
+            wallet_policy = self._wallet_policy(connection, user_id)
+            credited_micros = self._reward_units_to_micros(credited, wallet_policy)
+            return {"idempotent": False, "result": {"action": "APP_REVIEW", "gems_added": credited, "cash_added": self._money(credited_micros, wallet_policy), "cash_added_usd_reference": self._usd_reference_money(credited_micros, wallet_policy)}, "snapshot": self._snapshot(connection, user_id)}
 
     def _legacy_claim_welcome_bonus(self, user_id: str) -> dict[str, Any]:
         with self._transaction() as connection:
@@ -380,7 +461,7 @@ class RewardsService:
             )
             return {
                 "idempotent": False,
-                "result": {"action": "EPISODE_REWARDS_CLAIM_ALL", "gems_added": total, "claimed_count": len(claims), "boosted_count": boosted_count},
+                "result": {"action": "EPISODE_REWARDS_CLAIM_ALL", "gems_added": total, "cash_added": self._money(self._reward_units_to_micros(total, self._wallet_policy(connection, user_id)), self._wallet_policy(connection, user_id)), "cash_added_usd_reference": self._usd_reference_money(self._reward_units_to_micros(total, self._wallet_policy(connection, user_id)), self._wallet_policy(connection, user_id)), "claimed_count": len(claims), "boosted_count": boosted_count},
                 "snapshot": self._snapshot(connection, user_id),
             }
 
@@ -445,6 +526,7 @@ class RewardsService:
         allowed = {
             "episode_reward_gems", "episodes_per_rewarded_unlock", "episode_reward_boost_enabled",
             "random_chest_min_gems", "random_chest_max_gems", "daily_random_chest_count", "episodes_per_random_chest",
+            "interstitial_cooldown_seconds", "interstitial_rewarded_skip_threshold",
             "reward_claim_interstitial_enabled", "mid_episode_interstitial_enabled", "mid_episode_interstitial_trigger_seconds",
             "mid_episode_interstitial_hourly_limit", "seek_interstitial_enabled", "seek_interstitial_hourly_limit",
             "next_episode_interstitial_enabled", "speed_interstitial_enabled", "speed_interstitial_hourly_limit",
@@ -552,6 +634,9 @@ class RewardsService:
             return self._admin_policy_with_crowns(connection, self._policy(connection))
 
     def exchange_gems(self, user_id: str, gems: int, reference_id: str) -> dict[str, Any]:
+        raise ServiceError(1460, "当前版本采用直接现金钱包，奖励无需兑换", 409)
+
+    def _exchange_gems_legacy(self, user_id: str, gems: int, reference_id: str) -> dict[str, Any]:
         with self._transaction() as connection:
             self._ensure_user(connection, user_id)
             self._apply_wallet_release_on_active_day(connection, user_id)
@@ -615,6 +700,10 @@ class RewardsService:
             policy = self._policy(connection)
             counters = self._daily_counter(connection, user_id, business_date, lock=True)
             now = self._now()
+
+            cooldown_seconds = int(policy.get("interstitial_cooldown_seconds", 0))
+            if counters["last_interstitial_at"] and now - counters["last_interstitial_at"] < timedelta(seconds=cooldown_seconds):
+                raise ServiceError(2002, "插屏冷却期未结束", 409)
 
             global_hourly_limit = int(policy.get("interstitial_global_hourly_limit", 0))
             if global_hourly_limit > 0:
@@ -685,10 +774,11 @@ class RewardsService:
             elif placement_id == "int_rewarded_fallback":
                 if not bool(policy["rewarded_fallback_interstitial_enabled"]):
                     raise ServiceError(2020, "激励回退插屏当前未启用", 409)
+                threshold = int(policy.get("interstitial_rewarded_skip_threshold", 0))
+                if threshold > 0 and int(counters.get("rewarded_decline_count", 0)) < threshold:
+                    raise ServiceError(2022, "尚未达到激励广告跳过触发阈值", 409)
             else:
                 # 兼容旧版 int_timer / int_pause 事件。
-                if counters["last_interstitial_at"] and now - counters["last_interstitial_at"] < timedelta(seconds=int(policy["interstitial_cooldown_seconds"])):
-                    raise ServiceError(2002, "插屏冷却期未结束", 409)
                 if placement_count(placement_id) >= int(policy["interstitial_hourly_limit"]):
                     raise ServiceError(2003, "本小时插屏展示已达上限", 429)
 
@@ -723,9 +813,9 @@ class RewardsService:
             wallet_policy = self._wallet_policy(connection, user_id)
             enabled = bool(policy["withdrawal_enabled"])
             threshold = int(wallet_policy["withdrawal_threshold_micros"])
-            available = int(wallet["available_balance_micros"])
+            available = int(wallet["cash_wallet_micros"])
             if not enabled:
-                reason = "提现功能尚未启用；当前仅展示透明的积分与现金钱包预估。"
+                reason = "提现功能尚未启用；当前仅展示已累计的现金钱包奖励。"
             elif available < threshold:
                 reason = f"可提现余额未达到最低门槛 {self._money_label(threshold, wallet_policy)}。"
             else:
@@ -935,27 +1025,16 @@ class RewardsService:
 
         if placement_id == "rv_release_boost":
             counters = self._daily_counter(connection, user_id, business_date, lock=True)
-            user = self._one(
-                connection,
-                "SELECT cash_wallet_micros, last_wallet_release_date FROM users WHERE user_id = %s FOR UPDATE",
-                (user_id,),
-            )
             release_boost_limit = int(policy["release_boost_daily_limit"])
             if release_boost_limit > 0 and int(counters["release_boost_count"]) >= release_boost_limit:
                 raise ServiceError(1451, "今日广告加速次数已达上限", 429)
-            # 广告入口始终可打开。存在钱包余额时，按当日基础转入的比例额外转入；
-            # 新用户或余额为零时仍正常完成广告动作，只是不产生虚构金额。
-            release_cap = int(self._wallet_policy(connection, user_id)["daily_release_micros"])
-            base_today = self._today_base_release_micros(connection, user_id, business_date)
-            base_for_acceleration = base_today or min(int(user["cash_wallet_micros"]), release_cap)
-            amount = min(
-                int(user["cash_wallet_micros"]),
-                max(0, math.floor(base_for_acceleration * float(policy["release_boost_percent"]))),
-            )
+            # Single-wallet mode: an ad boost is transparent extra cash, not a transfer
+            # between hidden balance layers. Its amount remains policy-configurable.
+            reward_units = max(0, math.floor(int(policy["episode_reward_gems"]) * float(policy["release_boost_percent"])))
             return {
-                "action": "RELEASE_BOOST",
-                "gems_added": 0,
-                "released_micros": amount,
+                "action": "WALLET_CASH_BOOST",
+                "gems_added": reward_units,
+                "released_micros": 0,
                 "release_boost_percent": float(policy["release_boost_percent"]),
             }
 
@@ -1060,34 +1139,20 @@ class RewardsService:
                 (payload["gems_added"], user_id, business_date),
             )
             return self._credit_gems(connection, user_id, payload["gems_added"], policy, "SIGNIN_DOUBLE", "signin_double_ad", ad_event_id)
-        elif action == "RELEASE_BOOST":
-            amount = int(payload["released_micros"])
-            self._execute(
-                connection,
-                """
-                UPDATE users
-                SET cash_wallet_micros = cash_wallet_micros - %s,
-                    available_balance_micros = available_balance_micros + %s,
-                    updated_at = NOW()
-                WHERE user_id = %s
-                """,
-                (amount, amount, user_id),
+        elif action == "WALLET_CASH_BOOST":
+            credited = self._credit_gems(
+                connection, user_id, int(payload["gems_added"]), policy,
+                "WALLET_CASH_BOOST", "wallet_cash_boost", ad_event_id,
             )
             self._execute(
                 connection,
-                "UPDATE daily_counters SET release_boost_count = release_boost_count + 1 WHERE user_id = %s AND business_date = %s",
+                """
+                UPDATE daily_counters SET release_boost_count = release_boost_count + 1
+                WHERE user_id = %s AND business_date = %s
+                """,
                 (user_id, business_date),
             )
-            self._execute(
-                connection,
-                """
-                INSERT INTO ledger_entries
-                (user_id, entry_type, cash_wallet_delta_micros, available_balance_delta_micros, reference_type, reference_id)
-                VALUES (%s, 'RELEASE_BOOST', %s, %s, 'release_boost', %s)
-                """,
-                (user_id, -amount, amount, ad_event_id),
-            )
-            return None
+            return credited
         return None
 
     def _create_episode_reward_claim(
@@ -1190,6 +1255,57 @@ class RewardsService:
         if created_count:
             created.append({"created_count": created_count, "available_count": available})
         return created
+
+    def _ensure_episode_task_claims(
+        self,
+        connection: psycopg.Connection[Any],
+        user_id: str,
+        lifetime_episode_count: int,
+    ) -> None:
+        """Materialise milestones that have become claimable; repeat calls are safe."""
+        self._execute(
+            connection,
+            """
+            INSERT INTO episode_task_claims (user_id, milestone_episode_count)
+            SELECT %s, milestone_episode_count
+            FROM episode_task_policy
+            WHERE milestone_episode_count <= %s
+            ON CONFLICT (user_id, milestone_episode_count) DO NOTHING
+            """,
+            (user_id, lifetime_episode_count),
+        )
+
+    def _episode_task_progress(
+        self,
+        connection: psycopg.Connection[Any],
+        user_id: str,
+        lifetime_episode_count: int,
+        wallet_policy: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        self._ensure_episode_task_claims(connection, user_id, lifetime_episode_count)
+        rows = self._all(
+            connection,
+            """
+            SELECT p.milestone_episode_count, p.reward_gems, p.sort_order,
+                   COALESCE(c.state, CASE WHEN p.milestone_episode_count <= %s THEN 'PENDING' ELSE 'LOCKED' END) AS state
+            FROM episode_task_policy p
+            LEFT JOIN episode_task_claims c
+                   ON c.user_id = %s AND c.milestone_episode_count = p.milestone_episode_count
+            ORDER BY p.sort_order
+            """,
+            (lifetime_episode_count, user_id),
+        )
+        return [
+            {
+                "milestone_episode_count": int(row["milestone_episode_count"]),
+                "reward_gems": int(row["reward_gems"]),
+                "reward_cash": self._money(self._reward_units_to_micros(int(row["reward_gems"]), wallet_policy), wallet_policy),
+                "state": row["state"],
+                "progress": min(lifetime_episode_count, int(row["milestone_episode_count"])),
+                "target": int(row["milestone_episode_count"]),
+            }
+            for row in rows
+        ]
 
     def _create_ten_round_claim_if_due(
         self,
@@ -1314,53 +1430,56 @@ class RewardsService:
             """,
             (user_id,),
         )
+        for item in episode_reward_claims:
+            units = int(item["base_reward_gems"]) * (2 if item["boosted"] else 1)
+            item["cash"] = self._money(self._reward_units_to_micros(units, wallet_policy), wallet_policy)
+        for item in achievements:
+            item["cash"] = self._money(self._reward_units_to_micros(int(item["gems"]), wallet_policy), wallet_policy)
         pending_episode_rewards = [item for item in episode_reward_claims if item["state"] == "PENDING"]
         pending_reward_gems = sum(int(item["base_reward_gems"]) * (2 if item["boosted"] else 1) for item in pending_episode_rewards)
         episodes_per_chest = int(policy["episodes_per_random_chest"])
         in_chest_cycle = lifetime_episode_count % episodes_per_chest
         release_cap = int(wallet_policy["daily_release_micros"])
         cash_wallet_micros = int(user["cash_wallet_micros"])
-        estimated_days = math.ceil(cash_wallet_micros / max(release_cap, 1)) if cash_wallet_micros else 0
-        expected_tomorrow_transfer = min(cash_wallet_micros, release_cap)
-        base_today_transfer = self._today_base_release_micros(connection, user_id, business_date)
-        expected_boost_transfer = min(
-            cash_wallet_micros,
-            max(0, math.floor(base_today_transfer * float(policy["release_boost_percent"]))),
-        )
+        expected_boost_units = max(0, math.floor(int(policy["episode_reward_gems"]) * float(policy["release_boost_percent"])))
+        expected_boost_transfer = self._reward_units_to_micros(expected_boost_units, wallet_policy)
         currency = self._currency_payload(wallet_policy)
+        task_rows = self._episode_task_progress(connection, user_id, lifetime_episode_count, wallet_policy)
         return {
             "business_date": business_date.isoformat(),
             "user": {"geo_tier": user["geo_tier"], "market_code": wallet_policy["market_code"], "lifecycle_day": lifecycle_day},
             "wallet": {
-                "gems_balance": user["gems_balance"],
+                "gems_balance": 0,
                 "cash_wallet": self._money(user["cash_wallet_micros"], wallet_policy),
                 "wallet_locked": self._money(user["cash_wallet_micros"], wallet_policy),
-                "available_balance": self._money(user["available_balance_micros"], wallet_policy),
+                "available_balance": self._money(user["cash_wallet_micros"], wallet_policy),
                 "cash_wallet_usd_reference": self._usd_reference_money(user["cash_wallet_micros"], wallet_policy),
-                "available_balance_usd_reference": self._usd_reference_money(user["available_balance_micros"], wallet_policy),
+                "available_balance_usd_reference": self._usd_reference_money(user["cash_wallet_micros"], wallet_policy),
                 "currency": currency,
                 "total_gems_earned": user["total_gems_earned"],
+                "reward_progress_units": user["total_gems_earned"],
+                "cash_mode": True,
                 "exchange_rate_gems": 10000,
                 "exchange_value_per_10000_gems": self._money(int(wallet_policy["currency_micros_per_10000_gems"]), wallet_policy),
                 "exchange_value_per_10000_gems_usd_reference": self._usd_reference_money(int(wallet_policy["usd_micros_per_10000_gems"]), wallet_policy),
                 "minimum_exchange_gems": policy["minimum_exchange_gems"],
                 "release": {
-                    "released_today": user["last_wallet_release_date"] == business_date,
-                    "daily_release": self._money(release_cap, wallet_policy),
+                    "released_today": False,
+                    "daily_release": "0",
                     "daily_release_usd_reference": self._usd_reference_money(release_cap, wallet_policy),
                     "boost_used": counters["release_boost_count"],
                     "boost_cap": policy["release_boost_daily_limit"],
                     "boost_amount": self._money(expected_boost_transfer, wallet_policy),
                     "boost_amount_usd_reference": self._usd_reference_money(expected_boost_transfer, wallet_policy),
                     "boost_percent": float(policy["release_boost_percent"]),
-                    "expected_tomorrow_transfer": self._money(expected_tomorrow_transfer, wallet_policy),
-                    "expected_tomorrow_transfer_usd_reference": self._usd_reference_money(expected_tomorrow_transfer, wallet_policy),
+                    "expected_tomorrow_transfer": "0",
+                    "expected_tomorrow_transfer_usd_reference": "0",
                     "expected_boost_transfer": self._money(expected_boost_transfer, wallet_policy),
                     "expected_boost_transfer_usd_reference": self._usd_reference_money(expected_boost_transfer, wallet_policy),
-                    # 前端始终提供广告加速入口；金额是否转入由真实钱包余额与账本决定。
+                    # The boost is a direct cash reward and remains available until the daily cap.
                     "boost_available": int(policy["release_boost_daily_limit"]) <= 0 or int(counters["release_boost_count"]) < int(policy["release_boost_daily_limit"]),
-                    "estimated_days_remaining": estimated_days,
-                    "pending_days": user["pending_release_days"],
+                    "estimated_days_remaining": 0,
+                    "pending_days": 0,
                 },
             },
             "today": {
@@ -1375,6 +1494,7 @@ class RewardsService:
                 "episodes_per_random_chest": episodes_per_chest,
                 "episodes_to_next_random_chest": 0 if in_chest_cycle == 0 else episodes_per_chest - in_chest_cycle,
                 "pending_episode_reward_count": len(pending_episode_rewards),
+                "rewarded_decline_count": int(counters.get("rewarded_decline_count", 0)),
             },
             "checkin": {
                 "signed_today": checkin is not None,
@@ -1382,17 +1502,21 @@ class RewardsService:
                 "today_streak": today_streak,
                 "today_base_gems": checkin["base_gems"] if checkin else today_reward,
                 "today_double_gems": checkin["double_gems"] if checkin else 0,
+                "today_cash": self._money(self._reward_units_to_micros(int(checkin["base_gems"] if checkin else today_reward), wallet_policy), wallet_policy),
                 "tiers": tiers,
             },
             "welcome": {
                 "available": welcome is not None and welcome["state"] == "PENDING",
                 "claimed": welcome is not None and welcome["state"] == "CLAIMED",
                 "gems": int(welcome["gems"]) if welcome else 0,
+                "cash": self._money(self._reward_units_to_micros(int(welcome["gems"]) if welcome else 0, wallet_policy), wallet_policy),
+                "cash_usd_reference": self._usd_reference_money(self._reward_units_to_micros(int(welcome["gems"]) if welcome else 0, wallet_policy), wallet_policy),
             },
             "review": {
                 "available": review is None,
                 "claimed": review is not None,
                 "gems": int(review["gems"]) if review else int(policy["review_reward_gems"]),
+                "cash": self._money(self._reward_units_to_micros(int(review["gems"]) if review else int(policy["review_reward_gems"]), wallet_policy), wallet_policy),
             },
             "ring": {
                 "enabled": True,
@@ -1400,7 +1524,9 @@ class RewardsService:
                 "target": max(1, len(pending_episode_rewards)),
                 "claimable": bool(pending_episode_rewards),
                 "reward_gems": pending_reward_gems,
-                "label": "领取全部宝石" if pending_episode_rewards else "追剧攒宝石",
+                "reward_cash": self._money(self._reward_units_to_micros(pending_reward_gems, wallet_policy), wallet_policy),
+                "reward_cash_usd_reference": self._usd_reference_money(self._reward_units_to_micros(pending_reward_gems, wallet_policy), wallet_policy),
+                "label": "领取现金奖励" if pending_episode_rewards else "追剧赚现金",
             },
             "chest": {
                 "requires_checkin": False,
@@ -1412,10 +1538,12 @@ class RewardsService:
                 "watch_available_count": chest_counts.get("WATCH", 0),
                 "min_gems": int(policy["random_chest_min_gems"]),
                 "max_gems": int(policy["random_chest_max_gems"]),
+                "min_cash": self._money(self._reward_units_to_micros(int(policy["random_chest_min_gems"]), wallet_policy), wallet_policy),
+                "max_cash": self._money(self._reward_units_to_micros(int(policy["random_chest_max_gems"]), wallet_policy), wallet_policy),
                 "episodes_per_chest": episodes_per_chest,
                 "episodes_to_next_chest": 0 if in_chest_cycle == 0 else episodes_per_chest - in_chest_cycle,
             },
-            "pending_claims": [],
+            "pending_claims": task_rows,
             "episode_reward_claims": episode_reward_claims,
             "episode_reward_preboosted_ids": [item["episode_id"] for item in preboosted_episode_rows],
             "achievements": achievements,
@@ -1454,6 +1582,8 @@ class RewardsService:
                 "drama_switch_every_count": int(policy["drama_switch_interstitial_every_count"]),
                 "drama_switch_hourly_limit": int(policy["drama_switch_interstitial_hourly_limit"]),
                 "rewarded_fallback_enabled": bool(policy["rewarded_fallback_interstitial_enabled"]),
+                "rewarded_skip_threshold": int(policy.get("interstitial_rewarded_skip_threshold", 0)),
+                "rewarded_skip_count": int(counters.get("rewarded_decline_count", 0)),
                 "last_rv_at": counters["last_rv_at"].isoformat() if counters["last_rv_at"] else None,
                 "last_interstitial_at": counters["last_interstitial_at"].isoformat() if counters["last_interstitial_at"] else None,
             },
@@ -1488,6 +1618,7 @@ class RewardsService:
         now = self._now()
         rows = self._all(connection, "SELECT * FROM achievement_policy ORDER BY level_rank ASC, code ASC")
         reward_policy = self._policy(connection)
+        wallet_policy = self._wallet_policy(connection, user_id)
         episode_reward_gems = int(reward_policy["episode_reward_gems"])
         crown_daily_limit = int(reward_policy.get("crown_rewarded_daily_limit", 0))
         crown_ads_today = int(self._one(
@@ -1520,6 +1651,8 @@ class RewardsService:
                 "entitlement": row["virtual_entitlement"], "window_hours": row["window_hours"],
                 "episode_reward_multiplier": float(row["episode_reward_multiplier"]),
                 "episode_reward_gems": math.floor(episode_reward_gems * float(row["episode_reward_multiplier"])),
+                "episode_reward_cash": self._money(self._reward_units_to_micros(math.floor(episode_reward_gems * float(row["episode_reward_multiplier"])), wallet_policy), wallet_policy),
+                "cash": self._money(self._reward_units_to_micros(int(row["reward_gems"]), wallet_policy), wallet_policy),
                 "rounds": {"current": rounds, "target": row["required_rounds"]},
                 "watched_rounds": {"current": watched_rounds, "target": row["required_rounds"]},
                 "ad_equivalent_rounds": equivalent_rounds,
@@ -1537,11 +1670,11 @@ class RewardsService:
     ) -> dict[str, Any]:
         enabled = bool(policy["withdrawal_enabled"])
         threshold = int(wallet_policy["withdrawal_threshold_micros"])
-        available = int(user["available_balance_micros"])
+        available = int(user["cash_wallet_micros"])
         if not enabled:
-            reason = "提现功能尚未启用；请关注钱包余额与可提现余额的后续转入进度。"
+            reason = "提现功能尚未启用；你的现金奖励会直接累计在钱包中。"
         elif available < threshold:
-            reason = f"可提现余额未达到最低门槛 {self._money_label(threshold, wallet_policy)}，还差 {self._money_label(threshold - available, wallet_policy)}。"
+            reason = f"钱包余额未达到最低门槛 {self._money_label(threshold, wallet_policy)}，还差 {self._money_label(threshold - available, wallet_policy)}。"
         else:
             reason = "已满足余额条件；仍需通过正式 KYC 与支付服务校验。"
         return {
@@ -1593,33 +1726,41 @@ class RewardsService:
             if cap > 0:
                 credited_gems = min(credited_gems, cap - total_before)
         total = total_before + credited_gems
-        # 宝石不自动变为现金钱包；只有用户主动兑换才会从 L1 进入 L2。
+        # v1.6.4: reward units are internal-only for damping/audit. Every settled
+        # reward is immediately credited to the user's one local-currency wallet;
+        # no Gems balance or wallet-release conversion is exposed to the user.
+        wallet_policy = self._wallet_policy(connection, user_id)
+        credited_micros = self._reward_units_to_micros(credited_gems, wallet_policy)
         self._execute(
             connection,
             """
             UPDATE users
-            SET gems_balance = gems_balance + %s,
+            SET cash_wallet_micros = cash_wallet_micros + %s,
                 total_gems_earned = %s,
                 updated_at = NOW()
             WHERE user_id = %s
             """,
-            (credited_gems, total, user_id),
+            (credited_micros, total, user_id),
         )
         self._execute(
             connection,
             """
             INSERT INTO ledger_entries
-            (user_id, entry_type, gems_delta, reference_type, reference_id)
-            VALUES (%s, %s, %s, %s, %s)
+            (user_id, entry_type, gems_delta, cash_wallet_delta_micros, reference_type, reference_id)
+            VALUES (%s, %s, %s, %s, %s, %s)
             """,
-            (user_id, entry_type, credited_gems, reference_type, reference_id),
+            (user_id, entry_type, credited_gems, credited_micros, reference_type, reference_id),
         )
         return credited_gems
 
     @staticmethod
+    def _reward_units_to_micros(reward_units: int, wallet_policy: dict[str, Any]) -> int:
+        return max(0, (int(reward_units) * int(wallet_policy["currency_micros_per_10000_gems"])) // 10_000)
+
+    @staticmethod
     def _normalise_market_code(region: str | None) -> str:
         value = (region or "").strip().upper().replace("-", "_")
-        aliases = {"BRA": "BR", "BRAZIL": "BR", "PT_BR": "BR", "IDN": "ID", "INDONESIA": "ID", "IN_ID": "ID"}
+        aliases = {"BRA": "BR", "BRAZIL": "BR", "PT_BR": "BR", "IDN": "ID", "INDONESIA": "ID", "IN_ID": "ID", "HKG": "HK", "HONG_KONG": "HK", "ZH_HK": "HK"}
         return aliases.get(value, value if value and value != "DEFAULT" else "DEFAULT")
 
     def _active_market_or_default(self, connection: psycopg.Connection[Any], requested_market: str) -> str:
@@ -1825,6 +1966,8 @@ class RewardsService:
             "daily_random_chest_count": int(policy["daily_random_chest_count"]),
             "episodes_per_random_chest": int(policy["episodes_per_random_chest"]),
             "reward_claim_interstitial_enabled": bool(policy["reward_claim_interstitial_enabled"]),
+            "interstitial_cooldown_seconds": int(policy["interstitial_cooldown_seconds"]),
+            "interstitial_rewarded_skip_threshold": int(policy.get("interstitial_rewarded_skip_threshold", 0)),
             "mid_episode_interstitial_enabled": bool(policy["mid_episode_interstitial_enabled"]),
             "mid_episode_interstitial_trigger_seconds": int(policy["mid_episode_interstitial_trigger_seconds"]),
             "mid_episode_interstitial_hourly_limit": int(policy["mid_episode_interstitial_hourly_limit"]),

@@ -60,6 +60,17 @@ class WatchEventRequest(BaseModel):
     watched_seconds: int = Field(ge=1, le=86_400)
 
 
+class EpisodeTaskClaimRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=128)
+    milestone_episode_count: int = Field(ge=1, le=100_000)
+    reference_id: str = Field(min_length=8, max_length=160)
+
+
+class RewardedSkippedRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=128)
+    context: str = Field(default="reward_prompt", min_length=1, max_length=64)
+
+
 class CheckinRequest(BaseModel):
     user_id: str = Field(min_length=1, max_length=128)
 
@@ -115,6 +126,8 @@ class RewardPolicyUpdateRequest(BaseModel):
     rv_daily_limit: int | None = Field(default=None, ge=0, le=1000)
     episode_interstitial_limit: int | None = Field(default=None, ge=0, le=10)
     interstitial_global_hourly_limit: int | None = Field(default=None, ge=0, le=120)
+    interstitial_cooldown_seconds: int | None = Field(default=None, ge=0, le=3600)
+    interstitial_rewarded_skip_threshold: int | None = Field(default=None, ge=0, le=50)
     drama_switch_interstitial_enabled: bool | None = None
     drama_switch_interstitial_every_count: int | None = Field(default=None, ge=1, le=50)
     drama_switch_interstitial_hourly_limit: int | None = Field(default=None, ge=0, le=120)

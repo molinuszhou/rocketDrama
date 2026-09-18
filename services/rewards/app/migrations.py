@@ -15,6 +15,7 @@ def apply_runtime_migrations(settings: Settings) -> None:
     """
     sql_directory = Path(__file__).resolve().parent.parent / "sql"
     migration_paths = (
+        ("002_monetization_v3", sql_directory / "002_monetization_v3.sql"),
         ("003_rewards_v4", sql_directory / "003_rewards_v4.sql"),
         ("004_ad_flow_v5", sql_directory / "004_ad_flow_v5.sql"),
         ("005_random_chest_and_reward_v6", sql_directory / "005_random_chest_and_reward_v6.sql"),
@@ -31,6 +32,7 @@ def apply_runtime_migrations(settings: Settings) -> None:
         ("016_crown_road_effective_rounds", sql_directory / "016_crown_road_effective_rounds.sql"),
         ("017_v1635_checkin_200k_five_tier_damping", sql_directory / "017_v1635_checkin_200k_five_tier_damping.sql"),
         ("018_low_frequency_ad_policy", sql_directory / "018_low_frequency_ad_policy.sql"),
+        ("019_direct_cash_wallet_tasks_and_ad_cooldowns", sql_directory / "019_direct_cash_wallet_tasks_and_ad_cooldowns.sql"),
     )
     with psycopg.connect(settings.database_url, autocommit=True) as connection:
         with connection.cursor() as cursor:
@@ -48,4 +50,19 @@ def apply_runtime_migrations(settings: Settings) -> None:
                 cursor.execute("SELECT 1 FROM schema_migrations WHERE version = %s", (version,))
                 if cursor.fetchone() is not None:
                     continue
+                if version == "002_monetization_v3":
+                    # v3 originally predates schema_migrations and is mounted directly in
+                    # Docker init. Do not replay its old rewarded-placement CHECK against
+                    # a live v1.6.4 ledger; record it when its schema is already present.
+                    cursor.execute(
+                        """
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'reward_policy' AND column_name = 'claim_stride_day0'
+                        """
+                    )
+                    if cursor.fetchone() is not None:
+                        cursor.execute("INSERT INTO schema_migrations (version) VALUES (%s) ON CONFLICT DO NOTHING", (version,))
+                        continue
                 cursor.execute(sql_path.read_text(encoding="utf-8"))
+                if version == "002_monetization_v3":
+                    cursor.execute("INSERT INTO schema_migrations (version) VALUES (%s) ON CONFLICT DO NOTHING", (version,))

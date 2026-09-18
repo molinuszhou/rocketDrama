@@ -112,20 +112,27 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
                 orientation = LinearLayout.VERTICAL
                 addView(TextView(this@createWithdrawalPage).apply { text = t("wallet_balance"); textSize = 14f; setTextColor(0xCCFFFFFF.toInt()) })
                 addView(TextView(this@createWithdrawalPage).apply { text = formatWalletTotal(wallet, includeUsdReference = true); textSize = 34f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(0, dp(5), 0, 0); maxLines = 2 })
-                addView(TextView(this@createWithdrawalPage).apply { text = t("wallet_total_hint"); textSize = 11f; setTextColor(0xBFFFFFFF.toInt()); setPadding(0, dp(6), 0, 0) })
+                addView(TextView(this@createWithdrawalPage).apply { text = "完成任务后，现金奖励会直接存入钱包"; textSize = 11f; setTextColor(0xBFFFFFFF.toInt()); setPadding(0, dp(6), 0, 0) })
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             balanceRow.addView(ImageView(this@createWithdrawalPage).apply {
                 setImageResource(R.drawable.ic_wallet); scaleType = ImageView.ScaleType.CENTER_INSIDE; contentDescription = t("wallet")
             }, LinearLayout.LayoutParams(dp(72), dp(72)))
             addView(balanceRow)
         }, matchParams(bottom = 14))
-        addView(createCashoutSummary(wallet), matchParams(bottom = 12))
+        val release = wallet.release
+        addView(LinearLayout(this@createWithdrawalPage).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(16), dp(18), dp(16)); background = roundedDrawable(COLOR_CARD, 20)
+            addView(TextView(this@createWithdrawalPage).apply { text = "广告加速"; textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
+            addView(TextView(this@createWithdrawalPage).apply {
+                text = "观看一段广告，可额外获得 ${formatCurrencyAmount(wallet, release.boostAmount, release.expectedBoostTransferUsdReference, includeUsdReference = true)} 现金奖励。今日已完成 ${release.boostUsed}/${if (release.boostCap == 0) "不限" else release.boostCap} 次。"
+                textSize = 13f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(7), 0, 0)
+            })
+        }, matchParams(bottom = 12))
         addView(TextView(this@createWithdrawalPage).apply {
-            text = t("wallet_ad_accelerate"); textSize = 15f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
+            text = "观看广告，领取现金奖励"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
             background = gradientDrawable(intArrayOf(COLOR_SUNSET, COLOR_CORAL), 18); setPadding(dp(14), dp(13), dp(14), dp(13)); isClickable = true
             setOnClickListener { showWalletReleaseBoostDialog() }
         }, matchParams(bottom = 14))
-        addView(createCashoutExplainer(wallet), matchParams(bottom = 20))
         addView(TextView(this@createWithdrawalPage).apply {
             text = t("request_cashout"); textSize = 17f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
             background = gradientDrawable(intArrayOf(COLOR_CORAL, COLOR_SUNSET), 24); setPadding(0, dp(16), 0, dp(16)); isClickable = true
@@ -153,6 +160,9 @@ internal fun DramaAppActivity.formatCurrencyAmount(wallet: RewardsApiClient.Wall
     }
 
 internal fun DramaAppActivity.formatWalletTotal(wallet: RewardsApiClient.Wallet, includeUsdReference: Boolean = false): String {
+        if (wallet.cashMode) {
+            return formatCurrencyAmount(wallet, wallet.cashWallet, wallet.cashWalletUsdReference, includeUsdReference)
+        }
         val total = (wallet.cashWallet.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO) +
             (wallet.availableBalance.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO)
         val usdTotal = (wallet.cashWalletUsdReference.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO) +

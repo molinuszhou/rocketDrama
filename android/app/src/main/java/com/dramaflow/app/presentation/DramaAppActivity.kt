@@ -182,8 +182,10 @@ class DramaAppActivity : FragmentActivity() {
     /** 当前页面可见的宝石余额锚点。领取成功后，宝石飞入此位置。 */
     internal var gemBalanceAnchor: View? = null
     internal var gemBalanceLabel: TextView? = null
+    internal var cashBalanceAnchor: View? = null
     internal var cashBalanceLabel: TextView? = null
     internal var lastConfirmedGemBalance: Long? = null
+    internal var lastConfirmedCashBalance: String? = null
     internal var gemFlightInProgress = false
     /** Avoid repeatedly interrupting the viewer with the same accumulated-gem prompt. */
     internal var lastFloatingClaimPromptedGems = 0
@@ -304,6 +306,7 @@ class DramaAppActivity : FragmentActivity() {
         configureCatalogWindow()
         gemBalanceAnchor = null
         gemBalanceLabel = null
+        cashBalanceAnchor = null
         cashBalanceLabel = null
         val page = when (activeTab) {
             MainTab.HOME -> createHomePage()

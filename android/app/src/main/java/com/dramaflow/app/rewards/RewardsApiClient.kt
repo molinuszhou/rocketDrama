@@ -28,6 +28,7 @@ class RewardsApiClient(
     data class EpisodeReward(
         val episodeId: String,
         val rewardCoins: Int,
+        val rewardCash: String = "0.00",
         val status: String,
         val boosted: Boolean = false,
     )
@@ -39,6 +40,7 @@ class RewardsApiClient(
         val progress: Int,
         val target: Int,
         val rewardCoins: Int,
+        val rewardCash: String = "0.00",
         val adDoubleEnabled: Boolean = false,
         val status: String,
         val cycleNumber: Int = 0,
@@ -76,6 +78,8 @@ class RewardsApiClient(
         val availableBalanceUsdReference: String = "0.00",
         val currency: Currency = Currency(),
         val totalGemsEarned: Long,
+        val rewardProgressUnits: Long = 0L,
+        val cashMode: Boolean = false,
         val exchangeRateGems: Long,
         /** Current server-issued conversion value for the exchange rate, used in reward explanations. */
         val exchangeValuePer10000Gems: String = "0.00",
@@ -93,6 +97,8 @@ class RewardsApiClient(
         val target: Int = 1,
         val claimable: Boolean = false,
         val rewardCoins: Int = 0,
+        val rewardCash: String = "0.00",
+        val rewardCashUsdReference: String = "0.00",
         val label: String = "攒币",
     )
 
@@ -100,12 +106,15 @@ class RewardsApiClient(
         val available: Boolean,
         val claimed: Boolean,
         val gems: Long,
+        val cash: String = "0.00",
+        val cashUsdReference: String = "0.00",
     )
 
     data class ReviewReward(
         val available: Boolean = false,
         val claimed: Boolean = false,
         val gems: Long = 0L,
+        val cash: String = "0.00",
     )
 
     data class CrownMetric(val current: Int, val target: Int)
@@ -124,6 +133,8 @@ class RewardsApiClient(
         val progress: Float,
         val episodeRewardMultiplier: Float = 1f,
         val episodeRewardGems: Long = 0L,
+        val episodeRewardCash: String = "0.00",
+        val cash: String = "0.00",
         val watchedRounds: CrownMetric = CrownMetric(0, 0),
         val adEquivalentRounds: Int = 0,
         val adsPerEpisode: Int = 2,
@@ -154,6 +165,8 @@ class RewardsApiClient(
         val watchAvailableCount: Int = 0,
         val minCoins: Int = 0,
         val maxCoins: Int = 0,
+        val minCash: String = "0.00",
+        val maxCash: String = "0.00",
         val episodesPerChest: Int = 3,
         val episodesToNextChest: Int = 0,
     )
@@ -182,6 +195,8 @@ class RewardsApiClient(
         val dramaSwitchEveryCount: Int = 3,
         val dramaSwitchHourlyLimit: Int = 6,
         val rewardedFallbackEnabled: Boolean = true,
+        val rewardedSkipThreshold: Int = 0,
+        val rewardedSkipCount: Int = 0,
         val lastRvAt: String?,
         val lastInterstitialAt: String?,
     )
@@ -208,7 +223,7 @@ class RewardsApiClient(
         val thresholdUsdReference: String = "0.00",
     )
 
-    data class Achievement(val code: String, val gems: Long, val entitlement: String)
+    data class Achievement(val code: String, val gems: Long, val entitlement: String, val cash: String = "0.00")
     data class LedgerEntry(val type: String, val gemsDelta: Long, val cashWalletDelta: String, val availableBalanceDelta: String, val createdAt: String)
 
     data class Snapshot(
@@ -262,6 +277,8 @@ class RewardsApiClient(
         val action: String,
         val gemsAdded: Long,
         val snapshot: Snapshot,
+        val cashAdded: String = "0.00",
+        val cashAddedUsdReference: String = "0.00",
         val adEventId: String? = null,
         val releasedMicros: Long = 0L,
         val unlockEpisodeCount: Int = 1,
@@ -298,6 +315,23 @@ class RewardsApiClient(
         }, onFailure,
     )
 
+    fun claimEpisodeTask(userId: String, milestoneEpisodeCount: Int, onSuccess: (RewardAction) -> Unit, onFailure: (String) -> Unit) = post(
+        "/v2/episode-tasks/claim",
+        JSONObject().put("user_id", userId).put("milestone_episode_count", milestoneEpisodeCount).put("reference_id", "episode-task-${UUID.randomUUID()}"),
+        { data ->
+            val result = data.optJSONObject("result") ?: JSONObject()
+            onSuccess(RewardAction(
+                data.optBoolean("idempotent"), result.optString("action"), result.optLong("gems_added"),
+                parseSnapshot(data.getJSONObject("snapshot")), result.optString("cash_added", "0.00"), result.optString("cash_added_usd_reference", "0.00"),
+            ))
+        }, onFailure,
+    )
+
+    fun recordRewardedSkipped(userId: String, context: String, onSuccess: (Snapshot) -> Unit, onFailure: (String) -> Unit) = post(
+        "/v2/ads/rewarded/skipped", JSONObject().put("user_id", userId).put("context", context),
+        { data -> onSuccess(parseSnapshot(data.getJSONObject("snapshot"))) }, onFailure,
+    )
+
     fun claimEpisodeReward(userId: String, episodeId: String, onSuccess: (RewardAction) -> Unit, onFailure: (String) -> Unit) = post(
         "/v2/episode-rewards/claim",
         JSONObject().put("user_id", userId).put("episode_id", episodeId).put("reference_id", "episode-claim-${UUID.randomUUID()}"),
@@ -312,7 +346,7 @@ class RewardsApiClient(
         JSONObject().put("user_id", userId).put("reference_id", "episode-claim-all-${UUID.randomUUID()}").put("ad_event_id", adEventId),
         { data ->
             val result = data.optJSONObject("result") ?: JSONObject()
-            onSuccess(RewardAction(data.optBoolean("idempotent"), result.optString("action"), result.optLong("gems_added"), parseSnapshot(data.getJSONObject("snapshot")), adEventId))
+            onSuccess(RewardAction(data.optBoolean("idempotent"), result.optString("action"), result.optLong("gems_added"), parseSnapshot(data.getJSONObject("snapshot")), result.optString("cash_added", "0.00"), result.optString("cash_added_usd_reference", "0.00"), adEventId))
         }, onFailure,
     )
 
@@ -343,7 +377,8 @@ class RewardsApiClient(
             val result = data.optJSONObject("result") ?: JSONObject()
             onSuccess(RewardAction(
                 data.optBoolean("idempotent"), result.optString("action"), result.optLong("gems_added"),
-                parseSnapshot(data.getJSONObject("snapshot")), adEventId, result.optLong("released_micros"),
+                parseSnapshot(data.getJSONObject("snapshot")), result.optString("cash_added", "0.00"),
+                result.optString("cash_added_usd_reference", "0.00"), adEventId, result.optLong("released_micros"),
                 result.optInt("unlock_episode_count", 1).coerceAtLeast(1),
             ))
         }, onFailure)
@@ -366,7 +401,7 @@ class RewardsApiClient(
     fun claimReviewReward(userId: String, onSuccess: (RewardAction) -> Unit, onFailure: (String) -> Unit) = post(
         "/v2/reviews/claim", JSONObject().put("user_id", userId).put("reference_id", "review-${UUID.randomUUID()}"), { data ->
             val result = data.optJSONObject("result") ?: JSONObject()
-            onSuccess(RewardAction(data.optBoolean("idempotent"), result.optString("action", "APP_REVIEW"), result.optLong("gems_added"), parseSnapshot(data.getJSONObject("snapshot"))))
+            onSuccess(RewardAction(data.optBoolean("idempotent"), result.optString("action", "APP_REVIEW"), result.optLong("gems_added"), parseSnapshot(data.getJSONObject("snapshot")), result.optString("cash_added", "0.00"), result.optString("cash_added_usd_reference", "0.00")))
         }, onFailure,
     )
 
@@ -441,7 +476,10 @@ class RewardsApiClient(
                 cashWalletUsdReference = walletJson.optString("cash_wallet_usd_reference", walletJson.optString("cash_wallet", "0.00")),
                 availableBalanceUsdReference = walletJson.optString("available_balance_usd_reference", walletJson.optString("available_balance", "0.00")),
                 currency = currency,
-                totalGemsEarned = walletJson.optLong("total_gems_earned"), exchangeRateGems = walletJson.optLong("exchange_rate_gems", 10_000L),
+                totalGemsEarned = walletJson.optLong("total_gems_earned"),
+                rewardProgressUnits = walletJson.optLong("reward_progress_units", walletJson.optLong("total_gems_earned")),
+                cashMode = walletJson.optBoolean("cash_mode", false),
+                exchangeRateGems = walletJson.optLong("exchange_rate_gems", 10_000L),
                 exchangeValuePer10000Gems = walletJson.optString("exchange_value_per_10000_gems", "0.00"),
                 exchangeValuePer10000GemsUsdReference = walletJson.optString("exchange_value_per_10000_gems_usd_reference", "0.00"),
                 minimumExchangeGems = walletJson.optLong("minimum_exchange_gems", 10_000L), watchedEpisodes = today.optInt("episode_count"),
@@ -462,9 +500,9 @@ class RewardsApiClient(
             nextTenRoundPreviewCoins = today.optLong("next_ten_round_preview_gems").coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
             episodesPerRandomChest = today.optInt("episodes_per_random_chest", 3).coerceAtLeast(1),
             episodesToNextRandomChest = today.optInt("episodes_to_next_random_chest", 0).coerceAtLeast(0),
-            ring = (json.optJSONObject("ring") ?: JSONObject()).let { Ring(it.optBoolean("enabled", true), it.optInt("progress"), it.optInt("target", 1).coerceAtLeast(1), it.optBoolean("claimable"), it.optLong("reward_gems").coerceAtMost(Int.MAX_VALUE.toLong()).toInt(), it.optString("label", "攒币")) },
-            welcome = (json.optJSONObject("welcome") ?: JSONObject()).let { WelcomeReward(it.optBoolean("available"), it.optBoolean("claimed"), it.optLong("gems")) },
-            review = ReviewReward(review.optBoolean("available"), review.optBoolean("claimed"), review.optLong("gems")),
+            ring = (json.optJSONObject("ring") ?: JSONObject()).let { Ring(it.optBoolean("enabled", true), it.optInt("progress"), it.optInt("target", 1).coerceAtLeast(1), it.optBoolean("claimable"), it.optLong("reward_gems").coerceAtMost(Int.MAX_VALUE.toLong()).toInt(), it.optString("reward_cash", "0.00"), it.optString("reward_cash_usd_reference", "0.00"), it.optString("label", "攒币")) },
+            welcome = (json.optJSONObject("welcome") ?: JSONObject()).let { WelcomeReward(it.optBoolean("available"), it.optBoolean("claimed"), it.optLong("gems"), it.optString("cash", "0.00"), it.optString("cash_usd_reference", "0.00")) },
+            review = ReviewReward(review.optBoolean("available"), review.optBoolean("claimed"), review.optLong("gems"), review.optString("cash", "0.00")),
             unlock = UnlockRule(
                 unlock.optInt("free_episodes_count", 3),
                 today.optInt("rv_daily_limit", 20),
@@ -484,6 +522,7 @@ class RewardsApiClient(
                 chest.optBoolean("claimable"), chest.optBoolean("claimed"), chest.optBoolean("requires_checkin", false), chest.optLong("reward_gems").coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
                 chest.optInt("available_count"), chest.optInt("daily_available_count"), chest.optInt("watch_available_count"),
                 chest.optLong("min_gems").coerceAtMost(Int.MAX_VALUE.toLong()).toInt(), chest.optLong("max_gems").coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                chest.optString("min_cash", "0.00"), chest.optString("max_cash", "0.00"),
                 chest.optInt("episodes_per_chest", 3).coerceAtLeast(1), chest.optInt("episodes_to_next_chest", 0).coerceAtLeast(0),
             ),
             interstitial = InterstitialPolicy(
@@ -510,6 +549,8 @@ class RewardsApiClient(
                 interstitial.optInt("drama_switch_every_count", 3).coerceAtLeast(1),
                 interstitial.optInt("drama_switch_hourly_limit", 6),
                 interstitial.optBoolean("rewarded_fallback_enabled", true),
+                interstitial.optInt("rewarded_skip_threshold", 0),
+                interstitial.optInt("rewarded_skip_count", 0),
                 nullableString(interstitial, "last_rv_at"),
                 nullableString(interstitial, "last_interstitial_at"),
             ),
@@ -537,7 +578,7 @@ class RewardsApiClient(
         for (index in 0 until (array?.length() ?: 0)) {
             val item = array!!.getJSONObject(index)
             if (item.optString("state", "PENDING") == "PENDING") {
-                add(EpisodeReward(item.optString("episode_id"), item.optLong("base_reward_gems").coerceAtMost(Int.MAX_VALUE.toLong()).toInt(), "PENDING", item.optBoolean("boosted")))
+                add(EpisodeReward(item.optString("episode_id"), item.optLong("base_reward_gems").coerceAtMost(Int.MAX_VALUE.toLong()).toInt(), item.optString("cash", "0.00"), "PENDING", item.optBoolean("boosted")))
             }
         }
     }
@@ -545,9 +586,15 @@ class RewardsApiClient(
     private fun parseTasks(array: JSONArray?): List<RewardTask> = buildList {
         for (index in 0 until (array?.length() ?: 0)) {
             val item = array!!.getJSONObject(index)
-            val state = item.optString("state", "PENDING")
-            val status = when (state) { "PENDING" -> "CLAIMABLE"; "CLAIMED" -> "DOUBLE_READY"; else -> "CLAIMED" }
-            add(RewardTask("cycle-${item.optInt("cycle_number")}", "十集追剧加奖 · 第 ${item.optInt("cycle_number")} 轮", "完成第 ${item.optInt("round_from")}-${item.optInt("round_to")} 集有效观看获得额外宝石", item.optInt("round_to"), item.optInt("round_to"), item.optLong("base_reward_gems").coerceAtMost(Int.MAX_VALUE.toLong()).toInt(), state == "CLAIMED", status, item.optInt("cycle_number")))
+            val state = item.optString("state", "LOCKED")
+            val target = item.optInt("target", item.optInt("milestone_episode_count", 1)).coerceAtLeast(1)
+            val progress = item.optInt("progress", 0).coerceIn(0, target)
+            val status = when (state) { "PENDING" -> "CLAIMABLE"; "CLAIMED" -> "CLAIMED"; else -> "LOCKED" }
+            add(RewardTask(
+                "episode-task-$target", "追剧任务 · $target 集", "完成 $target 集有效观看即可领取现金奖励",
+                progress, target, item.optLong("reward_gems").coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                item.optString("reward_cash", "0.00"), false, status, target,
+            ))
         }
     }
 
@@ -559,7 +606,7 @@ class RewardsApiClient(
     }
 
     private fun parseAchievements(array: JSONArray?): List<Achievement> = buildList {
-        for (index in 0 until (array?.length() ?: 0)) { val item = array!!.getJSONObject(index); add(Achievement(item.optString("code"), item.optLong("gems"), item.optString("virtual_entitlement"))) }
+        for (index in 0 until (array?.length() ?: 0)) { val item = array!!.getJSONObject(index); add(Achievement(item.optString("code"), item.optLong("gems"), item.optString("virtual_entitlement"), item.optString("cash", "0.00"))) }
     }
 
     private fun parseCrowns(array: JSONArray?): List<CrownProgress> = buildList {
@@ -570,6 +617,7 @@ class RewardsApiClient(
                 item.optString("code"), item.optString("title"), item.optInt("level_rank", index + 1), item.optBoolean("earned"),
                 item.optLong("gems"), item.optString("entitlement"), item.optInt("window_hours"), metric("rounds"),
                 metric("signins"), metric("rewarded_ads"), item.optDouble("progress").toFloat(), item.optDouble("episode_reward_multiplier", 1.0).toFloat(), item.optLong("episode_reward_gems"),
+                item.optString("episode_reward_cash", "0.00"), item.optString("cash", "0.00"),
                 metric("watched_rounds"), item.optInt("ad_equivalent_rounds"), item.optInt("ads_per_episode", 2).coerceAtLeast(1),
                 item.optInt("crown_rewarded_ads_today", 0).coerceAtLeast(0), item.optInt("crown_rewarded_daily_limit", 0).coerceAtLeast(0),
             ))

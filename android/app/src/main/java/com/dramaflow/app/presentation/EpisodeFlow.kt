@@ -250,6 +250,7 @@ internal fun DramaAppActivity.unlockEpisodeThenAutoPlay(
                 exoPlayer?.pause()
                 playerIsPaused = true
                 updatePauseOverlayVisibility(true)
+                recordRewardedSkipThenMaybeShowInterstitial(false, "episode_unlock_declined")
                 onDeclined()
             },
         )

@@ -255,12 +255,13 @@ internal fun DramaAppActivity.createPlayerTopBar(): View {
             setOnClickListener { showCatalog() }
         }
         val assets = createPlayerAssetStrip()
-        // The back action remains safely left-aligned while balances are optically centered over the video.
+        // Both controls share the true system safe inset. This avoids the fixed 14dp
+        // offset that could overlap a notch/status region on first opening the player.
         shell.addView(back, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.TOP or Gravity.START).apply { topMargin = dp(14); marginStart = dp(16) })
-        shell.addView(assets, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(14) })
+        shell.addView(assets, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42), Gravity.TOP or Gravity.END).apply { topMargin = dp(15); marginEnd = dp(16) })
         ViewCompat.setOnApplyWindowInsetsListener(shell) { _, insets ->
             val safeTop = insets.getInsets(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()).top
-            val margin = safeTop + dp(10)
+            val margin = maxOf(safeTop, dp(24)) + dp(12)
             (back.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = margin; back.layoutParams = params }
             (assets.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = margin; assets.layoutParams = params }
             insets
