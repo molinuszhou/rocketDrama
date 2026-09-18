@@ -1455,6 +1455,8 @@ class RewardsService:
     def _crown_progress(self, connection: psycopg.Connection[Any], user_id: str) -> list[dict[str, Any]]:
         now = self._now()
         rows = self._all(connection, "SELECT * FROM achievement_policy ORDER BY level_rank ASC, code ASC")
+        reward_policy = self._policy(connection)
+        episode_reward_gems = int(reward_policy["episode_reward_gems"])
         earned_codes = {item["code"] for item in self._all(connection, "SELECT code FROM user_achievements WHERE user_id = %s", (user_id,))}
         result: list[dict[str, Any]] = []
         titles = {"BRONZE": "青铜", "SILVER": "白银", "GOLD": "黄金", "DIAMOND": "钻石", "CROWN": "皇冠"}
@@ -1479,6 +1481,7 @@ class RewardsService:
                 "level_rank": row["level_rank"], "earned": row["code"] in earned_codes, "gems": row["reward_gems"],
                 "entitlement": row["virtual_entitlement"], "window_hours": row["window_hours"],
                 "episode_reward_multiplier": float(row["episode_reward_multiplier"]),
+                "episode_reward_gems": math.floor(episode_reward_gems * float(row["episode_reward_multiplier"])),
                 "rounds": {"current": rounds, "target": row["required_rounds"]},
                 "watched_rounds": {"current": watched_rounds, "target": row["required_rounds"]},
                 "ad_equivalent_rounds": equivalent_rounds,

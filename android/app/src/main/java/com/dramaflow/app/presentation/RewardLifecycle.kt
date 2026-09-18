@@ -256,9 +256,10 @@ internal fun DramaAppActivity.showCheckinRewardDialog(snapshot: RewardsApiClient
                 snapshot.checkinSignedToday -> t("checkin_done_message", snapshot.checkinStreak)
                 else -> t("today_day_reward", snapshot.checkinTodayIndex, snapshot.checkinNextRewardCoins)
             }
-            textSize = 13f
+            textSize = 24f
             gravity = Gravity.CENTER
-            setTextColor(COLOR_TEXT_MUTED)
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(COLOR_CORAL)
             setPadding(0, dp(7), 0, dp(16))
         })
         content.addView(createCheckinTierStrip(snapshot), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -357,12 +358,13 @@ internal fun DramaAppActivity.createCheckinTierStrip(snapshot: RewardsApiClient.
                         setPadding(0, dp(3), 0, dp(2))
                     })
                     addView(TextView(this@createCheckinTierStrip).apply {
-                        text = if (snapshot == null) t("syncing") else "+$coins"
-                        textSize = 10f
+                        text = if (snapshot == null) t("syncing") else "+${formatCompactGems(coins.toLong())}"
+                        textSize = if (isToday) 13f else 10f
+                        typeface = if (isToday) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
                         gravity = Gravity.CENTER
                         setTextColor(if (isToday || isDone) Color.WHITE else COLOR_TEXT_MUTED)
                     })
-                }, LinearLayout.LayoutParams(0, dp(84), 1f).apply {
+                }, LinearLayout.LayoutParams(0, dp(92), 1f).apply {
                     if (index > 0) marginStart = dp(4)
                 })
             }

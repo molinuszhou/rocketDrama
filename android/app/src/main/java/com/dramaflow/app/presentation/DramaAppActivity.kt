@@ -431,6 +431,11 @@ class DramaAppActivity : FragmentActivity() {
             gravity = Gravity.CENTER
             setPadding(dp(44), dp(28), dp(44), dp(28))
         }
+        column.addView(ImageView(this).apply {
+            setImageResource(R.drawable.ic_launcher_foreground)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            contentDescription = "JoyeDrama"
+        }, LinearLayout.LayoutParams(dp(108), dp(108)).apply { bottomMargin = dp(18) })
         startupProgressLabel = TextView(this).apply {
             text = t("startup_loading")
             textSize = 18f
@@ -448,9 +453,15 @@ class DramaAppActivity : FragmentActivity() {
             setPadding(0, dp(8), 0, 0)
         }
         column.addView(startupProgressPercentLabel)
-        // Percentage is the only progress visual requested for this surface; the backing value remains
-        // available for accessibility and automated tests through updateStartupProgress.
-        startupProgressBar = null
+        startupProgressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100
+            progress = 0
+            progressTintList = ColorStateList.valueOf(COLOR_CORAL)
+            progressBackgroundTintList = ColorStateList.valueOf(0x22FF8A62)
+        }
+        column.addView(startupProgressBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(7)).apply {
+            topMargin = dp(18)
+        })
         root.addView(column, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
     }
 

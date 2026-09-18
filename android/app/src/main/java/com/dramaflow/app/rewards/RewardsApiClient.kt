@@ -123,6 +123,7 @@ class RewardsApiClient(
         val rewardedAds: CrownMetric,
         val progress: Float,
         val episodeRewardMultiplier: Float = 1f,
+        val episodeRewardGems: Long = 0L,
         val watchedRounds: CrownMetric = CrownMetric(0, 0),
         val adEquivalentRounds: Int = 0,
         val adsPerEpisode: Int = 2,
@@ -558,7 +559,7 @@ class RewardsApiClient(
             add(CrownProgress(
                 item.optString("code"), item.optString("title"), item.optInt("level_rank", index + 1), item.optBoolean("earned"),
                 item.optLong("gems"), item.optString("entitlement"), item.optInt("window_hours"), metric("rounds"),
-                metric("signins"), metric("rewarded_ads"), item.optDouble("progress").toFloat(), item.optDouble("episode_reward_multiplier", 1.0).toFloat(),
+                metric("signins"), metric("rewarded_ads"), item.optDouble("progress").toFloat(), item.optDouble("episode_reward_multiplier", 1.0).toFloat(), item.optLong("episode_reward_gems"),
                 metric("watched_rounds"), item.optInt("ad_equivalent_rounds"), item.optInt("ads_per_episode", 2).coerceAtLeast(1),
             ))
         }

@@ -222,15 +222,22 @@ internal fun DramaAppActivity.createCrownRoadPanel(snapshot: RewardsApiClient.Sn
     })
     val crowns = snapshot?.crownProgress?.sortedBy { it.levelRank }.orEmpty()
     if (crowns.isEmpty()) addView(createInlineNotice(t("ledger_note")), matchParams(top = 12))
-    else crowns.forEachIndexed { index, level ->
-        addView(createCrownLevelRow(level), matchParams(top = if (index == 0) 14 else 8))
+    else {
+        val currentCode = crowns.firstOrNull { !it.earned }?.code
+        crowns.forEachIndexed { index, level ->
+            addView(createCrownLevelRow(level, level.code == currentCode), matchParams(top = if (index == 0) 14 else 8))
+        }
     }
 }
 
-internal fun DramaAppActivity.createCrownLevelRow(level: RewardsApiClient.CrownProgress): View = LinearLayout(this).apply {
+internal fun DramaAppActivity.createCrownLevelRow(level: RewardsApiClient.CrownProgress, isCurrent: Boolean = false): View = LinearLayout(this).apply {
     gravity = Gravity.CENTER_VERTICAL
     setPadding(dp(10), dp(10), dp(10), dp(10))
-    background = roundedDrawable(if (level.earned) 0xFFFFF1E8.toInt() else 0xFFFFFAF6.toInt(), 18)
+    background = roundedDrawable(when {
+        isCurrent -> 0xFFFFE0A8.toInt()
+        level.earned -> 0xFFFFF1E8.toInt()
+        else -> 0xFFFFFAF6.toInt()
+    }, 18)
     val iconColumn = LinearLayout(this@createCrownLevelRow).apply {
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER_HORIZONTAL
@@ -240,8 +247,8 @@ internal fun DramaAppActivity.createCrownLevelRow(level: RewardsApiClient.CrownP
         }
         addView(iconFrame, LinearLayout.LayoutParams(dp(48), dp(48)))
         addView(TextView(this@createCrownLevelRow).apply {
-            text = t("crown_multiplier", String.format(Locale.US, "%.2f", level.episodeRewardMultiplier))
-            textSize = 9f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_CORAL); maxLines = 1; setPadding(0, dp(3), 0, 0)
+            text = if (isCurrent) t("crown_current") else if (level.earned) t("crown_reached") else t("crown_locked")
+            textSize = 9f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(if (isCurrent) COLOR_CORAL else COLOR_TEXT_MUTED); maxLines = 1; setPadding(0, dp(3), 0, 0)
         })
     }
     addView(iconColumn, LinearLayout.LayoutParams(dp(66), ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -250,6 +257,10 @@ internal fun DramaAppActivity.createCrownLevelRow(level: RewardsApiClient.CrownP
         addView(TextView(this@createCrownLevelRow).apply {
             text = "${level.levelRank}. ${t(crownTitleKey(level.code))}"
             textSize = 16f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY)
+        })
+        addView(TextView(this@createCrownLevelRow).apply {
+            text = t("crown_episode_reward", formatCompactGems(level.episodeRewardGems))
+            textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_CORAL); setPadding(0, dp(3), 0, dp(2))
         })
         addView(TextView(this@createCrownLevelRow).apply {
             text = t(crownBenefitKey(level.code), formatCompactGems(level.gems))
