@@ -78,9 +78,11 @@ internal fun DramaAppActivity.beginStartupExperience() {
         startupCatalogFinished = false
         startupCatalogFailure = null
         startupPosterPreloadFinished = false
+        startupRewardsFinished = !rewardsApi.isConfigured
+        startupPosterPreloadPercent = 0
         renderStartupLoading()
-        updateStartupProgress(20, t("startup_preparing"))
-        refreshRewardsSnapshot()
+        updateStartupProgress(0, t("startup_preparing"))
+        if (rewardsApi.isConfigured) refreshRewardsSnapshot() else completeStartupWhenReady()
         preloadLocalCatalog()
         // 等待 onPostResume 后再发起开屏请求，确保窗口已就绪；目录和开屏并行预热。
     }
@@ -107,7 +109,7 @@ internal fun DramaAppActivity.finishStartupAfterAppOpen(reason: String) {
         if (startupContentInitializationStarted || isFinishing || isDestroyed) return
         startupAdFinished = true
         logStatus("开屏流程结束：$reason")
-        updateStartupProgress(72, t("startup_ad_ready"))
+        updateStartupProgress(computeStartupProgress(), t("startup_ad_ready"))
         completeStartupWhenReady()
     }
 
@@ -124,12 +126,25 @@ internal fun DramaAppActivity.preloadLocalCatalog() {
                     completeStartupWhenReady()
                 } else {
                     catalogItems = items
-                    updateStartupProgress(70, t("startup_content_ready"))
-                    preloadCatalogCovers(items) {
-                        startupPosterPreloadFinished = true
-                        updateStartupProgress(88, t("startup_content_ready"))
-                        completeStartupWhenReady()
-                    }
+                    updateStartupProgress(30, t("startup_content_ready"))
+                    preloadCatalogCovers(
+                        items = items,
+                        onProgress = { percent ->
+                            startupPosterPreloadPercent = percent
+                            updateStartupProgress(computeStartupProgress(), t("startup_content_ready"))
+                        },
+                        onFinished = {
+                            startupPosterPreloadFinished = true
+                            startupPosterPreloadPercent = 100
+                            updateStartupProgress(computeStartupProgress(), t("startup_content_ready"))
+                            completeStartupWhenReady()
+                        },
+                        onTimedOut = {
+                            startupCatalogFailure = t("startup_resources_timeout")
+                            startupPosterPreloadFinished = true
+                            completeStartupWhenReady()
+                        },
+                    )
                 }
             } },
             onFailure = { message -> runOnUiThread {
@@ -141,19 +156,37 @@ internal fun DramaAppActivity.preloadLocalCatalog() {
         )
     }
 
-    /** 预热首屏实际会展示的封面；所有请求成功、失败或 1.8 秒超时后才交接首屏。 */
-internal fun DramaAppActivity.preloadCatalogCovers(items: List<LocalDrama>, onFinished: () -> Unit) {
+    /** Preloads the first screen’s real poster resources. Main UI never opens until all requests settle. */
+internal fun DramaAppActivity.preloadCatalogCovers(
+    items: List<LocalDrama>,
+    onProgress: (Int) -> Unit,
+    onFinished: () -> Unit,
+    onTimedOut: () -> Unit,
+) {
         val urls = items.asSequence().map { it.coverImage.trim() }.filter { it.isNotBlank() }.distinct().take(12).toList()
-        if (urls.isEmpty()) { onFinished(); return }
+        if (urls.isEmpty()) { onProgress(100); onFinished(); return }
         var remaining = urls.size
-        var completed = false
-        fun finishOnce() {
-            if (completed) return
-            completed = true
-            onFinished()
+        var complete = false
+        lateinit var timeout: Runnable
+        fun requestSettled() {
+            if (complete) return
+            remaining -= 1
+            val settled = urls.size - remaining
+            onProgress(settled * 100 / urls.size)
+            if (remaining == 0) {
+                complete = true
+                root.removeCallbacks(timeout)
+                onFinished()
+            }
         }
-        val timeout = Runnable { finishOnce() }
-        root.postDelayed(timeout, 1_800L)
+        timeout = Runnable {
+            if (!complete) {
+                complete = true
+                onTimedOut()
+            }
+        }
+        // A terminal error is an acceptable settled resource; a hung request is a startup failure, never false readiness.
+        root.postDelayed(timeout, 12_000L)
         urls.forEach { url ->
             imageLoader.enqueue(
                 ImageRequest.Builder(applicationContext)
@@ -162,24 +195,31 @@ internal fun DramaAppActivity.preloadCatalogCovers(items: List<LocalDrama>, onFi
                     .diskCachePolicy(CachePolicy.ENABLED)
                     .networkCachePolicy(CachePolicy.ENABLED)
                     .listener(
-                        onSuccess = { _, _ -> if (--remaining == 0) { root.removeCallbacks(timeout); finishOnce() } },
-                        onError = { _, _ -> if (--remaining == 0) { root.removeCallbacks(timeout); finishOnce() } },
+                        onSuccess = { _, _ -> root.post(::requestSettled) },
+                        onError = { _, _ -> root.post(::requestSettled) },
                     )
                     .build(),
             )
         }
     }
 
+internal fun DramaAppActivity.computeStartupProgress(): Int {
+        val catalogWeight = if (startupCatalogFinished) 30 else 0
+        val posterWeight = startupPosterPreloadPercent * 35 / 100
+        val rewardsWeight = if (startupRewardsFinished) 20 else 0
+        val adWeight = if (startupAdFinished) 15 else 0
+        return (catalogWeight + posterWeight + rewardsWeight + adWeight).coerceIn(0, 100)
+    }
+
 internal fun DramaAppActivity.completeStartupWhenReady() {
-        if (startupContentInitializationStarted || !startupAdFinished || !startupCatalogFinished || !startupPosterPreloadFinished || isFinishing || isDestroyed) return
+        if (startupContentInitializationStarted || !startupAdFinished || !startupCatalogFinished || !startupPosterPreloadFinished || !startupRewardsFinished || isFinishing || isDestroyed) return
         startupContentInitializationStarted = true
         val failure = startupCatalogFailure
         if (failure != null) {
             renderFailure("$failure\n${t("current_server", localContentBaseUrl())}")
             return
         }
-        updateStartupProgress(96, t("startup_ready"))
-        root.postDelayed({ if (!isFinishing && !isDestroyed) updateStartupProgress(100, t("startup_ready")) }, 280L)
+        updateStartupProgress(100, t("startup_ready"))
         if (restorePlayerAfterCatalog) {
             val drama = catalogItems.firstOrNull { it.id == restoredDramaId } ?: catalogItems.firstOrNull()
             if (drama != null) {

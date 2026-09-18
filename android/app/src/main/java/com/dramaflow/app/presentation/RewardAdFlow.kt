@@ -75,16 +75,28 @@ internal fun DramaAppActivity.requestRewardedAction(
         onSettlementUnavailable: ((String) -> Unit)? = null,
         fallbackToInterstitialWhenUnavailable: Boolean = false,
     ) {
-        if (fullscreenAdInProgress) { toast("广告正在展示，请稍候"); return }
+        if (fullscreenAdInProgress || fullscreenAdRequestInFlight) { toast(t("ad_loading")); return }
         if (consentStore.read() != AdConsent.GRANTED) { toast("请先在广告与隐私中启用广告"); return }
         if (!rewardsApi.isConfigured) { toast("独立积分服务尚未配置，广告奖励无法结算"); return }
-        fullscreenAdInProgress = true
-        pauseForFullscreenAd()
-        val wasPlayingBeforeRewarded = resumeAfterFullscreenAd
-        topOnAds.showRewarded(this) { result ->
+        fullscreenAdRequestInFlight = true
+        toast(t("ad_loading"))
+        var rewardedWasPresented = false
+        var wasPlayingBeforeRewarded = false
+        topOnAds.showRewarded(
+            activity = this,
+            onWillShow = {
+                rewardedWasPresented = true
+                fullscreenAdRequestInFlight = false
+                fullscreenAdInProgress = true
+                pauseForFullscreenAd()
+                wasPlayingBeforeRewarded = resumeAfterFullscreenAd
+            },
+        ) { result -> runOnUiThread {
+            fullscreenAdRequestInFlight = false
             when (result) {
                 TopOnAdsManager.RewardedResult.RewardEarned -> {
-                    if (wasPlayingBeforeRewarded) { resumeAfterFullscreenAd = true; resumeAfterFullscreenAdIfNeeded() }
+                    fullscreenAdInProgress = false
+                    if (rewardedWasPresented && wasPlayingBeforeRewarded) { resumeAfterFullscreenAd = true; resumeAfterFullscreenAdIfNeeded() }
                     rewardsApi.completeRewarded(
                         userId = anonymousInstallationId(), placementId = placementId, targetId = targetId,
                         episodeIndex = episodeIndex, proof = testRewardProof(),
@@ -101,26 +113,32 @@ internal fun DramaAppActivity.requestRewardedAction(
                         } },
                     )
                 }
-                TopOnAdsManager.RewardedResult.Cancelled -> showRewardedFallbackInterstitial(
+                TopOnAdsManager.RewardedResult.Cancelled -> {
+                    fullscreenAdInProgress = false
+                    showRewardedFallbackInterstitial(
                     wasPlayingBeforeRewarded, "广告未完整观看，未获得奖励或解锁权益"
-                )
+                    )
+                }
                 is TopOnAdsManager.RewardedResult.Unavailable -> {
+                    fullscreenAdInProgress = false
                     val message = t("ad_loading_failed") + " ${result.reason}"
                     if (fallbackToInterstitialWhenUnavailable) showRewardedFallbackInterstitial(wasPlayingBeforeRewarded, message)
                     else showRewardedUnavailableNotice(wasPlayingBeforeRewarded, message)
                 }
                 is TopOnAdsManager.RewardedResult.Failed -> {
+                    fullscreenAdInProgress = false
                     val message = t("ad_loading_failed") + " (${result.code})"
                     if (fallbackToInterstitialWhenUnavailable) showRewardedFallbackInterstitial(wasPlayingBeforeRewarded, message)
                     else showRewardedUnavailableNotice(wasPlayingBeforeRewarded, message)
                 }
             }
-        }
+        } }
     }
 
     /** 无激励广告资源时直接在内容层展示说明，不再触发会遮挡说明的插屏回退。 */
 internal fun DramaAppActivity.showRewardedUnavailableNotice(shouldResume: Boolean, message: String) {
         fullscreenAdInProgress = false
+        fullscreenAdRequestInFlight = false
         episodeTransitionInProgress = false
         resumeAfterFullscreenAd = shouldResume
         resumeAfterFullscreenAdIfNeeded()
@@ -130,10 +148,15 @@ internal fun DramaAppActivity.showRewardedUnavailableNotice(shouldResume: Boolea
     /** 激励中途退出或加载失败时，只在后台开关允许时回退一次插屏；不会授予原激励权益。 */
 internal fun DramaAppActivity.showRewardedFallbackInterstitial(shouldResume: Boolean, message: String) {
         fullscreenAdInProgress = false
+        fullscreenAdRequestInFlight = false
         episodeTransitionInProgress = false
         if (rewardsSnapshot?.interstitial?.rewardedFallbackEnabled != true) {
             resumeAfterFullscreenAd = shouldResume; resumeAfterFullscreenAdIfNeeded(); toast(message); return
         }
+        // The rewarded creative has already been closed. Resume while the fallback placement loads,
+        // then let its own onWillShow callback pause at the exact moment it is ready to present.
+        resumeAfterFullscreenAd = shouldResume
+        resumeAfterFullscreenAdIfNeeded()
         showPlaybackActionInterstitial(
             placementId = "int_rewarded_fallback", episodeId = selectedEpisode()?.id,
             resumePlaybackAfter = shouldResume,
@@ -167,28 +190,14 @@ internal fun DramaAppActivity.resumeAfterFullscreenAdIfNeeded() {
         }
         restoreImmersiveAfterFullscreenAd = false
         resumeAfterFullscreenAd = false
-        // TopOn temporarily enables decor fitting for the advertisement safe band. Restore the player canvas
-        // before recalculating controls, otherwise the status-bar inset is applied twice after an ad closes.
-        if (playerShown && !playerInImmersiveMode) {
-            WindowCompat.setDecorFitsSystemWindows(window, false)
-            WindowInsetsControllerCompat(window, root).show(WindowInsetsCompat.Type.systemBars())
-        }
-        root.requestLayout()
-        ViewCompat.requestApplyInsets(root)
-        // Some ad networks restore decor fitting one frame after their close callback. Re-dispatch
-        // insets after that frame as well, so the back button and balance strip share one baseline.
-        root.post {
-            root.requestLayout()
-            ViewCompat.requestApplyInsets(root)
-        }
-        root.postDelayed({
-            if (!isFinishing && !isDestroyed && playerShown) {
-                WindowCompat.setDecorFitsSystemWindows(window, false)
-                WindowInsetsControllerCompat(window, root).show(WindowInsetsCompat.Type.systemBars())
-                root.requestLayout()
-                ViewCompat.requestApplyInsets(root)
+        if (!isFinishing && !isDestroyed) {
+            if (playerShown) configurePlayerWindow() else configureCatalogWindow()
+            root.post {
+                if (!isFinishing && !isDestroyed) {
+                    if (playerShown) configurePlayerWindow() else configureCatalogWindow()
+                }
             }
-        }, 120L)
+        }
     }
 
     /**
@@ -212,13 +221,24 @@ internal fun DramaAppActivity.showPlaybackActionInterstitial(
         if (countTowardEpisodeLimit && policy != null && policy.episodeInterstitialLimit > 0 && episodeKey != null && (interstitialCountByEpisodeKey[episodeKey] ?: 0) >= policy.episodeInterstitialLimit) {
             onUnavailable("本集插屏次数已达上限"); return
         }
-        if (fullscreenAdInProgress) { onUnavailable("广告正在展示"); return }
+        if (fullscreenAdInProgress || fullscreenAdRequestInFlight) { onUnavailable("广告正在展示"); return }
         if (consentStore.read() != AdConsent.GRANTED) { onUnavailable("请先在广告与隐私中启用广告"); return }
-        val shouldResume = resumePlaybackAfter ?: (exoPlayer?.isPlaying == true)
-        fullscreenAdInProgress = true
-        pauseForFullscreenAd()
-        resumeAfterFullscreenAd = shouldResume
-        topOnAds.showInterstitialForPlaybackAction(this) { result -> runOnUiThread {
+        fullscreenAdRequestInFlight = true
+        toast(t("ad_loading"))
+        var interstitialWasPresented = false
+        var shouldResume = false
+        topOnAds.showInterstitialForPlaybackAction(
+            activity = this,
+            onWillShow = {
+                interstitialWasPresented = true
+                fullscreenAdRequestInFlight = false
+                fullscreenAdInProgress = true
+                shouldResume = resumePlaybackAfter ?: (exoPlayer?.isPlaying == true)
+                pauseForFullscreenAd()
+                resumeAfterFullscreenAd = shouldResume
+            },
+        ) { result -> runOnUiThread {
+            fullscreenAdRequestInFlight = false
             fullscreenAdInProgress = false
             when (result) {
                 TopOnAdsManager.FullscreenResult.Shown -> {
@@ -235,8 +255,8 @@ internal fun DramaAppActivity.showPlaybackActionInterstitial(
                         )
                     } else settled()
                 }
-                is TopOnAdsManager.FullscreenResult.Skipped -> { resumeAfterFullscreenAdIfNeeded(); onUnavailable(result.reason) }
-                is TopOnAdsManager.FullscreenResult.Failed -> { resumeAfterFullscreenAdIfNeeded(); onUnavailable("加载失败（${result.code}）") }
+                is TopOnAdsManager.FullscreenResult.Skipped -> { if (interstitialWasPresented) resumeAfterFullscreenAdIfNeeded(); onUnavailable(result.reason) }
+                is TopOnAdsManager.FullscreenResult.Failed -> { if (interstitialWasPresented) resumeAfterFullscreenAdIfNeeded(); onUnavailable("加载失败（${result.code}）") }
             }
         } }
     }

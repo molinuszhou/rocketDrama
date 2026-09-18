@@ -75,14 +75,25 @@ internal fun DramaAppActivity.refreshRewardsSnapshot() {
         rewardsApi.bootstrap(anonymousInstallationId(), rewardsMarketCode(), { snapshot ->
             runOnUiThread {
                 rewardsLoading = false
+                if (!startupContentInitializationStarted) {
+                    startupRewardsFinished = true
+                    updateStartupProgress(computeStartupProgress(), t("startup_content_ready"))
+                }
                 applyRewardsSnapshot(snapshot)
+                if (!startupContentInitializationStarted) completeStartupWhenReady()
             }
         }, { message ->
             runOnUiThread {
                 rewardsLoading = false
                 logStatus("奖励服务同步失败（$endpoint）：$message")
-                if (catalogItems.isNotEmpty()) renderActiveTab()
-                showStartupCheckinWhenReady()
+                if (!startupContentInitializationStarted) {
+                    startupRewardsFinished = true
+                    updateStartupProgress(computeStartupProgress(), t("startup_content_ready"))
+                    completeStartupWhenReady()
+                } else if (catalogItems.isNotEmpty()) {
+                    renderActiveTab()
+                }
+                if (startupContentInitializationStarted) showStartupCheckinWhenReady()
             }
         })
     }
@@ -94,7 +105,7 @@ internal fun DramaAppActivity.applyRewardsSnapshot(snapshot: RewardsApiClient.Sn
         unlockedEpisodeKeys.addAll(snapshot.unlockedEpisodeTargets)
         lastConfirmedGemBalance = snapshot.wallet.coins
         refreshFloatingRewardWheels()
-        if (!playerShown) {
+        if (startupContentInitializationStarted && !playerShown) {
             if (withdrawalPageShown) showWithdrawalPage(snapshot.wallet) else if (catalogItems.isNotEmpty()) renderActiveTab()
         }
         updateEpisodeStatus()

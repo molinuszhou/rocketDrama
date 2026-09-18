@@ -83,10 +83,8 @@ internal fun DramaAppActivity.showPlayer(drama: LocalDrama, startIndex: Int, res
         }
 
         releasePlayer()
-        // Keep the player behind the visible system bars. Top controls consume the inset exactly once,
-        // which prevents the white safe-band and clipped toolbar seen after an interstitial returns.
-        WindowCompat.setDecorFitsSystemWindows(window, false)
-        WindowInsetsControllerCompat(window, root).show(WindowInsetsCompat.Type.systemBars())
+        // One transparent edge-to-edge policy is reapplied before player creation and after every ad close.
+        configurePlayerWindow()
         selectedDrama = drama
         currentEpisodeIndex = startIndex.coerceIn(0, drama.episodes.lastIndex.coerceAtLeast(0))
         pendingResumePositionSeconds = resumePositionSeconds.coerceAtLeast(0)
@@ -542,8 +540,8 @@ internal fun DramaAppActivity.enterImmersivePlayerMode(announce: Boolean = true)
 
 internal fun DramaAppActivity.exitImmersivePlayerMode() {
         WindowInsetsControllerCompat(window, root).show(WindowInsetsCompat.Type.systemBars())
-        WindowCompat.setDecorFitsSystemWindows(window, true)
         playerInImmersiveMode = false
+        if (playerShown) configurePlayerWindow() else configureCatalogWindow()
     }
 
 internal fun DramaAppActivity.updatePlayerProgress(progressSeconds: Int, durationSeconds: Int) {

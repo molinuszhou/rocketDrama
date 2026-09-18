@@ -92,12 +92,23 @@ class TopOnAdsManager(
     private val mainHandler = Handler(Looper.getMainLooper())
     /** Keeps TopOn ads out of edge-to-edge host mode; creative close controls remain ad-network owned. */
     private val safeAdWindows = mutableMapOf<Activity, SafeAdWindowState>()
+    /** Activity-level window mode is owned by the presentation layer and must survive a full-screen ad. */
+    private val hostEdgeToEdge = mutableMapOf<Activity, Boolean>()
 
     private data class SafeAdWindowState(
         val statusBarColor: Int,
         val navigationBarColor: Int,
         val cutoutMode: Int,
+        val edgeToEdge: Boolean,
+        val lightStatusBars: Boolean,
+        val lightNavigationBars: Boolean,
     )
+
+    /** Records the application surface mode before an ad temporarily switches to a safe system-bar window. */
+    fun setHostEdgeToEdge(activity: Activity, enabled: Boolean) {
+        hostEdgeToEdge[activity] = enabled
+        WindowCompat.setDecorFitsSystemWindows(activity.window, !enabled)
+    }
 
     /**
      * TopOn 初始化会异步拉取聚合配置。必须等 [ATSDKInitListener.onSuccess] 后再请求开屏，
@@ -152,7 +163,11 @@ class TopOnAdsManager(
         mainHandler.post { callbacks.forEach { it(result) } }
     }
 
-    fun showRewarded(activity: Activity, onResult: (RewardedResult) -> Unit) {
+    fun showRewarded(
+        activity: Activity,
+        onWillShow: () -> Unit = {},
+        onResult: (RewardedResult) -> Unit,
+    ) {
         if (!settings.canShowRewarded) {
             onResult(RewardedResult.Unavailable("尚未配置 TopOn App ID、App Key 或激励广告位"))
             return
@@ -181,23 +196,32 @@ class TopOnAdsManager(
 
         initialize { init ->
             when (init) {
-                Initialization.Ready -> loadAndShowRewarded(activity, ::deliver)
+                Initialization.Ready -> loadAndShowRewarded(activity, onWillShow, ::deliver)
                 Initialization.NotConfigured -> deliver(RewardedResult.Unavailable("尚未配置 TopOn 激励广告参数"))
                 is Initialization.Failed -> deliver(RewardedResult.Failed(init.code, init.message))
             }
         }
     }
 
-    fun showInterstitialAtNaturalBreak(activity: Activity, onResult: (FullscreenResult) -> Unit) =
-        showInterstitial(activity, interstitialPolicy, "int_natural_break", onResult)
+    fun showInterstitialAtNaturalBreak(
+        activity: Activity,
+        onWillShow: () -> Unit = {},
+        onResult: (FullscreenResult) -> Unit,
+    ) = showInterstitial(activity, interstitialPolicy, "int_natural_break", onWillShow, onResult)
 
     /** 锁集解锁采用独立频控；每个锁定分集均可尝试 TopOn 激励广告，不使用插屏。 */
-    fun showInterstitialForEpisodeUnlock(activity: Activity, onResult: (FullscreenResult) -> Unit) =
-        showInterstitial(activity, episodeUnlockPolicy, "int_episode_unlock_legacy", onResult)
+    fun showInterstitialForEpisodeUnlock(
+        activity: Activity,
+        onWillShow: () -> Unit = {},
+        onResult: (FullscreenResult) -> Unit,
+    ) = showInterstitial(activity, episodeUnlockPolicy, "int_episode_unlock_legacy", onWillShow, onResult)
 
     /** 适用于剧中、拖拽和倍速等明确操作；服务端仍负责 v8 最终频控。 */
-    fun showInterstitialForPlaybackAction(activity: Activity, onResult: (FullscreenResult) -> Unit) =
-        showInterstitial(activity, playbackActionPolicy, "int_playback_action", onResult)
+    fun showInterstitialForPlaybackAction(
+        activity: Activity,
+        onWillShow: () -> Unit = {},
+        onResult: (FullscreenResult) -> Unit,
+    ) = showInterstitial(activity, playbackActionPolicy, "int_playback_action", onWillShow, onResult)
 
     fun showAppOpenIfEligible(activity: Activity, onResult: (FullscreenResult) -> Unit) {
         if (!settings.canShowSplash) {
@@ -305,6 +329,7 @@ class TopOnAdsManager(
         activity: Activity,
         policy: FullscreenAdPolicy,
         logicalPlacement: String,
+        onWillShow: () -> Unit,
         onResult: (FullscreenResult) -> Unit,
     ) {
         if (!settings.canShowInterstitial) {
@@ -338,7 +363,7 @@ class TopOnAdsManager(
                     ad.setAdListener(object : ATInterstitialExListener {
                         override fun onInterstitialAdLoaded() {
                             Log.i(TAG, "Interstitial loaded: logical=$logicalPlacement, ready=${ad.isAdReady}")
-                            showOnActiveActivity(activity, { deliver(FullscreenResult.Skipped(it)) }) {
+                            showOnActiveActivity(activity, { deliver(FullscreenResult.Skipped(it)) }, onWillShow) {
                                 ad.show(activity)
                             }
                         }
@@ -375,7 +400,11 @@ class TopOnAdsManager(
         }
     }
 
-    private fun loadAndShowRewarded(activity: Activity, deliver: (RewardedResult) -> Unit) {
+    private fun loadAndShowRewarded(
+        activity: Activity,
+        onWillShow: () -> Unit,
+        deliver: (RewardedResult) -> Unit,
+    ) {
         val ad = ATRewardVideoAd(activity, settings.rewardedPlacementId)
         var completed = false
         var latestInfo: ATAdInfo? = null
@@ -389,7 +418,9 @@ class TopOnAdsManager(
             override fun onAgainRewardFailed(entity: ATAdInfo) = Unit
 
             override fun onRewardedVideoAdLoaded() {
-                showOnActiveActivity(activity, { deliver(RewardedResult.Unavailable(it)) }) { ad.show(activity) }
+                showOnActiveActivity(activity, { deliver(RewardedResult.Unavailable(it)) }, onWillShow) {
+                    ad.show(activity)
+                }
             }
 
             override fun onRewardedVideoAdFailed(adError: AdError) {
@@ -443,9 +474,17 @@ class TopOnAdsManager(
         return FrameLayout(activity).also { root.addView(it, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT) }
     }
 
-    private fun showOnActiveActivity(activity: Activity, onInactive: (String) -> Unit, show: () -> Unit) {
+    private fun showOnActiveActivity(
+        activity: Activity,
+        onInactive: (String) -> Unit,
+        onBeforePrepare: () -> Unit = {},
+        show: () -> Unit,
+    ) {
         activity.runOnUiThread {
             if (!activity.isFinishing && !activity.isDestroyed) {
+                // Pause video / exit immersive mode first. Doing this after prepareSafeWindowForAd would
+                // accidentally restore edge-to-edge geometry and expose the network close control to a cutout.
+                onBeforePrepare()
                 prepareSafeWindowForAd(activity)
                 show()
             } else {
@@ -463,14 +502,26 @@ class TopOnAdsManager(
         val window = activity.window ?: return
         if (safeAdWindows.containsKey(activity)) return
         val originalCutoutMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) window.attributes.layoutInDisplayCutoutMode else 0
-        safeAdWindows[activity] = SafeAdWindowState(window.statusBarColor, window.navigationBarColor, originalCutoutMode)
+        val controller = WindowInsetsControllerCompat(window, window.decorView)
+        safeAdWindows[activity] = SafeAdWindowState(
+            statusBarColor = window.statusBarColor,
+            navigationBarColor = window.navigationBarColor,
+            cutoutMode = originalCutoutMode,
+            edgeToEdge = hostEdgeToEdge[activity] == true,
+            lightStatusBars = controller.isAppearanceLightStatusBars,
+            lightNavigationBars = controller.isAppearanceLightNavigationBars,
+        )
         WindowCompat.setDecorFitsSystemWindows(window, true)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             window.attributes = window.attributes.apply { layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_NEVER }
         }
         window.statusBarColor = Color.BLACK
         window.navigationBarColor = Color.BLACK
-        WindowInsetsControllerCompat(window, window.decorView).show(WindowInsetsCompat.Type.systemBars())
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
+            show(WindowInsetsCompat.Type.systemBars())
+        }
     }
 
     private fun restoreAppWindowAfterAd(activity: Activity) {
@@ -481,6 +532,12 @@ class TopOnAdsManager(
         }
         window.statusBarColor = state.statusBarColor
         window.navigationBarColor = state.navigationBarColor
+        WindowCompat.setDecorFitsSystemWindows(window, !state.edgeToEdge)
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            isAppearanceLightStatusBars = state.lightStatusBars
+            isAppearanceLightNavigationBars = state.lightNavigationBars
+            show(WindowInsetsCompat.Type.systemBars())
+        }
     }
 
     private fun errorCode(error: AdError): Int = error.code.toIntOrNull() ?: -1

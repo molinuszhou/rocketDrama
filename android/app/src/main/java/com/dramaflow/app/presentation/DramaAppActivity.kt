@@ -104,9 +104,12 @@ class DramaAppActivity : FragmentActivity() {
     internal var startupAdFinished = false
     internal var startupCatalogFinished = false
     internal var startupPosterPreloadFinished = false
+    internal var startupRewardsFinished = false
+    internal var startupPosterPreloadPercent = 0
     internal var startupCatalogFailure: String? = null
     internal var startupProgressBar: ProgressBar? = null
     internal var startupProgressLabel: TextView? = null
+    internal var startupProgressPercentLabel: TextView? = null
     internal var resumePlaybackWhenForeground = false
     internal var restorePlayerAfterCatalog = false
     internal var restoredDramaId: String? = null
@@ -143,7 +146,10 @@ class DramaAppActivity : FragmentActivity() {
     internal var playerMuted = false
     internal var playerSpeed = 1.0f
     internal var lastSwipeNextAtMillis = 0L
+    /** Set only while a full-screen creative is actually on screen. */
     internal var fullscreenAdInProgress = false
+    /** Keeps duplicate taps out while an ad is loading, without pausing the currently playing episode. */
+    internal var fullscreenAdRequestInFlight = false
     internal var episodeTransitionInProgress = false
     internal var resumeAfterFullscreenAd = false
     /** 广告展示前退出沉浸模式，关闭后仅在原本处于沉浸播放时恢复。 */
@@ -200,6 +206,7 @@ class DramaAppActivity : FragmentActivity() {
         restoredPositionSeconds = savedInstanceState?.getInt(STATE_POSITION_SECONDS, 0) ?: 0
         root = FrameLayout(this).apply { background = pageCanvasDrawable() }
         setContentView(root)
+        configureCatalogWindow()
         navigationBackCallback = object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 when {
@@ -288,8 +295,7 @@ class DramaAppActivity : FragmentActivity() {
         }
         withdrawalPageShown = false
         playerShown = false
-        window.statusBarColor = if (activeTab == MainTab.TASKS) 0xFFFFCF9E.toInt() else COLOR_BACKGROUND
-        WindowInsetsControllerCompat(window, root).isAppearanceLightStatusBars = true
+        configureCatalogWindow()
         gemBalanceAnchor = null
         gemBalanceLabel = null
         cashBalanceLabel = null
@@ -409,7 +415,7 @@ class DramaAppActivity : FragmentActivity() {
 
     internal fun showCatalog() {
         exitImmersivePlayerMode()
-        WindowCompat.setDecorFitsSystemWindows(window, true)
+        configureCatalogWindow()
         playerShown = false
         activeTab = MainTab.HOME
         releasePlayer()
@@ -418,21 +424,72 @@ class DramaAppActivity : FragmentActivity() {
 
     internal fun renderStartupLoading() {
         playerShown = false
+        configureCatalogWindow()
         root.removeAllViews()
-        val column = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER; setPadding(dp(34), dp(28), dp(34), dp(28)) }
-        column.addView(TextView(this).apply { text = "J"; textSize = 38f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE); background = gradientDrawable(intArrayOf(COLOR_SUNSET, COLOR_CORAL), 28) }, LinearLayout.LayoutParams(dp(88), dp(88)).apply { gravity = Gravity.CENTER_HORIZONTAL })
-        column.addView(TextView(this).apply { text = getString(R.string.app_name); textSize = 28f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_PRIMARY); setPadding(0, dp(18), 0, dp(4)) })
-        column.addView(TextView(this).apply { text = t("startup_tagline"); textSize = 14f; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_MUTED) })
-        startupProgressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply { max = 100; progress = 8; progressTintList = ColorStateList.valueOf(COLOR_CORAL); backgroundTintList = ColorStateList.valueOf(0x1E202B33) }
-        column.addView(startupProgressBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(7)).apply { topMargin = dp(34) })
-        startupProgressLabel = TextView(this).apply { text = t("startup_preparing"); textSize = 12f; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(10), 0, 0) }
+        val column = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(44), dp(28), dp(44), dp(28))
+        }
+        startupProgressLabel = TextView(this).apply {
+            text = t("startup_loading")
+            textSize = 18f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(COLOR_TEXT_PRIMARY)
+        }
         column.addView(startupProgressLabel)
+        startupProgressPercentLabel = TextView(this).apply {
+            text = "0%"
+            textSize = 34f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(COLOR_CORAL)
+            setPadding(0, dp(8), 0, 0)
+        }
+        column.addView(startupProgressPercentLabel)
+        // Percentage is the only progress visual requested for this surface; the backing value remains
+        // available for accessibility and automated tests through updateStartupProgress.
+        startupProgressBar = null
         root.addView(column, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
     }
 
     internal fun updateStartupProgress(progress: Int, label: String) {
-        startupProgressBar?.progress = progress.coerceIn(0, 100)
-        startupProgressLabel?.text = label
+        val safe = progress.coerceIn(0, 100)
+        startupProgressBar?.progress = safe
+        startupProgressPercentLabel?.text = "$safe%"
+        startupProgressLabel?.contentDescription = label
+    }
+
+    /** One window policy for all catalogue surfaces; prevents a player/ad window state leaking into pages. */
+    internal fun configureCatalogWindow() {
+        topOnAds.setHostEdgeToEdge(this, false)
+        window.statusBarColor = if (activeTab == MainTab.TASKS) 0xFFFFCF9E.toInt() else COLOR_BACKGROUND
+        window.navigationBarColor = COLOR_BACKGROUND
+        WindowInsetsControllerCompat(window, root).apply {
+            isAppearanceLightStatusBars = true
+            isAppearanceLightNavigationBars = true
+            show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
+    /** Player controls are laid out inside the same transparent edge-to-edge canvas before and after ads. */
+    internal fun configurePlayerWindow() {
+        topOnAds.setHostEdgeToEdge(this, true)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+        }
+        window.statusBarColor = Color.TRANSPARENT
+        window.navigationBarColor = Color.TRANSPARENT
+        WindowInsetsControllerCompat(window, root).apply {
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
+            show(WindowInsetsCompat.Type.systemBars())
+        }
+        root.requestLayout()
+        ViewCompat.requestApplyInsets(root)
     }
 
     internal fun renderLoading(message: String) {
