@@ -118,10 +118,12 @@ class RewardPolicyUpdateRequest(BaseModel):
     gem_damping_tier1_threshold: int | None = Field(default=None, ge=0, le=10_000_000_000)
     gem_damping_tier2_threshold: int | None = Field(default=None, ge=0, le=10_000_000_000)
     gem_damping_tier3_threshold: int | None = Field(default=None, ge=0, le=10_000_000_000)
+    gem_damping_tier4_threshold: int | None = Field(default=None, ge=0, le=10_000_000_000)
     gem_damping_tier1_multiplier: float | None = Field(default=None, ge=0.0, le=1.0)
     gem_damping_tier2_multiplier: float | None = Field(default=None, ge=0.0, le=1.0)
     gem_damping_tier3_multiplier: float | None = Field(default=None, ge=0.0, le=1.0)
     gem_damping_tier4_multiplier: float | None = Field(default=None, ge=0.0, le=1.0)
+    gem_damping_tier5_multiplier: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
 class MarketWalletPolicyUpdateRequest(BaseModel):

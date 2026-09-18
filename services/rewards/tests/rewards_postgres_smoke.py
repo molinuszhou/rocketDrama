@@ -207,7 +207,7 @@ def run() -> None:
     assert service.bootstrap(fallback_user, "MX")["wallet"]["currency"]["code"] == "USD"
     assert service.bootstrap(mx_user)["wallet"]["currency"]["code"] == "MXN"
 
-    # 全渠道四档阻尼：在每个边界附近依次以欢迎、签到、分集、宝箱和皇冠来源结算。
+    # 全渠道五档阻尼：在每个边界附近依次以欢迎、签到、分集、宝箱和皇冠来源结算。
     damping_user = f"v163-damping-{uuid.uuid4()}"
     service.bootstrap(damping_user, "US")
     with service._transaction() as connection:  # noqa: SLF001 - boundary integration test setup
@@ -215,19 +215,20 @@ def run() -> None:
         def total_at(value: int) -> None:
             service._execute(connection, "UPDATE users SET total_gems_earned = %s, gems_balance = %s WHERE user_id = %s", (value, value, damping_user))  # noqa: SLF001
 
-        total_at(699_999)
-        assert service._credit_gems(connection, damping_user, 10, policy, "WELCOME_BONUS", "damping", event_id("welcome")) == 10  # noqa: SLF001
-        assert service._credit_gems(connection, damping_user, 10, policy, "SIGN_IN", "damping", event_id("signin")) == 7  # noqa: SLF001
-        total_at(1_399_999)
-        assert service._credit_gems(connection, damping_user, 10, policy, "EPISODE_REWARD_CLAIM", "damping", event_id("episode")) == 7  # noqa: SLF001
-        assert service._credit_gems(connection, damping_user, 10, policy, "RANDOM_CHEST_OPEN", "damping", event_id("chest")) == 4  # noqa: SLF001
         total_at(1_899_999)
-        assert service._credit_gems(connection, damping_user, 10, policy, "ACHIEVEMENT", "damping", event_id("crown")) == 4  # noqa: SLF001
-        assert service._credit_gems(connection, damping_user, 10, policy, "EPISODE_REWARD_CLAIM", "damping", event_id("tier4")) == 2  # noqa: SLF001
+        assert service._credit_gems(connection, damping_user, 10, policy, "WELCOME_BONUS", "damping", event_id("welcome")) == 10  # noqa: SLF001
+        total_at(1_929_999)
+        assert service._credit_gems(connection, damping_user, 10, policy, "SIGN_IN", "damping", event_id("signin")) == 5  # noqa: SLF001
+        total_at(1_959_999)
+        assert service._credit_gems(connection, damping_user, 10, policy, "EPISODE_REWARD_CLAIM", "damping", event_id("episode")) == 4  # noqa: SLF001
+        total_at(1_979_999)
+        assert service._credit_gems(connection, damping_user, 10, policy, "RANDOM_CHEST_OPEN", "damping", event_id("chest")) == 2  # noqa: SLF001
+        total_at(1_989_999)
+        assert service._credit_gems(connection, damping_user, 10, policy, "ACHIEVEMENT", "damping", event_id("crown")) == 0  # noqa: SLF001
         total_at(1_999_999)
         assert service._credit_gems(connection, damping_user, 100, policy, "RANDOM_CHEST_OPEN", "damping", event_id("cap")) == 1  # noqa: SLF001
 
-    print("PostgreSQL v1.6.3 rewards smoke test passed; four-tier all-channel damping, localized wallet exchange, playback ads and wallet boost verified")
+    print("PostgreSQL v1.6.3.5 rewards smoke test passed; five-tier all-channel damping, 200k check-in schedule, localized wallet exchange, playback ads and wallet boost verified")
 
 
 if __name__ == "__main__":
