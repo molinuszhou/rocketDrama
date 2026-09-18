@@ -127,6 +127,8 @@ class RewardsApiClient(
         val watchedRounds: CrownMetric = CrownMetric(0, 0),
         val adEquivalentRounds: Int = 0,
         val adsPerEpisode: Int = 2,
+        val rewardedAdsToday: Int = 0,
+        val rewardedAdsDailyLimit: Int = 0,
     )
 
     data class UnlockRule(
@@ -134,6 +136,8 @@ class RewardsApiClient(
         val dailyRewardedUnlockLimit: Int,
         val title: String,
         val description: String,
+        val episodesPerRewardedUnlock: Int = 1,
+        val episodeRewardBoostEnabled: Boolean = true,
         val nextEpisodeInterstitialEnabled: Boolean = false,
         val nextEpisodeRewardedEnabled: Boolean = true,
         val extraEpisodeUnlockEnabled: Boolean = false,
@@ -157,6 +161,7 @@ class RewardsApiClient(
     data class InterstitialPolicy(
         val cooldownSeconds: Int,
         val hourlyLimit: Int,
+        val globalHourlyLimit: Int = 0,
         val nextEpisodeEnabled: Boolean = false,
         val nextEpisodeHourlyLimit: Int = 0,
         val pauseAdEnabled: Boolean = false,
@@ -259,6 +264,7 @@ class RewardsApiClient(
         val snapshot: Snapshot,
         val adEventId: String? = null,
         val releasedMicros: Long = 0L,
+        val unlockEpisodeCount: Int = 1,
     )
 
     val isConfigured: Boolean
@@ -338,6 +344,7 @@ class RewardsApiClient(
             onSuccess(RewardAction(
                 data.optBoolean("idempotent"), result.optString("action"), result.optLong("gems_added"),
                 parseSnapshot(data.getJSONObject("snapshot")), adEventId, result.optLong("released_micros"),
+                result.optInt("unlock_episode_count", 1).coerceAtLeast(1),
             ))
         }, onFailure)
     }
@@ -463,6 +470,8 @@ class RewardsApiClient(
                 today.optInt("rv_daily_limit", 20),
                 "广告解锁",
                 "免费集数用完后，由你确认观看广告解锁下一集",
+                unlock.optInt("episodes_per_rewarded_unlock", 1).coerceAtLeast(1),
+                unlock.optBoolean("episode_reward_boost_enabled", true),
                 unlock.optBoolean("next_episode_interstitial_enabled", false),
                 unlock.optBoolean("next_episode_rewarded_enabled", true),
                 unlock.optBoolean("extra_episode_unlock_enabled", false),
@@ -480,6 +489,7 @@ class RewardsApiClient(
             interstitial = InterstitialPolicy(
                 interstitial.optInt("cooldown_seconds", 90),
                 interstitial.optInt("hourly_limit", 3),
+                interstitial.optInt("global_hourly_limit", 0),
                 interstitial.optBoolean("next_episode_enabled", false),
                 interstitial.optInt("next_episode_hourly_limit", 0),
                 interstitial.optBoolean("pause_ad_enabled", false),
@@ -561,6 +571,7 @@ class RewardsApiClient(
                 item.optLong("gems"), item.optString("entitlement"), item.optInt("window_hours"), metric("rounds"),
                 metric("signins"), metric("rewarded_ads"), item.optDouble("progress").toFloat(), item.optDouble("episode_reward_multiplier", 1.0).toFloat(), item.optLong("episode_reward_gems"),
                 metric("watched_rounds"), item.optInt("ad_equivalent_rounds"), item.optInt("ads_per_episode", 2).coerceAtLeast(1),
+                item.optInt("crown_rewarded_ads_today", 0).coerceAtLeast(0), item.optInt("crown_rewarded_daily_limit", 0).coerceAtLeast(0),
             ))
         }
     }

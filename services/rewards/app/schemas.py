@@ -90,6 +90,9 @@ class ClaimAllEpisodeRewardsRequest(BaseModel):
 
 
 class RewardPolicyUpdateRequest(BaseModel):
+    episode_reward_gems: int | None = Field(default=None, ge=0, le=10_000_000)
+    episodes_per_rewarded_unlock: int | None = Field(default=None, ge=1, le=100)
+    episode_reward_boost_enabled: bool | None = None
     random_chest_min_gems: int | None = Field(default=None, ge=0, le=10_000_000)
     random_chest_max_gems: int | None = Field(default=None, ge=0, le=10_000_000)
     daily_random_chest_count: int | None = Field(default=None, ge=0, le=10)
@@ -106,10 +109,12 @@ class RewardPolicyUpdateRequest(BaseModel):
     action_interstitial_reward_threshold_gems: int | None = Field(default=None, ge=0, le=1_000_000_000)
     review_reward_gems: int | None = Field(default=None, ge=0, le=10_000_000_000)
     crown_rewarded_ads_per_episode: int | None = Field(default=None, ge=1, le=10)
+    crown_rewarded_daily_limit: int | None = Field(default=None, ge=0, le=100)
     release_boost_percent: float | None = Field(default=None, gt=0.0, le=1.0)
     release_boost_daily_limit: int | None = Field(default=None, ge=0, le=100)
     rv_daily_limit: int | None = Field(default=None, ge=0, le=1000)
     episode_interstitial_limit: int | None = Field(default=None, ge=0, le=10)
+    interstitial_global_hourly_limit: int | None = Field(default=None, ge=0, le=120)
     drama_switch_interstitial_enabled: bool | None = None
     drama_switch_interstitial_every_count: int | None = Field(default=None, ge=1, le=50)
     drama_switch_interstitial_hourly_limit: int | None = Field(default=None, ge=0, le=120)

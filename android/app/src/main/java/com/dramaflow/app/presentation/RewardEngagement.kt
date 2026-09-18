@@ -93,7 +93,7 @@ internal fun DramaAppActivity.createFloatingRewardWheel(compact: Boolean = false
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; clipChildren = false; clipToPadding = false
             addView(gem, LinearLayout.LayoutParams(gemSize, gemSize))
             addView(label, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(30)).apply { topMargin = -dp(4) })
-            if (playerShown) {
+            if (playerShown && rewardsSnapshot?.unlock?.episodeRewardBoostEnabled == true) {
                 val boostButton = TextView(this@createFloatingRewardWheel).apply { textSize = 11f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setPadding(dp(10), dp(6), dp(10), dp(6)) }
                 floatingBoostButtons.add(boostButton); updateFloatingRewardBoostButton(boostButton)
                 addView(boostButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)).apply { topMargin = dp(7) })
@@ -109,6 +109,11 @@ internal fun DramaAppActivity.refreshFloatingRewardWheels() {
     }
 
 internal fun DramaAppActivity.updateFloatingRewardBoostButton(button: TextView) {
+        if (rewardsSnapshot?.unlock?.episodeRewardBoostEnabled != true) {
+            button.visibility = View.GONE
+            button.isClickable = false
+            return
+        }
         val episodeId = selectedEpisode()?.id
         val boosted = episodeId != null && isEpisodeRewardBoosted(episodeId)
         if (boosted) {
@@ -439,8 +444,14 @@ internal fun DramaAppActivity.createAchievementSummary(snapshot: RewardsApiClien
     }
 
 internal fun DramaAppActivity.showCrownRewardedUpgradeDialog(crown: RewardsApiClient.CrownProgress) {
-        showBrandedChoiceDialog(t("crown_accelerate"), t("crown_accelerate_message", crown.adsPerEpisode), t("watch_ad_claim"), { requestCrownRewardedUpgrade(crown.adsPerEpisode, crown.title) }, t("not_now"))
-    }
+        val remainingToday = if (crown.rewardedAdsDailyLimit > 0) crown.rewardedAdsDailyLimit - crown.rewardedAdsToday else crown.adsPerEpisode
+        if (remainingToday <= 0) {
+            toast("今日皇冠成长广告已完成，明天继续加速")
+            return
+        }
+        val batchSize = minOf(crown.adsPerEpisode, remainingToday)
+        showBrandedChoiceDialog(t("crown_accelerate"), t("crown_accelerate_message", batchSize), t("watch_ad_claim"), { requestCrownRewardedUpgrade(batchSize, crown.title) }, t("not_now"))
+}
 
 internal fun DramaAppActivity.requestCrownRewardedUpgrade(remaining: Int, title: String) {
         if (remaining <= 0) { refreshRewardsSnapshot(); return }

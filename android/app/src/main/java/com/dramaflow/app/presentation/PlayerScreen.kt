@@ -323,18 +323,26 @@ internal fun DramaAppActivity.switchDramaBySwipe(forward: Boolean = true) {
         } else switch()
     }
 
-/** The mid-roll clock starts only when this episode actually plays and excludes all interruptions. */
+/** Accumulates actual watch time across short episodes; seek jumps never advance the mid-roll clock. */
 internal fun DramaAppActivity.requestMidEpisodeInterstitialIfEligible(positionSeconds: Int) {
         val snapshot = rewardsSnapshot ?: return
         val policy = snapshot.interstitial
-        val episodeKey = episodeKey(currentEpisodeIndex)
         if (!playerShown || playerIsPaused || fullscreenAdInProgress || !policy.midEpisodeEnabled) return
-        val startedAt = episodePlaybackStartedAtElapsedMillis
-        if (startedAt <= 0L) return
-        val viewedMillis = (SystemClock.elapsedRealtime() - startedAt - episodePlaybackPausedDurationMillis).coerceAtLeast(0L)
-        val viewedSeconds = (viewedMillis / 1_000L).toInt()
-        if (viewedSeconds < policy.midEpisodeTriggerSeconds || !midEpisodeInterstitialRequestedEpisodeKeys.add(episodeKey)) return
-        showPlaybackActionInterstitial("int_episode_midroll", episodeId = selectedEpisode()?.id, onShown = {}, onUnavailable = { message ->
+        val previousPosition = lastMidrollSamplePositionSeconds
+        lastMidrollSamplePositionSeconds = positionSeconds
+        if (previousPosition < 0) return
+        // The ticker runs twice per second. A larger jump is a seek and has its own ad candidate, so it is excluded.
+        val delta = positionSeconds - previousPosition
+        if (delta in 1..2) contentWatchSecondsSinceMidroll += delta
+        if (contentWatchSecondsSinceMidroll < policy.midEpisodeTriggerSeconds || midrollInterstitialRequestInFlight) return
+        midrollInterstitialRequestInFlight = true
+        showPlaybackActionInterstitial("int_episode_midroll", episodeId = selectedEpisode()?.id, onShown = {
+            contentWatchSecondsSinceMidroll = 0
+            midrollInterstitialRequestInFlight = false
+        }, onUnavailable = { message ->
+            // A failed candidate should not retry every ticker; the next candidate occurs after another interval.
+            contentWatchSecondsSinceMidroll = 0
+            midrollInterstitialRequestInFlight = false
             logStatus("Mid-roll unavailable: $message")
         })
     }

@@ -51,6 +51,8 @@ def run() -> None:
     assert initial["checkin"]["signed_today"] is False
     assert initial["episode_unlock"]["free_episodes_count"] == 3
     assert initial["episode_unlock"]["next_episode_rewarded_enabled"] is True
+    assert initial["episode_unlock"]["episodes_per_rewarded_unlock"] == 3
+    assert initial["episode_unlock"]["episode_reward_boost_enabled"] is False
     assert initial["interstitial"]["mid_episode_enabled"] is True
     assert initial["interstitial"]["seek_enabled"] is True
     assert initial["interstitial"]["speed_enabled"] is True
@@ -59,17 +61,18 @@ def run() -> None:
     assert [item["code"] for item in initial["crown_progress"]] == ["BRONZE", "SILVER", "GOLD", "DIAMOND", "CROWN"]
     assert initial["crown_progress"][0]["rounds"]["target"] == 10
     assert initial["crown_progress"][0]["ads_per_episode"] == 2
-    assert initial["interstitial"]["mid_episode_trigger_seconds"] == 45
+    assert initial["interstitial"]["mid_episode_trigger_seconds"] == 720
+    assert initial["interstitial"]["global_hourly_limit"] == 8
     assert initial["wallet"]["exchange_rate_gems"] == 10_000
     assert initial["wallet"]["currency"]["code"] == "USD"
     assert initial["gem_damping"]["cap"] == 2_000_000
-    assert initial["gem_damping"]["tier1_threshold"] == 700_000
-    assert initial["gem_damping"]["tier2_threshold"] == 1_400_000
-    assert initial["gem_damping"]["tier3_threshold"] == 1_900_000
-    assert initial["gem_damping"]["tier4_multiplier"] == 0.25
+    assert initial["gem_damping"]["tier1_threshold"] == 1_900_000
+    assert initial["gem_damping"]["tier2_threshold"] == 1_950_000
+    assert initial["gem_damping"]["tier3_threshold"] == 1_980_000
+    assert initial["gem_damping"]["tier4_multiplier"] == 0.20
     assert initial["gem_damping"]["scope"] == "ALL_GEM_SOURCES"
-    assert initial["wallet"]["release"]["boost_cap"] == 10
-    assert [item["gems"] for item in initial["checkin"]["tiers"][:7]] == [600, 1200, 1600, 2400, 3000, 5000, 20000]
+    assert initial["wallet"]["release"]["boost_cap"] == 3
+    assert [item["gems"] for item in initial["checkin"]["tiers"][:7]] == [3000, 6000, 8000, 12000, 15000, 25000, 50000]
     assert [item["gems"] for item in initial["crown_progress"]] == [12000, 26000, 66000, 160000, 400000]
 
     # 欢迎奖励和签到均必须由完整激励广告结算，旧直接接口不再能绕过广告。
@@ -81,18 +84,32 @@ def run() -> None:
     assert signed["snapshot"]["checkin"]["signed_today"] is True
 
     # 每种被动播放动作独立记账；拖拽、剧中与倍速均不共享旧冷却。
-    for placement in ("int_next_episode_unlock", "int_episode_midroll", "int_seek", "int_speed", "int_pause_native"):
+    for placement in ("int_episode_midroll", "int_seek", "int_speed", "int_pause_native"):
         result = service.record_interstitial(user_id, event_id(placement), placement)
         assert result["idempotent"] is False
+    for placement in ("int_seek", "int_speed", "int_drama_switch", "int_rewarded_fallback"):
+        result = service.record_interstitial(user_id, event_id(f"{placement}-cap"), placement)
+        assert result["idempotent"] is False
+    global_cap_rejected = False
+    try:
+        service.record_interstitial(user_id, event_id("int-global-cap"), "int_seek")
+    except Exception as error:  # noqa: BLE001 - 验证所有插屏位共用小时总上限。
+        global_cap_rejected = "总上限" in str(error)
+    assert global_cap_rejected
 
-    # 本集翻倍允许在奖励尚未生成前预授权；第 1 集完播后应自动按双倍累计。
-    preboosted, _ = rewarded(service, user_id, "rv_episode_reward_boost", "owned:smoke:ep:1")
-    assert preboosted["result"]["action"] == "EPISODE_REWARD_BOOST"
-    assert "owned:smoke:ep:1" in preboosted["snapshot"]["episode_reward_preboosted_ids"]
+    # 单条激励广告连续解锁三集；低频模式关闭单集广告翻倍。
+    episode_pass, _ = rewarded(service, user_id, "rv_episode_pass", "owned:smoke:ep:4", 4)
+    assert episode_pass["result"]["unlock_episode_count"] == 3
+    boost_rejected = False
+    try:
+        rewarded(service, user_id, "rv_episode_reward_boost", "owned:smoke:ep:1")
+    except Exception as error:  # noqa: BLE001 - 验证低频模式拒绝额外单集翻倍广告。
+        boost_rejected = "未启用单集广告翻倍" in str(error)
+    assert boost_rejected
 
-    # 每集形成待领取宝石；第三集产生追剧随机宝箱，宝石不会自动入账。
+    # 每集形成待领取宝石；每十集产生追剧随机宝箱，宝石不会自动入账。
     watched_rewards: list[int] = []
-    for episode_index in range(1, 4):
+    for episode_index in range(1, 11):
         watch = service.record_watch_event(
             user_id=user_id,
             event_id=event_id("watch"),
@@ -101,32 +118,26 @@ def run() -> None:
             watched_seconds=60,
         )
         assert watch["result"]["gems_added"] == 0
-        if episode_index < 3:
+        if episode_index < 10:
             assert watch["result"]["random_chests_created"] == []
         else:
             assert watch["result"]["random_chests_created"][0]["created_count"] == 1
         watched_rewards.append(watch["result"]["episode_reward"]["gems"])
 
     after_watches = service.bootstrap(user_id)
-    assert len(after_watches["episode_reward_claims"]) == 3
+    assert len(after_watches["episode_reward_claims"]) == 10
     assert after_watches["ring"]["claimable"] is True
     assert after_watches["ring"]["reward_gems"] == sum(watched_rewards)
     assert after_watches["chest"]["daily_available_count"] == 1
     assert after_watches["chest"]["watch_available_count"] == 1
 
-    # 已预授权的分集不允许超过双倍；随后领取全部必须先获得一次激励广告授权。
-    repeated_boost_rejected = False
-    try:
-        rewarded(service, user_id, "rv_episode_reward_boost", "owned:smoke:ep:1")
-    except Exception as error:  # noqa: BLE001 - 验证每集最多双倍。
-        repeated_boost_rejected = "已开启翻倍" in str(error)
-    assert repeated_boost_rejected
+    # 领取全部待领取分集奖励仍须先获得一次激励广告授权。
     authorization, authorization_event_id = rewarded(service, user_id, "rv_episode_rewards_claim")
     assert authorization["result"]["action"] == "EPISODE_REWARDS_CLAIM_AUTH"
     claim_all = service.claim_all_episode_rewards(user_id, event_id("claim-all"), authorization_event_id)
     assert claim_all["result"]["action"] == "EPISODE_REWARDS_CLAIM_ALL"
-    assert claim_all["result"]["claimed_count"] == 3
-    assert claim_all["result"]["boosted_count"] == 1
+    assert claim_all["result"]["claimed_count"] == 10
+    assert claim_all["result"]["boosted_count"] == 0
     assert claim_all["result"]["gems_added"] == sum(watched_rewards)
     replay_claim = service.claim_all_episode_rewards(user_id, event_id("claim-replay"), authorization_event_id)
     assert replay_claim["idempotent"] is True
@@ -149,6 +160,14 @@ def run() -> None:
     crown_second, _ = rewarded(service, user_id, "rv_crown_upgrade")
     bronze = crown_second["snapshot"]["crown_progress"][0]
     assert bronze["ad_equivalent_rounds"] >= crown_first["snapshot"]["crown_progress"][0]["ad_equivalent_rounds"] + 1
+    for _ in range(3):
+        rewarded(service, user_id, "rv_crown_upgrade")
+    crown_daily_cap_rejected = False
+    try:
+        rewarded(service, user_id, "rv_crown_upgrade")
+    except Exception as error:  # noqa: BLE001 - 验证皇冠主动激励广告独立日上限。
+        crown_daily_cap_rejected = "皇冠成长广告次数已达上限" in str(error)
+    assert crown_daily_cap_rejected
 
     # 钱包余额可兑换；下一活动日基础转入后，广告加速按后台百分比额外转入可提现余额。
     gems_to_exchange = min(int(claim_all["snapshot"]["wallet"]["gems_balance"]), 10_000)
@@ -228,7 +247,7 @@ def run() -> None:
         total_at(1_999_999)
         assert service._credit_gems(connection, damping_user, 100, policy, "RANDOM_CHEST_OPEN", "damping", event_id("cap")) == 1  # noqa: SLF001
 
-    print("PostgreSQL v1.6.3.5 rewards smoke test passed; five-tier all-channel damping, 200k check-in schedule, localized wallet exchange, playback ads and wallet boost verified")
+    print("PostgreSQL v1.6.3.6 rewards smoke test passed; low-frequency ads, three-episode rewarded unlocks, five-tier damping, localized wallet exchange and crown growth verified")
 
 
 if __name__ == "__main__":

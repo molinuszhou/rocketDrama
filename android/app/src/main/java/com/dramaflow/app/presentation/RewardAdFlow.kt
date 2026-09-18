@@ -12,6 +12,7 @@ import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.text.Editable
 import android.text.TextWatcher
 import android.os.Handler
@@ -200,10 +201,7 @@ internal fun DramaAppActivity.resumeAfterFullscreenAdIfNeeded() {
         }
     }
 
-    /**
-     * 所有播放行为插屏统一入口。剧中、拖动、倍速及激励回退按每集上限互斥；
-     * 横向切剧使用独立频控，不占用当前分集的插屏额度。
-     */
+    /** All playback interstitial placements share one server-backed hourly cap. */
 internal fun DramaAppActivity.showPlaybackActionInterstitial(
         placementId: String,
         episodeId: String? = selectedEpisode()?.id,
@@ -214,9 +212,10 @@ internal fun DramaAppActivity.showPlaybackActionInterstitial(
     ) {
         val policy = rewardsSnapshot?.interstitial
         val episodeKey = episodeId?.let { "${selectedDrama?.id}:$it" }
-        val isSessionActionPlacement = placementId in setOf("int_seek", "int_speed", "int_episode_midroll")
-        if (isSessionActionPlacement && episodeKey != null && episodeKey in actionInterstitialShownEpisodeKeys) {
-            onUnavailable("本次观看已展示插屏"); return
+        val now = SystemClock.elapsedRealtime()
+        playbackInterstitialShownAtElapsedMillis.removeAll { now - it >= 60 * 60 * 1_000L }
+        if (policy != null && policy.globalHourlyLimit > 0 && playbackInterstitialShownAtElapsedMillis.size >= policy.globalHourlyLimit) {
+            onUnavailable("本小时插屏展示已达总上限"); return
         }
         if (countTowardEpisodeLimit && policy != null && policy.episodeInterstitialLimit > 0 && episodeKey != null && (interstitialCountByEpisodeKey[episodeKey] ?: 0) >= policy.episodeInterstitialLimit) {
             onUnavailable("本集插屏次数已达上限"); return
@@ -244,7 +243,7 @@ internal fun DramaAppActivity.showPlaybackActionInterstitial(
                 TopOnAdsManager.FullscreenResult.Shown -> {
                     resumeAfterFullscreenAdIfNeeded()
                     val settled = {
-                        if (isSessionActionPlacement && episodeKey != null) actionInterstitialShownEpisodeKeys.add(episodeKey)
+                        playbackInterstitialShownAtElapsedMillis.add(SystemClock.elapsedRealtime())
                         if (countTowardEpisodeLimit && episodeKey != null) interstitialCountByEpisodeKey[episodeKey] = (interstitialCountByEpisodeKey[episodeKey] ?: 0) + 1
                         onShown()
                     }

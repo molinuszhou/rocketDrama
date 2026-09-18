@@ -76,6 +76,15 @@ class RewardsService:
             rv_daily_limit = int(policy["rv_daily_limit"])
             if rv_daily_limit > 0 and int(counters["rv_count"]) >= rv_daily_limit:
                 raise ServiceError(1001, "今日激励广告次数已达上限，请明天再来", 429)
+            if placement_id == "rv_crown_upgrade":
+                crown_daily_limit = int(policy.get("crown_rewarded_daily_limit", 0))
+                crown_used_today = int(self._one(
+                    connection,
+                    "SELECT COUNT(*) AS count FROM rewarded_ad_events WHERE user_id = %s AND business_date = %s AND placement_id = 'rv_crown_upgrade'",
+                    (user_id, business_date),
+                )["count"])
+                if crown_daily_limit > 0 and crown_used_today >= crown_daily_limit:
+                    raise ServiceError(1003, "今日皇冠成长广告次数已达上限，请明天继续", 429)
 
             # 先执行业务前置检查，避免无效事件消耗用户的日频控。
             result = self._rewarded_action(
@@ -434,6 +443,7 @@ class RewardsService:
     def update_operating_policy(self, authorization: str | None, updates: dict[str, Any]) -> dict[str, Any]:
         self._verify_admin_token(authorization)
         allowed = {
+            "episode_reward_gems", "episodes_per_rewarded_unlock", "episode_reward_boost_enabled",
             "random_chest_min_gems", "random_chest_max_gems", "daily_random_chest_count", "episodes_per_random_chest",
             "reward_claim_interstitial_enabled", "mid_episode_interstitial_enabled", "mid_episode_interstitial_trigger_seconds",
             "mid_episode_interstitial_hourly_limit", "seek_interstitial_enabled", "seek_interstitial_hourly_limit",
@@ -443,7 +453,8 @@ class RewardsService:
             "rewarded_fallback_interstitial_enabled", "gems_earned_cap", "gem_damping_tier1_threshold",
             "gem_damping_tier2_threshold", "gem_damping_tier3_threshold", "gem_damping_tier4_threshold", "gem_damping_tier1_multiplier",
             "gem_damping_tier2_multiplier", "gem_damping_tier3_multiplier", "gem_damping_tier4_multiplier", "gem_damping_tier5_multiplier",
-            "crown_rewarded_ads_per_episode", "release_boost_percent", "release_boost_daily_limit",
+            "crown_rewarded_ads_per_episode", "crown_rewarded_daily_limit", "release_boost_percent", "release_boost_daily_limit",
+            "interstitial_global_hourly_limit",
         }
         changed = {key: value for key, value in updates.items() if key in allowed and value is not None}
         if not changed:
@@ -604,6 +615,16 @@ class RewardsService:
             policy = self._policy(connection)
             counters = self._daily_counter(connection, user_id, business_date, lock=True)
             now = self._now()
+
+            global_hourly_limit = int(policy.get("interstitial_global_hourly_limit", 0))
+            if global_hourly_limit > 0:
+                global_count = int(self._one(
+                    connection,
+                    "SELECT COUNT(*) AS count FROM interstitial_events WHERE user_id = %s AND shown_at >= NOW() - INTERVAL '1 hour'",
+                    (user_id,),
+                )["count"])
+                if global_count >= global_hourly_limit:
+                    raise ServiceError(2021, "本小时插屏展示已达总上限", 429)
 
             def placement_count(placement: str) -> int:
                 return int(self._one(
@@ -782,7 +803,13 @@ class RewardsService:
                 raise ServiceError(1101, "集间通行广告缺少 episode_id 或 episode_index", 422)
             if episode_index <= policy["free_episodes_count"]:
                 raise ServiceError(1100, f"前 {policy['free_episodes_count']} 集为免费体验，无需激励广告", 409)
-            return {"action": "EPISODE_PASS", "episode_id": target_id, "gems_added": 0, "unlocked": True}
+            return {
+                "action": "EPISODE_PASS",
+                "episode_id": target_id,
+                "gems_added": 0,
+                "unlocked": True,
+                "unlock_episode_count": int(policy.get("episodes_per_rewarded_unlock", 1)),
+            }
 
         if placement_id == "rv_claim_reward":
             claim = self._one(
@@ -831,6 +858,8 @@ class RewardsService:
         if placement_id == "rv_episode_reward_boost":
             if not target_id:
                 raise ServiceError(1213, "本集翻倍缺少 episode_id", 422)
+            if not bool(policy.get("episode_reward_boost_enabled", True)):
+                raise ServiceError(1214, "当前奖励规则未启用单集广告翻倍", 409)
             # 翻倍是分集级预授权：可在播放中、完播奖励尚未生成前观看广告。
             # 完播后创建待领取奖励时读取此记录，单集最多仅按 2 倍结算一次。
             boosted = self._one(
@@ -1394,6 +1423,8 @@ class RewardsService:
             "episode_unlock": {
                 "free_episodes_count": policy["free_episodes_count"],
                 "placement_id": "rv_episode_pass",
+                "episodes_per_rewarded_unlock": int(policy.get("episodes_per_rewarded_unlock", 1)),
+                "episode_reward_boost_enabled": bool(policy.get("episode_reward_boost_enabled", True)),
                 "next_episode_interstitial_enabled": False,
                 "next_episode_rewarded_enabled": True,
                 "extra_episode_unlock_enabled": bool(policy["extra_episode_unlock_enabled"]),
@@ -1402,6 +1433,7 @@ class RewardsService:
             "interstitial": {
                 "cooldown_seconds": policy["interstitial_cooldown_seconds"],
                 "hourly_limit": policy["interstitial_hourly_limit"],
+                "global_hourly_limit": int(policy.get("interstitial_global_hourly_limit", 0)),
                 "next_episode_enabled": bool(policy["next_episode_interstitial_enabled"]),
                 "next_episode_hourly_limit": int(policy["next_episode_interstitial_hourly_limit"]),
                 "pause_ad_enabled": bool(policy["pause_ad_enabled"]),
@@ -1457,6 +1489,12 @@ class RewardsService:
         rows = self._all(connection, "SELECT * FROM achievement_policy ORDER BY level_rank ASC, code ASC")
         reward_policy = self._policy(connection)
         episode_reward_gems = int(reward_policy["episode_reward_gems"])
+        crown_daily_limit = int(reward_policy.get("crown_rewarded_daily_limit", 0))
+        crown_ads_today = int(self._one(
+            connection,
+            "SELECT COUNT(*) AS count FROM rewarded_ad_events WHERE user_id = %s AND business_date = %s AND placement_id = 'rv_crown_upgrade'",
+            (user_id, self._business_date()),
+        )["count"])
         earned_codes = {item["code"] for item in self._all(connection, "SELECT code FROM user_achievements WHERE user_id = %s", (user_id,))}
         result: list[dict[str, Any]] = []
         titles = {"BRONZE": "青铜", "SILVER": "白银", "GOLD": "黄金", "DIAMOND": "钻石", "CROWN": "皇冠"}
@@ -1486,6 +1524,8 @@ class RewardsService:
                 "watched_rounds": {"current": watched_rounds, "target": row["required_rounds"]},
                 "ad_equivalent_rounds": equivalent_rounds,
                 "ads_per_episode": ads_per_episode,
+                "crown_rewarded_ads_today": crown_ads_today,
+                "crown_rewarded_daily_limit": crown_daily_limit,
                 "signins": {"current": 0, "target": 0},
                 "rewarded_ads": {"current": rvs, "target": 0},
                 "progress": round(progress, 4),
@@ -1777,6 +1817,9 @@ class RewardsService:
     @staticmethod
     def _admin_policy_payload(policy: dict[str, Any]) -> dict[str, Any]:
         return {
+            "episode_reward_gems": int(policy["episode_reward_gems"]),
+            "episodes_per_rewarded_unlock": int(policy.get("episodes_per_rewarded_unlock", 1)),
+            "episode_reward_boost_enabled": bool(policy.get("episode_reward_boost_enabled", True)),
             "random_chest_min_gems": int(policy["random_chest_min_gems"]),
             "random_chest_max_gems": int(policy["random_chest_max_gems"]),
             "daily_random_chest_count": int(policy["daily_random_chest_count"]),
@@ -1794,10 +1837,12 @@ class RewardsService:
             "action_interstitial_reward_threshold_gems": int(policy["action_interstitial_reward_threshold_gems"]),
             "review_reward_gems": int(policy["review_reward_gems"]),
             "crown_rewarded_ads_per_episode": int(policy["crown_rewarded_ads_per_episode"]),
+            "crown_rewarded_daily_limit": int(policy.get("crown_rewarded_daily_limit", 0)),
             "release_boost_percent": float(policy["release_boost_percent"]),
             "release_boost_daily_limit": int(policy["release_boost_daily_limit"]),
             "rv_daily_limit": int(policy["rv_daily_limit"]),
             "episode_interstitial_limit": int(policy["episode_interstitial_limit"]),
+            "interstitial_global_hourly_limit": int(policy.get("interstitial_global_hourly_limit", 0)),
             "drama_switch_interstitial_enabled": bool(policy["drama_switch_interstitial_enabled"]),
             "drama_switch_interstitial_every_count": int(policy["drama_switch_interstitial_every_count"]),
             "drama_switch_interstitial_hourly_limit": int(policy["drama_switch_interstitial_hourly_limit"]),

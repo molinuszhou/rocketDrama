@@ -167,6 +167,7 @@ internal fun DramaAppActivity.selectEpisode(index: Int) {
         episodePlaybackStartedAtElapsedMillis = 0L
         episodePlaybackPausedAtElapsedMillis = 0L
         episodePlaybackPausedDurationMillis = 0L
+        lastMidrollSamplePositionSeconds = -1
         exoPlayer?.pause()
         currentEpisodeIndex = index
         refreshFloatingRewardWheels()
@@ -236,9 +237,11 @@ internal fun DramaAppActivity.unlockEpisodeThenAutoPlay(
 ) {
         if (episodeTransitionInProgress) return
         selectedDrama?.episodes?.getOrNull(index) ?: return
+        val unlockCount = rewardsSnapshot?.unlock?.episodesPerRewardedUnlock ?: 1
         showBrandedChoiceDialog(
             title = t("free_episodes_used"),
-            message = t("unlock_episode_message", index + 1),
+            message = if (unlockCount > 1) t("unlock_episode_bundle_message", index + 1, unlockCount)
+                else t("unlock_episode_message", index + 1),
             primaryLabel = t("unlock_with_ad"),
             onPrimary = { startEpisodeUnlockAfterConfirmation(index, onUnlocked) },
             secondaryLabel = t("later"),
@@ -270,7 +273,7 @@ internal fun DramaAppActivity.startEpisodeUnlockAfterConfirmation(index: Int, on
             episodeIndex = index + 1,
             onSettled = { action ->
                 applyRewardsSnapshot(action.snapshot)
-                settleEpisodeUnlockAfterAd(index, unlockMethod = "AD_REWARDED") {
+                settleEpisodeUnlockAfterAd(index, unlockMethod = "AD_REWARDED", unlockCount = action.unlockEpisodeCount) {
                     selectEpisode(index)
                     onUnlocked()
                 }
@@ -295,26 +298,57 @@ internal fun DramaAppActivity.handleEpisodeCompleted(index: Int) {
         }
     }
 
-internal fun DramaAppActivity.settleEpisodeUnlockAfterAd(index: Int, unlockMethod: String, onUnlocked: () -> Unit = {}) {
-        val episode = selectedDrama?.episodes?.getOrNull(index) ?: return
-        localDramaApi.unlockEpisode(
-            baseUrl = localContentBaseUrl(),
-            episodeId = episode.id,
-            region = CONTENT_REGION,
-            userId = anonymousInstallationId(),
-            unlockMethod = unlockMethod,
-            onSuccess = { runOnUiThread {
-                unlockEpisodeForCurrentSession(index, t("episode_unlocked", index + 1))
-                onUnlocked()
-            } },
-            onFailure = { message -> runOnUiThread {
-                episodeTransitionInProgress = false
-                if (unlockMethod == "AD_INTERSTITIAL" || unlockMethod == "AD_REWARDED") interstitialRequestedEpisodeKeys.remove(episodeKey(index))
-                logStatus("自有剧解锁失败：$message")
-                resumeAfterFullscreenAdIfNeeded()
-                toast("解锁服务暂不可用：$message")
-            } },
-        )
+internal fun DramaAppActivity.settleEpisodeUnlockAfterAd(
+    index: Int,
+    unlockMethod: String,
+    unlockCount: Int = 1,
+    onUnlocked: () -> Unit = {},
+) {
+        val episodes = selectedDrama?.episodes.orEmpty()
+        val indexes = (index until (index + unlockCount.coerceAtLeast(1)).coerceAtMost(episodes.size)).toList()
+        if (indexes.isEmpty()) {
+            episodeTransitionInProgress = false
+            return
+        }
+
+        fun finish(unlockedCount: Int) {
+            indexes.take(unlockedCount).forEach { unlockedIndex -> sessionUnlockedEpisodeKeys.add(episodeKey(unlockedIndex)) }
+            pendingUnlockIndex = -1
+            updateEpisodeStatus()
+            toast(if (unlockedCount > 1) "已连续解锁 $unlockedCount 集" else t("episode_unlocked", index + 1))
+            onUnlocked()
+        }
+
+        fun unlockNext(position: Int) {
+            val unlockedIndex = indexes[position]
+            val episode = episodes[unlockedIndex]
+            localDramaApi.unlockEpisode(
+                baseUrl = localContentBaseUrl(),
+                episodeId = episode.id,
+                region = CONTENT_REGION,
+                userId = anonymousInstallationId(),
+                unlockMethod = unlockMethod,
+                onSuccess = { runOnUiThread {
+                    if (position + 1 < indexes.size) unlockNext(position + 1) else finish(indexes.size)
+                } },
+                onFailure = { message -> runOnUiThread {
+                    // The rewarded placement has already settled. Preserve every content entitlement that was
+                    // confirmed before a transient content-service error, and never block the first requested episode.
+                    if (position > 0) {
+                        logStatus("后续分集解锁未同步：$message")
+                        finish(position)
+                    } else {
+                        episodeTransitionInProgress = false
+                        if (unlockMethod == "AD_INTERSTITIAL" || unlockMethod == "AD_REWARDED") interstitialRequestedEpisodeKeys.remove(episodeKey(index))
+                        logStatus("自有剧解锁失败：$message")
+                        resumeAfterFullscreenAdIfNeeded()
+                        toast("解锁服务暂不可用：$message")
+                    }
+                } },
+            )
+        }
+
+        unlockNext(0)
     }
 
 internal fun DramaAppActivity.unlockEpisodeForCurrentSession(index: Int, message: String) {

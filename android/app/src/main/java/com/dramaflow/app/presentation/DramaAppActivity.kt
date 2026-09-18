@@ -138,6 +138,10 @@ class DramaAppActivity : FragmentActivity() {
     internal var episodePlaybackStartedAtElapsedMillis = 0L
     internal var episodePlaybackPausedAtElapsedMillis = 0L
     internal var episodePlaybackPausedDurationMillis = 0L
+    /** Actual content seconds accumulated across episodes since the last mid-roll attempt. */
+    internal var contentWatchSecondsSinceMidroll = 0
+    internal var lastMidrollSamplePositionSeconds = -1
+    internal var midrollInterstitialRequestInFlight = false
     internal var pendingResumePositionSeconds = 0
     internal var lastPersistedPlaybackSecond = -1
     internal var playerPauseOverlay: TextView? = null
@@ -168,6 +172,8 @@ class DramaAppActivity : FragmentActivity() {
     internal var seekInterstitialInProgress = false
     /** 仅统计“剧中/拖动/倍速/激励回退”等受每集互斥约束的插屏；横滑切剧有独立频控。 */
     internal val interstitialCountByEpisodeKey = mutableMapOf<String, Int>()
+    /** Client-side guard for the server-backed all-placement hourly interstitial cap. */
+    internal val playbackInterstitialShownAtElapsedMillis = mutableListOf<Long>()
     internal var dramaSwitchSwipeCount = 0
     internal val completedEpisodeKeys = mutableSetOf<String>()
     internal val rewardWatchRecordedEpisodeKeys = mutableSetOf<String>()
