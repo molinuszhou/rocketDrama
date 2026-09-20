@@ -54,14 +54,13 @@ def run() -> None:
     assert initial["checkin"]["signed_today"] is False
     assert initial["episode_unlock"]["free_episodes_count"] == 3
     assert initial["episode_unlock"]["next_episode_rewarded_enabled"] is True
-    assert initial["episode_unlock"]["episodes_per_rewarded_unlock"] == 3
+    assert initial["episode_unlock"]["episodes_per_rewarded_unlock"] == 2
     assert initial["episode_unlock"]["episode_reward_boost_enabled"] is False
     assert initial["interstitial"]["mid_episode_enabled"] is True
     assert initial["interstitial"]["seek_enabled"] is True
     assert initial["interstitial"]["speed_enabled"] is True
     assert initial["chest"]["available_count"] == 0
     assert initial["chest"]["daily_available_count"] == 0
-    assert initial["episode_unlock"]["episodes_per_rewarded_unlock"] == 3
     assert [item["code"] for item in initial["crown_progress"]] == ["BRONZE", "SILVER", "GOLD", "DIAMOND", "CROWN"]
     assert initial["crown_progress"][0]["rounds"]["target"] == 30
     assert initial["crown_progress"][0]["ads_per_episode"] == 2
@@ -108,9 +107,9 @@ def run() -> None:
     fallback = service.record_interstitial(user_id, event_id("int_rewarded_fallback"), "int_rewarded_fallback")
     assert fallback["snapshot"]["interstitial"]["rewarded_skip_count"] == 3
 
-    # 单条激励广告连续解锁三集；低频模式关闭单集广告翻倍。
+    # 单条激励广告连续解锁一个两集集包；低频模式关闭单集广告翻倍。
     episode_pass, _ = rewarded(service, user_id, "rv_episode_pass", "owned:smoke:ep:4", 4)
-    assert episode_pass["result"]["unlock_episode_count"] == 3
+    assert episode_pass["result"]["unlock_episode_count"] == 2
     boost_rejected = False
     try:
         rewarded(service, user_id, "rv_episode_reward_boost", "owned:smoke:ep:1")

@@ -19,7 +19,8 @@ ALTER TABLE reward_policy
 -- Fresh-build defaults. The service materialises the dynamic node list at bootstrap
 -- and when a user watches an episode; this table remains an auditable milestone index.
 UPDATE reward_policy
-SET episode_task_max_episode = 90,
+SET episodes_per_rewarded_unlock = 2,
+    episode_task_max_episode = 90,
     episode_task_post18_interval = 6,
     episode_task_redpacket_min_gems = 4000,
     episode_task_redpacket_max_gems = 8000,

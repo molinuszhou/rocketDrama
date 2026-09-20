@@ -56,6 +56,7 @@ def run() -> None:
     assert snapshot["welcome"]["cash"] == "10.00"
     assert snapshot["episode_unlock"]["free_episodes_count"] == 3
     assert snapshot["episode_unlock"]["next_episode_rewarded_enabled"] is True
+    assert snapshot["episode_unlock"]["episodes_per_rewarded_unlock"] == 2
     assert snapshot["chest"]["available_count"] == 0
     assert snapshot["interstitial"]["mid_episode_enabled"] is True
     assert snapshot["interstitial"]["seek_enabled"] is True
