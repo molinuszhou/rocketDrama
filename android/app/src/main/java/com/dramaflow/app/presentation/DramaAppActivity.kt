@@ -441,7 +441,7 @@ class DramaAppActivity : FragmentActivity() {
             setPadding(dp(44), dp(28), dp(44), dp(28))
         }
         column.addView(ImageView(this).apply {
-            setImageResource(R.drawable.reward_gem_crystal)
+            setImageResource(R.drawable.ic_launcher_foreground)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             contentDescription = "JoyeDrama"
         }, LinearLayout.LayoutParams(dp(108), dp(108)).apply { bottomMargin = dp(18) })

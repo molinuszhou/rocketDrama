@@ -26,6 +26,7 @@ import android.view.WindowManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
@@ -76,7 +77,6 @@ internal fun DramaAppActivity.createTasksPage(): View {
         else {
             content.addView(createDailyBenefitsPanel(snapshot), matchParams(top = 12, bottom = 12))
             content.addView(createEpisodeTaskLine(snapshot), matchParams(bottom = 12))
-            content.addView(createRewardChestPanel(snapshot), matchParams(top = 12, bottom = 12))
             content.addView(createReviewRewardPanel(snapshot), matchParams(bottom = 14))
         }
         content.addView(createCrownRoadPanel(snapshot), matchParams(bottom = 14))
@@ -127,7 +127,7 @@ internal fun DramaAppActivity.createRewardsHeroHeader(snapshot: RewardsApiClient
 
 internal fun DramaAppActivity.createRewardBalance(label: String, value: String, isGem: Boolean, onClick: () -> Unit): View = LinearLayout(this).apply {
     gravity = Gravity.CENTER_VERTICAL; setPadding(dp(7), dp(6), dp(7), dp(6)); isClickable = true; contentDescription = "$label $value"; setOnClickListener { onClick() }
-    val icon = ImageView(this@createRewardBalance).apply { setImageResource(if (isGem) R.drawable.reward_gem_crystal else R.drawable.ic_wallet); scaleType = ImageView.ScaleType.CENTER_INSIDE }
+    val icon = ImageView(this@createRewardBalance).apply { setImageResource(R.drawable.ic_cash_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE }
     if (isGem) gemBalanceAnchor = icon else cashBalanceAnchor = icon
     addView(icon, LinearLayout.LayoutParams(dp(42), dp(42)))
     addView(LinearLayout(this@createRewardBalance).apply {
@@ -183,7 +183,7 @@ internal fun DramaAppActivity.createReviewRewardPanel(snapshot: RewardsApiClient
     })
 }
 
-/** Transparent watch-episode task line: 1, 3, 6, 9, 12 … each grants direct cash. */
+/** Scrollable watch-episode task line: all generated nodes remain reachable while the current node is focused by default. */
 internal fun DramaAppActivity.createEpisodeTaskLine(snapshot: RewardsApiClient.Snapshot): View = LinearLayout(this).apply {
     orientation = LinearLayout.VERTICAL
     setPadding(dp(16), dp(16), dp(16), dp(15))
@@ -198,23 +198,30 @@ internal fun DramaAppActivity.createEpisodeTaskLine(snapshot: RewardsApiClient.S
     })
     val tasks = snapshot.tasks
     val current = tasks.firstOrNull { it.status != "CLAIMED" } ?: tasks.lastOrNull()
-    val track = LinearLayout(this@createEpisodeTaskLine).apply { gravity = Gravity.CENTER_VERTICAL }
-    tasks.take(7).forEachIndexed { index, task ->
+    val currentIndex = tasks.indexOf(current).coerceAtLeast(0)
+    val track = LinearLayout(this@createEpisodeTaskLine).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(dp(4), 0, dp(12), 0) }
+    tasks.forEachIndexed { index, task ->
         val reached = task.status == "CLAIMED" || task.status == "CLAIMABLE"
         track.addView(TextView(this@createEpisodeTaskLine).apply {
             text = task.target.toString(); textSize = 11f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
             setTextColor(if (reached) Color.WHITE else COLOR_TEXT_MUTED)
             background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(if (reached) COLOR_CORAL else 0xFFEDE8E5.toInt()) }
         }, LinearLayout.LayoutParams(dp(31), dp(31)))
-        if (index < tasks.take(7).lastIndex) track.addView(View(this@createEpisodeTaskLine).apply { setBackgroundColor(if (reached) COLOR_CORAL else 0xFFE2DDD9.toInt()) }, LinearLayout.LayoutParams(0, dp(3), 1f))
+        if (index < tasks.lastIndex) track.addView(View(this@createEpisodeTaskLine).apply { setBackgroundColor(if (reached) COLOR_CORAL else 0xFFE2DDD9.toInt()) }, LinearLayout.LayoutParams(dp(22), dp(3)))
     }
-    addView(track, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(34)))
+    val scroller = HorizontalScrollView(this@createEpisodeTaskLine).apply {
+        isHorizontalScrollBarEnabled = false
+        overScrollMode = View.OVER_SCROLL_NEVER
+        addView(track, ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34)))
+    }
+    addView(scroller, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(38)))
+    scroller.post { scroller.scrollTo((currentIndex * dp(53) - dp(86)).coerceAtLeast(0), 0) }
     if (current != null) {
         val actionRow = LinearLayout(this@createEpisodeTaskLine).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(13), 0, 0) }
         actionRow.addView(LinearLayout(this@createEpisodeTaskLine).apply {
             orientation = LinearLayout.VERTICAL
             addView(TextView(this@createEpisodeTaskLine).apply { text = t("watch_task_progress", current.progress, current.target); textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
-            addView(TextView(this@createEpisodeTaskLine).apply { text = t("watch_task_reward", current.target, formatCurrencyAmount(snapshot.wallet, current.rewardCash, null, false)); textSize = 11f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(3), 0, 0) })
+            addView(TextView(this@createEpisodeTaskLine).apply { text = t("watch_task_random_redpacket", current.target, formatCurrencyAmount(snapshot.wallet, current.rewardCashMin, null, false), formatCurrencyAmount(snapshot.wallet, current.rewardCashMax, null, false)); textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_CORAL); setPadding(0, dp(4), 0, 0) })
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         actionRow.addView(TextView(this@createEpisodeTaskLine).apply {
             text = when (current.status) { "CLAIMABLE" -> t("task_claim"); "CLAIMED" -> t("task_claimed"); else -> t("task_go_watch") }
@@ -234,11 +241,14 @@ internal fun DramaAppActivity.createEpisodeTaskLine(snapshot: RewardsApiClient.S
 }
 
 internal fun DramaAppActivity.claimEpisodeTaskCash(milestone: Int) {
-    rewardsApi.claimEpisodeTask(anonymousInstallationId(), milestone, { action -> runOnUiThread {
-        applyRewardsSnapshot(action.snapshot)
-        val value = formatCurrencyAmount(action.snapshot.wallet, action.cashAdded, action.cashAddedUsdReference, includeUsdReference = true)
-        toast(if (action.idempotent) t("task_already_claimed") else t("task_cash_claimed", value))
-    } }, { message -> runOnUiThread { toast(message) } })
+    requestRewardedAction(
+        placementId = "rv_episode_task_claim",
+        targetId = milestone.toString(),
+        onSettled = { action ->
+            val value = formatCurrencyAmount(action.snapshot.wallet, action.cashAdded, action.cashAddedUsdReference, includeUsdReference = false)
+            toast(if (action.idempotent) t("task_already_claimed") else t("task_cash_claimed", value))
+        },
+    )
 }
 
 internal fun DramaAppActivity.formatRewardUnitsAsCash(snapshot: RewardsApiClient.Snapshot, units: Long): String {
@@ -343,7 +353,7 @@ internal fun DramaAppActivity.createCrownLevelRow(level: RewardsApiClient.CrownP
     addView(middle, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(6) })
     val reward = LinearLayout(this@createCrownLevelRow).apply {
         orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL
-        addView(ImageView(this@createCrownLevelRow).apply { setImageResource(R.drawable.ic_wallet); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(30), dp(30)))
+        addView(ImageView(this@createCrownLevelRow).apply { setImageResource(R.drawable.ic_cash_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(30), dp(30)))
         addView(TextView(this@createCrownLevelRow).apply { text = level.cash; textSize = 10f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_CORAL); maxLines = 1 })
         if (level.earned) addView(TextView(this@createCrownLevelRow).apply { text = "✓"; textSize = 12f; gravity = Gravity.CENTER; setTextColor(COLOR_CORAL) })
     }
@@ -384,7 +394,7 @@ internal fun DramaAppActivity.createRewardPanelTitle(title: String, subtitle: St
 
 internal fun DramaAppActivity.createPendingRewardAction(pending: Int): View = LinearLayout(this).apply {
         gravity = Gravity.CENTER_VERTICAL; setPadding(dp(12), dp(10), dp(12), dp(10)); background = roundedDrawable(0xFFFFF4EF.toInt(), 18)
-        addView(ImageView(this@createPendingRewardAction).apply { setImageResource(R.drawable.reward_gem_crystal); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(48), dp(48)))
+        addView(ImageView(this@createPendingRewardAction).apply { setImageResource(R.drawable.ic_cash_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(48), dp(48)))
         addView(LinearLayout(this@createPendingRewardAction).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(8), 0, dp(8), 0)
             addView(TextView(this@createPendingRewardAction).apply { text = if (pending > 0) "+${formatGems(pending.toLong())} ${t("gems")}" else t("pending_rewards"); textSize = 17f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
             addView(TextView(this@createPendingRewardAction).apply { text = t("claim_after_ad"); textSize = 11f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(2), 0, 0) })
@@ -394,7 +404,7 @@ internal fun DramaAppActivity.createPendingRewardAction(pending: Int): View = Li
 
 internal fun DramaAppActivity.createCoinMilestone(value: String, label: String, reward: Int = 0): View = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER; setPadding(dp(7), dp(7), dp(7), dp(7)); background = gradientDrawable(intArrayOf(0xFFFFD7A3.toInt(), 0xFFFFA858.toInt()), 16)
-        addView(ImageView(this@createCoinMilestone).apply { setImageResource(R.drawable.reward_gem_crystal); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(48), dp(48)))
+        addView(ImageView(this@createCoinMilestone).apply { setImageResource(R.drawable.ic_cash_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(48), dp(48)))
         addView(TextView(this@createCoinMilestone).apply { text = value; textSize = 18f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_PRIMARY) })
         addView(TextView(this@createCoinMilestone).apply { text = if (reward > 0) "$label · +$reward" else label; textSize = 10f; maxLines = 2; gravity = Gravity.CENTER; setTextColor(0xCC1C1C1C.toInt()); setPadding(0, dp(2), 0, 0) })
     }
@@ -403,7 +413,7 @@ internal fun DramaAppActivity.createChallengeItem(title: String, coins: String):
         orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(10), dp(9), dp(6), dp(7)); background = roundedDrawable(0xFFFFF6ED.toInt(), 16)
         addView(TextView(this@createChallengeItem).apply { text = title; textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY); maxLines = 2 })
         val row = LinearLayout(this@createChallengeItem).apply { gravity = Gravity.CENTER_VERTICAL }
-        row.addView(ImageView(this@createChallengeItem).apply { setImageResource(R.drawable.reward_gem_crystal); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(28), dp(28)))
+        row.addView(ImageView(this@createChallengeItem).apply { setImageResource(R.drawable.ic_cash_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(28), dp(28)))
         row.addView(TextView(this@createChallengeItem).apply { text = coins; textSize = 17f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_CORAL); setPadding(dp(3), 0, 0, 0) })
         addView(row)
     }
@@ -439,7 +449,7 @@ internal fun DramaAppActivity.createRewardChestPanel(snapshot: RewardsApiClient.
         background = roundedDrawable(Color.WHITE, 22)
         val count = snapshot.chest.availableCount
         val top = LinearLayout(this@createRewardChestPanel).apply { gravity = Gravity.CENTER_VERTICAL }
-        top.addView(ImageView(this@createRewardChestPanel).apply { setImageResource(R.drawable.ic_random_chest_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(68), dp(68)))
+        top.addView(ImageView(this@createRewardChestPanel).apply { setImageResource(R.drawable.ic_cash_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(68), dp(68)))
         top.addView(LinearLayout(this@createRewardChestPanel).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(9), 0, dp(8), 0)
             addView(TextView(this@createRewardChestPanel).apply { text = t("chest"); textSize = 19f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })

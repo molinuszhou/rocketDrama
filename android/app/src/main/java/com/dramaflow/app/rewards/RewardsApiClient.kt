@@ -41,6 +41,9 @@ class RewardsApiClient(
         val target: Int,
         val rewardCoins: Int,
         val rewardCash: String = "0.00",
+        val rewardCashMin: String = "0.00",
+        val rewardCashMax: String = "0.00",
+        val randomRedpacket: Boolean = false,
         val adDoubleEnabled: Boolean = false,
         val status: String,
         val cycleNumber: Int = 0,
@@ -591,9 +594,10 @@ class RewardsApiClient(
             val progress = item.optInt("progress", 0).coerceIn(0, target)
             val status = when (state) { "PENDING" -> "CLAIMABLE"; "CLAIMED" -> "CLAIMED"; else -> "LOCKED" }
             add(RewardTask(
-                "episode-task-$target", "追剧任务 · $target 集", "完成 $target 集有效观看即可领取现金奖励",
+                "episode-task-$target", "追剧任务 · $target 集", "完成 $target 集后观看广告领取随机现金红包",
                 progress, target, item.optLong("reward_gems").coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
-                item.optString("reward_cash", "0.00"), false, status, target,
+                item.optString("reward_cash", "0.00"), item.optString("reward_min_cash", "0.00"), item.optString("reward_max_cash", "0.00"),
+                item.optBoolean("random_redpacket", false), false, status, target,
             ))
         }
     }

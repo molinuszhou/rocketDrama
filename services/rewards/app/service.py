@@ -194,7 +194,6 @@ class RewardsService:
                 connection, "SELECT COUNT(*) AS count FROM watch_events WHERE user_id = %s", (user_id,)
             )["count"])
             episode_reward = self._create_episode_reward_claim(connection, user_id, business_date, episode_id, policy)
-            chests_created = self._ensure_random_chests(connection, user_id, business_date, policy, lifetime_episode_count)
             self._ensure_episode_task_claims(connection, user_id, lifetime_episode_count)
             achievements = self._award_achievements_if_due(connection, user_id, policy)
             result = {
@@ -202,59 +201,15 @@ class RewardsService:
                 "episode_count": counters["episode_count"],
                 "lifetime_episode_count": lifetime_episode_count,
                 "episode_reward": episode_reward,
-                "random_chests_created": chests_created,
+                # v1.6.4.7: watch-task random redpacks replace the chest module.
+                "random_chests_created": [],
                 "achievements_awarded": achievements,
             }
             return {"idempotent": False, "result": result, "snapshot": self._snapshot(connection, user_id)}
 
     def claim_episode_task(self, user_id: str, milestone_episode_count: int, reference_id: str) -> dict[str, Any]:
-        """Claim one completed watch-episode milestone directly into the user's cash wallet."""
-        with self._transaction() as connection:
-            self._ensure_user(connection, user_id)
-            policy = self._policy(connection)
-            task = self._one(
-                connection,
-                "SELECT reward_gems FROM episode_task_policy WHERE milestone_episode_count = %s",
-                (milestone_episode_count,),
-            )
-            if not task:
-                raise ServiceError(1221, "该追剧任务不存在", 404)
-            lifetime_episode_count = int(self._one(
-                connection, "SELECT COUNT(*) AS count FROM watch_events WHERE user_id = %s", (user_id,)
-            )["count"])
-            if lifetime_episode_count < milestone_episode_count:
-                raise ServiceError(1222, "追剧任务尚未完成", 409)
-            self._ensure_episode_task_claims(connection, user_id, lifetime_episode_count)
-            claim = self._one(
-                connection,
-                """
-                SELECT state FROM episode_task_claims
-                WHERE user_id = %s AND milestone_episode_count = %s FOR UPDATE
-                """,
-                (user_id, milestone_episode_count),
-            )
-            if not claim or claim["state"] != "PENDING":
-                return {"idempotent": True, "result": {"action": "EPISODE_TASK_CLAIM", "cash_added": "0.00"}, "snapshot": self._snapshot(connection, user_id)}
-            credited_units = self._credit_gems(
-                connection, user_id, int(task["reward_gems"]), policy,
-                "EPISODE_TASK_CLAIM", "episode_task", reference_id,
-            )
-            self._execute(
-                connection,
-                "UPDATE episode_task_claims SET state = 'CLAIMED', claimed_at = NOW() WHERE user_id = %s AND milestone_episode_count = %s",
-                (user_id, milestone_episode_count),
-            )
-            wallet_policy = self._wallet_policy(connection, user_id)
-            credited_micros = self._reward_units_to_micros(credited_units, wallet_policy)
-            return {
-                "idempotent": False,
-                "result": {
-                    "action": "EPISODE_TASK_CLAIM",
-                    "cash_added": self._money(credited_micros, wallet_policy),
-                    "cash_added_usd_reference": self._usd_reference_money(credited_micros, wallet_policy),
-                },
-                "snapshot": self._snapshot(connection, user_id),
-            }
+        """Legacy endpoint kept only to prevent an old client from bypassing the claim ad."""
+        raise ServiceError(1224, "追剧任务需要完整观看激励广告后领取随机现金红包", 409)
 
     def record_rewarded_skipped(self, user_id: str, context: str) -> dict[str, Any]:
         """Record a deliberately skipped/cancelled rewarded placement for cooldown-based interstitial rules."""
@@ -525,6 +480,9 @@ class RewardsService:
         self._verify_admin_token(authorization)
         allowed = {
             "episode_reward_gems", "episodes_per_rewarded_unlock", "episode_reward_boost_enabled",
+            "episode_task_max_episode", "episode_task_post18_interval",
+            "episode_task_redpacket_min_gems", "episode_task_redpacket_max_gems",
+            "wallet_redpacket_min_gems", "wallet_redpacket_max_gems",
             "random_chest_min_gems", "random_chest_max_gems", "daily_random_chest_count", "episodes_per_random_chest",
             "interstitial_cooldown_seconds", "interstitial_rewarded_skip_threshold",
             "reward_claim_interstitial_enabled", "mid_episode_interstitial_enabled", "mid_episode_interstitial_trigger_seconds",
@@ -547,6 +505,12 @@ class RewardsService:
             chest_max = int(changed.get("random_chest_max_gems", policy["random_chest_max_gems"]))
             if chest_min > chest_max:
                 raise ServiceError(1904, "随机宝箱最小宝石不能大于最大宝石", 422)
+            task_red_min = int(changed.get("episode_task_redpacket_min_gems", policy["episode_task_redpacket_min_gems"]))
+            task_red_max = int(changed.get("episode_task_redpacket_max_gems", policy["episode_task_redpacket_max_gems"]))
+            wallet_red_min = int(changed.get("wallet_redpacket_min_gems", policy["wallet_redpacket_min_gems"]))
+            wallet_red_max = int(changed.get("wallet_redpacket_max_gems", policy["wallet_redpacket_max_gems"]))
+            if task_red_min > task_red_max or wallet_red_min > wallet_red_max:
+                raise ServiceError(1904, "随机红包最小奖励不能大于最大奖励", 422)
             damping_tier1 = int(changed.get("gem_damping_tier1_threshold", policy.get("gem_damping_tier1_threshold", 0)))
             damping_tier2 = int(changed.get("gem_damping_tier2_threshold", policy.get("gem_damping_tier2_threshold", 0)))
             damping_tier3 = int(changed.get("gem_damping_tier3_threshold", policy.get("gem_damping_tier3_threshold", 0)))
@@ -565,6 +529,9 @@ class RewardsService:
                     "INSERT INTO reward_policy_admin_audit (actor, field_name, old_value, new_value) VALUES (%s, %s, %s, %s)",
                     ("dashboard", key, str(policy[key]), str(new_value)),
                 )
+            # Materialise new task nodes immediately so an increased maximum is visible
+            # in the next client snapshot without requiring an additional watch event.
+            self._sync_episode_task_policy(connection, self._policy(connection))
             return self._admin_policy_with_crowns(connection, self._policy(connection))
 
     def update_market_wallet_policy(self, authorization: str | None, payload: dict[str, Any]) -> dict[str, Any]:
@@ -885,6 +852,38 @@ class RewardsService:
                 raise ServiceError(1217, "当前没有待领取的追剧宝石", 409)
             return {"action": "EPISODE_REWARDS_CLAIM_AUTH", "gems_added": 0}
 
+        if placement_id == "rv_episode_task_claim":
+            if not target_id:
+                raise ServiceError(1225, "追剧任务领取缺少任务节点", 422)
+            try:
+                milestone = int(target_id)
+            except ValueError as error:
+                raise ServiceError(1225, "追剧任务节点无效", 422) from error
+            lifetime_episode_count = int(self._one(
+                connection, "SELECT COUNT(*) AS count FROM watch_events WHERE user_id = %s", (user_id,)
+            )["count"])
+            self._ensure_episode_task_claims(connection, user_id, lifetime_episode_count)
+            if milestone not in self._task_milestones(policy):
+                raise ServiceError(1221, "该追剧任务不存在", 404)
+            if lifetime_episode_count < milestone:
+                raise ServiceError(1222, "追剧任务尚未完成", 409)
+            claim = self._one(
+                connection,
+                """SELECT state FROM episode_task_claims
+                   WHERE user_id = %s AND milestone_episode_count = %s FOR UPDATE""",
+                (user_id, milestone),
+            )
+            if not claim or claim["state"] != "PENDING":
+                raise ServiceError(1223, "该追剧任务已领取或不可用", 409)
+            return {
+                "action": "EPISODE_TASK_REDPACKET",
+                "milestone": milestone,
+                "gems_added": self._random_reward_units(
+                    int(policy["episode_task_redpacket_min_gems"]),
+                    int(policy["episode_task_redpacket_max_gems"]),
+                ),
+            }
+
         if placement_id == "rv_crown_upgrade":
             return {"action": "CROWN_UPGRADE", "gems_added": 0}
 
@@ -1028,14 +1027,16 @@ class RewardsService:
             release_boost_limit = int(policy["release_boost_daily_limit"])
             if release_boost_limit > 0 and int(counters["release_boost_count"]) >= release_boost_limit:
                 raise ServiceError(1451, "今日广告加速次数已达上限", 429)
-            # Single-wallet mode: an ad boost is transparent extra cash, not a transfer
-            # between hidden balance layers. Its amount remains policy-configurable.
-            reward_units = max(0, math.floor(int(policy["episode_reward_gems"]) * float(policy["release_boost_percent"])))
+            # Single-wallet mode: each wallet acceleration is a random cash redpacket,
+            # not a visible conversion or fixed proportion of an episode reward.
+            reward_units = self._random_reward_units(
+                int(policy["wallet_redpacket_min_gems"]),
+                int(policy["wallet_redpacket_max_gems"]),
+            )
             return {
                 "action": "WALLET_CASH_BOOST",
                 "gems_added": reward_units,
                 "released_micros": 0,
-                "release_boost_percent": float(policy["release_boost_percent"]),
             }
 
         raise ServiceError(1099, "不支持的激励广告位", 422)
@@ -1086,6 +1087,19 @@ class RewardsService:
                 connection,
                 "INSERT INTO episode_reward_claim_authorizations (ad_event_id, user_id) VALUES (%s, %s)",
                 (ad_event_id, user_id),
+            )
+        elif action == "EPISODE_TASK_REDPACKET":
+            updated = self._execute(
+                connection,
+                """UPDATE episode_task_claims SET state = 'CLAIMED', claimed_at = NOW()
+                   WHERE user_id = %s AND milestone_episode_count = %s AND state = 'PENDING'""",
+                (user_id, int(payload["milestone"])),
+            )
+            if updated != 1:
+                raise ServiceError(1223, "该追剧任务已领取或不可用", 409)
+            return self._credit_gems(
+                connection, user_id, int(payload["gems_added"]), policy,
+                "EPISODE_TASK_REDPACKET", "episode_task", f"{user_id}:{payload['milestone']}",
             )
         elif action == "CROWN_UPGRADE":
             # 奖励事件本身已写入表；_award_achievements_if_due 会将每 2 条广告按 1 集等效追剧计算。
@@ -1256,6 +1270,31 @@ class RewardsService:
             created.append({"created_count": created_count, "available_count": available})
         return created
 
+    @staticmethod
+    def _random_reward_units(minimum: int, maximum: int) -> int:
+        if minimum < 0 or maximum < minimum:
+            raise ServiceError(1904, "随机红包最小奖励不能大于最大奖励", 422)
+        return minimum + secrets.randbelow(maximum - minimum + 1)
+
+    @staticmethod
+    def _task_milestones(policy: dict[str, Any]) -> list[int]:
+        maximum = max(18, int(policy.get("episode_task_max_episode", 90)))
+        interval = max(1, int(policy.get("episode_task_post18_interval", 6)))
+        return [1, 3, 6, 9, 12, 15, 18] + list(range(18 + interval, maximum + 1, interval))
+
+    def _sync_episode_task_policy(self, connection: psycopg.Connection[Any], policy: dict[str, Any]) -> list[int]:
+        milestones = self._task_milestones(policy)
+        for sort_order, milestone in enumerate(milestones, start=1):
+            self._execute(
+                connection,
+                """INSERT INTO episode_task_policy (milestone_episode_count, reward_gems, sort_order)
+                   VALUES (%s, %s, %s)
+                   ON CONFLICT (milestone_episode_count) DO UPDATE
+                   SET reward_gems = EXCLUDED.reward_gems, sort_order = EXCLUDED.sort_order""",
+                (milestone, int(policy["episode_task_redpacket_min_gems"]), sort_order),
+            )
+        return milestones
+
     def _ensure_episode_task_claims(
         self,
         connection: psycopg.Connection[Any],
@@ -1263,17 +1302,15 @@ class RewardsService:
         lifetime_episode_count: int,
     ) -> None:
         """Materialise milestones that have become claimable; repeat calls are safe."""
-        self._execute(
-            connection,
-            """
-            INSERT INTO episode_task_claims (user_id, milestone_episode_count)
-            SELECT %s, milestone_episode_count
-            FROM episode_task_policy
-            WHERE milestone_episode_count <= %s
-            ON CONFLICT (user_id, milestone_episode_count) DO NOTHING
-            """,
-            (user_id, lifetime_episode_count),
-        )
+        policy = self._policy(connection)
+        for milestone in self._sync_episode_task_policy(connection, policy):
+            if milestone <= lifetime_episode_count:
+                self._execute(
+                    connection,
+                    """INSERT INTO episode_task_claims (user_id, milestone_episode_count)
+                       VALUES (%s, %s) ON CONFLICT (user_id, milestone_episode_count) DO NOTHING""",
+                    (user_id, milestone),
+                )
 
     def _episode_task_progress(
         self,
@@ -1283,6 +1320,8 @@ class RewardsService:
         wallet_policy: dict[str, Any],
     ) -> list[dict[str, Any]]:
         self._ensure_episode_task_claims(connection, user_id, lifetime_episode_count)
+        policy = self._policy(connection)
+        milestones = self._task_milestones(policy)
         rows = self._all(
             connection,
             """
@@ -1291,15 +1330,21 @@ class RewardsService:
             FROM episode_task_policy p
             LEFT JOIN episode_task_claims c
                    ON c.user_id = %s AND c.milestone_episode_count = p.milestone_episode_count
+            WHERE p.milestone_episode_count = ANY(%s)
             ORDER BY p.sort_order
             """,
-            (lifetime_episode_count, user_id),
+            (lifetime_episode_count, user_id, milestones),
         )
         return [
             {
                 "milestone_episode_count": int(row["milestone_episode_count"]),
-                "reward_gems": int(row["reward_gems"]),
-                "reward_cash": self._money(self._reward_units_to_micros(int(row["reward_gems"]), wallet_policy), wallet_policy),
+                "reward_gems": 0,
+                "reward_cash": "0.00",
+                "reward_min_gems": int(policy["episode_task_redpacket_min_gems"]),
+                "reward_max_gems": int(policy["episode_task_redpacket_max_gems"]),
+                "reward_min_cash": self._money(self._reward_units_to_micros(int(policy["episode_task_redpacket_min_gems"]), wallet_policy), wallet_policy),
+                "reward_max_cash": self._money(self._reward_units_to_micros(int(policy["episode_task_redpacket_max_gems"]), wallet_policy), wallet_policy),
+                "random_redpacket": True,
                 "state": row["state"],
                 "progress": min(lifetime_episode_count, int(row["milestone_episode_count"])),
                 "target": int(row["milestone_episode_count"]),
@@ -1408,17 +1453,6 @@ class RewardsService:
             "SELECT episode_id FROM episode_reward_boosts WHERE user_id = %s ORDER BY boosted_at DESC",
             (user_id,),
         )
-        chest_rows = self._all(
-            connection,
-            """
-            SELECT source_kind, COUNT(*) AS count
-            FROM random_chest_inventory
-            WHERE user_id = %s AND state = 'AVAILABLE'
-            GROUP BY source_kind
-            """,
-            (user_id,),
-        )
-        chest_counts = {item["source_kind"]: int(item["count"]) for item in chest_rows}
         achievements = self._all(connection, "SELECT code, gems, virtual_entitlement, earned_at FROM user_achievements WHERE user_id = %s ORDER BY earned_at", (user_id,))
         welcome = self._one(connection, "SELECT gems, state FROM welcome_rewards WHERE user_id = %s", (user_id,))
         review = self._one(connection, "SELECT gems, claimed_at FROM app_review_rewards WHERE user_id = %s", (user_id,))
@@ -1437,11 +1471,9 @@ class RewardsService:
             item["cash"] = self._money(self._reward_units_to_micros(int(item["gems"]), wallet_policy), wallet_policy)
         pending_episode_rewards = [item for item in episode_reward_claims if item["state"] == "PENDING"]
         pending_reward_gems = sum(int(item["base_reward_gems"]) * (2 if item["boosted"] else 1) for item in pending_episode_rewards)
-        episodes_per_chest = int(policy["episodes_per_random_chest"])
-        in_chest_cycle = lifetime_episode_count % episodes_per_chest
         release_cap = int(wallet_policy["daily_release_micros"])
         cash_wallet_micros = int(user["cash_wallet_micros"])
-        expected_boost_units = max(0, math.floor(int(policy["episode_reward_gems"]) * float(policy["release_boost_percent"])))
+        expected_boost_units = (int(policy["wallet_redpacket_min_gems"]) + int(policy["wallet_redpacket_max_gems"])) // 2
         expected_boost_transfer = self._reward_units_to_micros(expected_boost_units, wallet_policy)
         currency = self._currency_payload(wallet_policy)
         task_rows = self._episode_task_progress(connection, user_id, lifetime_episode_count, wallet_policy)
@@ -1491,8 +1523,8 @@ class RewardsService:
                 "ten_round_size": 0,
                 "episodes_to_next_ten_round": 0,
                 "next_ten_round_preview_gems": 0,
-                "episodes_per_random_chest": episodes_per_chest,
-                "episodes_to_next_random_chest": 0 if in_chest_cycle == 0 else episodes_per_chest - in_chest_cycle,
+                "episodes_per_random_chest": 0,
+                "episodes_to_next_random_chest": 0,
                 "pending_episode_reward_count": len(pending_episode_rewards),
                 "rewarded_decline_count": int(counters.get("rewarded_decline_count", 0)),
             },
@@ -1530,18 +1562,18 @@ class RewardsService:
             },
             "chest": {
                 "requires_checkin": False,
-                "claimable": sum(chest_counts.values()) > 0,
+                "claimable": False,
                 "claimed": False,
                 "reward_gems": 0,
-                "available_count": sum(chest_counts.values()),
-                "daily_available_count": chest_counts.get("DAILY", 0),
-                "watch_available_count": chest_counts.get("WATCH", 0),
-                "min_gems": int(policy["random_chest_min_gems"]),
-                "max_gems": int(policy["random_chest_max_gems"]),
-                "min_cash": self._money(self._reward_units_to_micros(int(policy["random_chest_min_gems"]), wallet_policy), wallet_policy),
-                "max_cash": self._money(self._reward_units_to_micros(int(policy["random_chest_max_gems"]), wallet_policy), wallet_policy),
-                "episodes_per_chest": episodes_per_chest,
-                "episodes_to_next_chest": 0 if in_chest_cycle == 0 else episodes_per_chest - in_chest_cycle,
+                "available_count": 0,
+                "daily_available_count": 0,
+                "watch_available_count": 0,
+                "min_gems": 0,
+                "max_gems": 0,
+                "min_cash": "0.00",
+                "max_cash": "0.00",
+                "episodes_per_chest": 0,
+                "episodes_to_next_chest": 0,
             },
             "pending_claims": task_rows,
             "episode_reward_claims": episode_reward_claims,
@@ -1961,6 +1993,12 @@ class RewardsService:
             "episode_reward_gems": int(policy["episode_reward_gems"]),
             "episodes_per_rewarded_unlock": int(policy.get("episodes_per_rewarded_unlock", 1)),
             "episode_reward_boost_enabled": bool(policy.get("episode_reward_boost_enabled", True)),
+            "episode_task_max_episode": int(policy.get("episode_task_max_episode", 90)),
+            "episode_task_post18_interval": int(policy.get("episode_task_post18_interval", 6)),
+            "episode_task_redpacket_min_gems": int(policy.get("episode_task_redpacket_min_gems", 4000)),
+            "episode_task_redpacket_max_gems": int(policy.get("episode_task_redpacket_max_gems", 8000)),
+            "wallet_redpacket_min_gems": int(policy.get("wallet_redpacket_min_gems", 800)),
+            "wallet_redpacket_max_gems": int(policy.get("wallet_redpacket_max_gems", 1600)),
             "random_chest_min_gems": int(policy["random_chest_min_gems"]),
             "random_chest_max_gems": int(policy["random_chest_max_gems"]),
             "daily_random_chest_count": int(policy["daily_random_chest_count"]),

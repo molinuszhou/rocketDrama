@@ -86,7 +86,7 @@ internal fun DramaAppActivity.createPersistentAssetHeader(): View {
             val wallet = rewardsSnapshot?.wallet
             val balanceBar = LinearLayout(this@createPersistentAssetHeader).apply {
                 gravity = Gravity.CENTER_VERTICAL; background = roundedDrawable(0xF2FFFFFF.toInt(), 20); setPadding(dp(5), dp(4), dp(5), dp(4)); clipToOutline = true
-                addView(createAssetPill(icon = R.drawable.ic_wallet, label = t("wallet_balance"), value = wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—", isGem = false) { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
+                addView(createAssetPill(icon = R.drawable.ic_cash_reward, label = t("wallet_balance"), value = wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—", isGem = false) { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
             }
             addView(balanceBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)))
         }
@@ -125,9 +125,9 @@ internal fun DramaAppActivity.createCashoutSummary(wallet: RewardsApiClient.Wall
         gravity = Gravity.CENTER
         setPadding(dp(8), dp(14), dp(8), dp(14)); background = roundedDrawable(COLOR_CARD, 22)
         val items = listOf(
-            Triple(R.drawable.ic_wallet, t("available_balance"), formatCurrencyAmount(wallet, wallet.availableBalance, wallet.availableBalanceUsdReference, includeUsdReference = true)),
-            Triple(R.drawable.ic_wallet, t("tomorrow_transfer"), formatCurrencyAmount(wallet, wallet.release.expectedTomorrowTransfer, wallet.release.expectedTomorrowTransferUsdReference, includeUsdReference = true)),
-            Triple(R.drawable.reward_gem_crystal, t("ad_boost"), "+${formatCurrencyAmount(wallet, wallet.release.expectedBoostTransfer, wallet.release.expectedBoostTransferUsdReference, includeUsdReference = true)}"),
+            Triple(R.drawable.ic_cash_reward, t("available_balance"), formatCurrencyAmount(wallet, wallet.availableBalance, wallet.availableBalanceUsdReference, includeUsdReference = false)),
+            Triple(R.drawable.ic_cash_reward, t("tomorrow_transfer"), formatCurrencyAmount(wallet, wallet.release.expectedTomorrowTransfer, wallet.release.expectedTomorrowTransferUsdReference, includeUsdReference = false)),
+            Triple(R.drawable.ic_cash_reward, t("ad_boost"), t("random_cash_reward")),
         )
         items.forEachIndexed { index, item ->
             addView(LinearLayout(this@createCashoutSummary).apply {
@@ -174,7 +174,7 @@ internal fun DramaAppActivity.animateClaimedGems(previous: Long, current: Long) 
         root.getLocationOnScreen(rootLocation)
         target.getLocationOnScreen(targetLocation)
         val fly = ImageView(this).apply {
-            setImageResource(R.drawable.reward_gem_crystal)
+            setImageResource(R.drawable.ic_cash_reward)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             alpha = 0f
         }
@@ -217,7 +217,7 @@ internal fun DramaAppActivity.animateClaimedCash(previous: String, current: Stri
         cashBalanceLabel?.text = wallet?.let { formatCurrencyAmount(it, previous, null, includeUsdReference = false) } ?: previous
         val rootLocation = IntArray(2); val targetLocation = IntArray(2)
         root.getLocationOnScreen(rootLocation); target.getLocationOnScreen(targetLocation)
-        val fly = ImageView(this).apply { setImageResource(R.drawable.ic_wallet); scaleType = ImageView.ScaleType.CENTER_INSIDE; alpha = 0f }
+        val fly = ImageView(this).apply { setImageResource(R.drawable.ic_cash_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE; alpha = 0f }
         val size = dp(42); val startX = root.width / 2f - size / 2f; val startY = root.height * 0.53f - size / 2f
         root.addView(fly, FrameLayout.LayoutParams(size, size).apply { leftMargin = startX.toInt(); topMargin = startY.toInt() })
         val endX = targetLocation[0] - rootLocation[0] + target.width / 2f - startX - size / 2f
@@ -240,7 +240,7 @@ internal fun DramaAppActivity.animateClaimedCash(previous: String, current: Stri
 internal fun DramaAppActivity.createPlayerAssetStrip(): View = LinearLayout(this).apply {
         gravity = Gravity.CENTER_VERTICAL; setPadding(dp(8), dp(5), dp(9), dp(5)); background = roundedDrawable(0xD9141720.toInt(), 18)
         val wallet = rewardsSnapshot?.wallet
-        val walletIcon = ImageView(this@createPlayerAssetStrip).apply { setImageResource(R.drawable.ic_wallet); scaleType = ImageView.ScaleType.CENTER_INSIDE; isClickable = true; contentDescription = t("wallet"); setOnClickListener { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) } }
+        val walletIcon = ImageView(this@createPlayerAssetStrip).apply { setImageResource(R.drawable.ic_cash_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE; isClickable = true; contentDescription = t("wallet"); setOnClickListener { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) } }
         cashBalanceAnchor = walletIcon
         addView(walletIcon, LinearLayout.LayoutParams(dp(30), dp(30)))
         val cash = TextView(this@createPlayerAssetStrip).apply { text = wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—"; textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(dp(3), 0, 0, 0); isClickable = true; setOnClickListener { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) } }

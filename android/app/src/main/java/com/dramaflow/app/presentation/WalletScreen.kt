@@ -111,20 +111,32 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
             balanceRow.addView(LinearLayout(this@createWithdrawalPage).apply {
                 orientation = LinearLayout.VERTICAL
                 addView(TextView(this@createWithdrawalPage).apply { text = t("wallet_balance"); textSize = 14f; setTextColor(0xCCFFFFFF.toInt()) })
-                addView(TextView(this@createWithdrawalPage).apply { text = formatWalletTotal(wallet, includeUsdReference = true); textSize = 34f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(0, dp(5), 0, 0); maxLines = 2 })
+                addView(TextView(this@createWithdrawalPage).apply { text = formatWalletTotal(wallet, includeUsdReference = false); textSize = 34f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(0, dp(5), 0, 0); maxLines = 2 })
                 addView(TextView(this@createWithdrawalPage).apply { text = "完成任务后，现金奖励会直接存入钱包"; textSize = 11f; setTextColor(0xBFFFFFFF.toInt()); setPadding(0, dp(6), 0, 0) })
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             balanceRow.addView(ImageView(this@createWithdrawalPage).apply {
-                setImageResource(R.drawable.ic_wallet); scaleType = ImageView.ScaleType.CENTER_INSIDE; contentDescription = t("wallet")
+                setImageResource(R.drawable.ic_cash_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE; contentDescription = t("wallet")
             }, LinearLayout.LayoutParams(dp(72), dp(72)))
             addView(balanceRow)
+            val threshold = rewardsSnapshot?.withdrawal?.threshold?.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO
+            val balance = wallet.cashWallet.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO
+            if (threshold > java.math.BigDecimal.ZERO) {
+                addView(TextView(this@createWithdrawalPage).apply {
+                    text = "距离首次提现门槛 ${formatCurrencyAmount(wallet, threshold.toPlainString(), null, false)}"
+                    textSize = 11f; setTextColor(0xCCFFFFFF.toInt()); setPadding(0, dp(14), 0, dp(5))
+                })
+                addView(ProgressBar(this@createWithdrawalPage, null, android.R.attr.progressBarStyleHorizontal).apply {
+                    max = 100; progress = balance.multiply(java.math.BigDecimal(100)).divide(threshold, 0, java.math.RoundingMode.DOWN).toInt().coerceIn(0, 100)
+                    progressTintList = ColorStateList.valueOf(COLOR_SUNSET); backgroundTintList = ColorStateList.valueOf(0x44FFFFFF)
+                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(7)))
+            }
         }, matchParams(bottom = 14))
         val release = wallet.release
         addView(LinearLayout(this@createWithdrawalPage).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(16), dp(18), dp(16)); background = roundedDrawable(COLOR_CARD, 20)
             addView(TextView(this@createWithdrawalPage).apply { text = "广告加速"; textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
             addView(TextView(this@createWithdrawalPage).apply {
-                text = "观看一段广告，可额外获得 ${formatCurrencyAmount(wallet, release.boostAmount, release.expectedBoostTransferUsdReference, includeUsdReference = true)} 现金奖励。今日已完成 ${release.boostUsed}/${if (release.boostCap == 0) "不限" else release.boostCap} 次。"
+                text = "观看一段广告，可额外获得随机现金奖励。今日已完成 ${release.boostUsed}/${if (release.boostCap == 0) "不限" else release.boostCap} 次。"
                 textSize = 13f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(7), 0, 0)
             })
         }, matchParams(bottom = 12))
@@ -153,10 +165,9 @@ internal fun DramaAppActivity.formatCurrencyAmount(wallet: RewardsApiClient.Wall
         }
         val numeric = amount.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO
         val local = "${wallet.currency.symbol}${formatter.format(numeric)}"
-        val usd = usdReference?.toBigDecimalOrNull()
-        return if (includeUsdReference && wallet.currency.code != "USD" && usd != null) {
-            "$local  ≈ US$${String.format(Locale.US, "%.2f", usd)}"
-        } else local
+        // The server assigns a fixed market policy: USD by default, local currency only
+        // for explicitly configured markets. Do not show approximate public-FX references.
+        return local
     }
 
 internal fun DramaAppActivity.formatWalletTotal(wallet: RewardsApiClient.Wallet, includeUsdReference: Boolean = false): String {

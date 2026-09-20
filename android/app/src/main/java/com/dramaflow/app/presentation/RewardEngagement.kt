@@ -70,7 +70,7 @@ import kotlin.random.Random
 internal fun DramaAppActivity.createFloatingRewardWheel(compact: Boolean = false): View {
         val gemSize = if (compact) dp(62) else dp(68)
         val gem = ImageView(this).apply {
-            setImageResource(R.drawable.reward_gem_crystal)
+            setImageResource(R.drawable.ic_cash_reward)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             contentDescription = t("claim_all")
             isClickable = true
@@ -294,7 +294,7 @@ internal fun DramaAppActivity.createRewardsWalletSummary(): View {
             background = gradientDrawable(intArrayOf(0xFFFFF0E5.toInt(), 0xFFFFFFFF.toInt()), 22)
             addView(TextView(this@createRewardsWalletSummary).apply { text = t("wallet"); textSize = 20f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
             val balances = LinearLayout(this@createRewardsWalletSummary).apply { orientation = LinearLayout.HORIZONTAL }
-            listOf(t("wallet_balance") to formatWalletTotal(wallet, includeUsdReference = true)).forEachIndexed { index, item ->
+            listOf(t("wallet_balance") to formatWalletTotal(wallet, includeUsdReference = false)).forEachIndexed { index, item ->
                 balances.addView(LinearLayout(this@createRewardsWalletSummary).apply {
                     orientation = LinearLayout.VERTICAL; setPadding(dp(12), dp(12), dp(10), dp(12)); background = roundedDrawable(0xCCFFFFFF.toInt(), 14)
                     addView(TextView(this@createRewardsWalletSummary).apply { text = item.first; textSize = 12f; setTextColor(COLOR_TEXT_MUTED) })
@@ -313,13 +313,13 @@ internal fun DramaAppActivity.createRewardsWalletSummary(): View {
 
 internal fun DramaAppActivity.showWithdrawalDetailsDialog(wallet: RewardsApiClient.Wallet) {
         val release = wallet.release
-        val details = "钱包余额：${formatWalletTotal(wallet, includeUsdReference = true)}\n\n${rewardsSnapshot?.withdrawal?.reason.orEmpty()}\n\n观看广告可额外获得：${formatCurrencyAmount(wallet, release.boostAmount, release.expectedBoostTransferUsdReference, includeUsdReference = true)}"
+        val details = "钱包余额：${formatWalletTotal(wallet, includeUsdReference = false)}\n\n${rewardsSnapshot?.withdrawal?.reason.orEmpty()}\n\n观看广告可额外获得随机现金奖励。"
         showBrandedChoiceDialog(t("withdrawal_details"), details, t("ad_boost"), { showWalletReleaseBoostDialog() }, t("close"))
     }
 
 internal fun DramaAppActivity.showWalletReleaseBoostDialog() {
         val release = rewardsSnapshot?.wallet?.release ?: return
-        showBrandedChoiceDialog("广告加速", "观看一段广告即可额外领取 ${formatCurrencyAmount(rewardsSnapshot?.wallet ?: return, release.boostAmount, release.expectedBoostTransferUsdReference, includeUsdReference = true)} 现金奖励。今日已完成 ${release.boostUsed}/${if (release.boostCap == 0) "不限" else release.boostCap} 次。", t("watch_ad_claim"), { requestWalletReleaseBoost() }, t("not_now"))
+        showBrandedChoiceDialog("广告加速", "观看一段广告即可额外获得随机现金奖励。今日已完成 ${release.boostUsed}/${if (release.boostCap == 0) "不限" else release.boostCap} 次。", t("watch_ad_claim"), { requestWalletReleaseBoost() }, t("not_now"))
     }
 
 internal fun DramaAppActivity.requestWalletReleaseBoost() {
@@ -328,7 +328,7 @@ internal fun DramaAppActivity.requestWalletReleaseBoost() {
             resumeAfterFullscreenAdIfNeeded()
             val wallet = action.snapshot.wallet
             val updatedRelease = wallet.release
-            val received = formatCurrencyAmount(wallet, action.cashAdded, action.cashAddedUsdReference, includeUsdReference = true)
+            val received = formatCurrencyAmount(wallet, action.cashAdded, action.cashAddedUsdReference, includeUsdReference = false)
             val nextMessage = if (action.idempotent) "今日该次现金奖励已经结算。" else "已领取 $received 现金奖励，已直接存入钱包。"
             val canContinue = updatedRelease.boostAvailable
             showBrandedChoiceDialog("现金奖励已到账", nextMessage, if (canContinue) t("continue_accelerating") else t("done"), { if (canContinue) showWalletReleaseBoostDialog() }, if (canContinue) t("later") else null)

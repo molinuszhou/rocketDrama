@@ -29,6 +29,7 @@ services:
       - ./sql/017_v1635_checkin_200k_five_tier_damping.sql:/docker-entrypoint-initdb.d/017_v1635_checkin_200k_five_tier_damping.sql:ro
       - ./sql/018_low_frequency_ad_policy.sql:/docker-entrypoint-initdb.d/018_low_frequency_ad_policy.sql:ro
       - ./sql/019_direct_cash_wallet_tasks_and_ad_cooldowns.sql:/docker-entrypoint-initdb.d/019_direct_cash_wallet_tasks_and_ad_cooldowns.sql:ro
+      - ./sql/020_v1647_random_task_redpackets.sql:/docker-entrypoint-initdb.d/020_v1647_random_task_redpackets.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s

@@ -24,7 +24,7 @@ DASHBOARD_HTML = """<!doctype html>
 </head>
 <body><main>
   <h1>JoyeDrama 奖励运营后台</h1>
-  <p class="intro">此页面仅调整未来生成的运营规则。已产生的随机宝箱、已完成的单集奖励和已达成的皇冠奖励不会回溯变更。</p>
+  <p class="intro">此页面仅调整未来生成的运营规则。已领取的随机红包、已完成的单集奖励和已达成的皇冠奖励不会回溯变更。</p>
   <section class="card">
     <div class="notice">设置 <code>ADMIN_DASHBOARD_TOKEN</code> 后使用。令牌只保存在当前浏览器会话中，并通过请求头验证，不写入地址栏或数据库。</div>
     <label for="token">管理员令牌</label><input id="token" type="password" autocomplete="off" placeholder="粘贴 ADMIN_DASHBOARD_TOKEN">
@@ -39,13 +39,13 @@ DASHBOARD_HTML = """<!doctype html>
       <label class="switch">启用单集广告翻倍<input id="episodeRewardBoostEnabled" type="checkbox"></label>
     </div>
 
-    <h2>随机宝箱</h2>
-    <div class="notice">用户每日自动获得的宝箱与每累计指定集数获得的宝箱均可连续开启；每只宝箱都需要完整观看一条激励广告，具体金额在服务端随机生成。</div>
+    <h2>追剧任务随机红包</h2>
+    <div class="notice">随机宝箱已取消。用户完成追剧任务节点后，完整观看一条激励广告领取一笔随机现金红包；18 集之后按设定间隔持续生成节点，可按需将任务线扩展到 10,000 集。</div>
     <div class="grid">
-      <div><label for="chestMin">最小现金奖励单位</label><input id="chestMin" type="number" min="0" step="1"></div>
-      <div><label for="chestMax">最大现金奖励单位</label><input id="chestMax" type="number" min="0" step="1"></div>
-      <div><label for="dailyChestCount">每日自动宝箱数</label><input id="dailyChestCount" type="number" min="0" max="10" step="1"></div>
-      <div><label for="episodesPerChest">每多少集获得 1 个宝箱</label><input id="episodesPerChest" type="number" min="1" max="100" step="1"></div>
+      <div><label for="taskMaxEpisode">追剧任务线最大集数</label><input id="taskMaxEpisode" type="number" min="18" max="10000" step="1"></div>
+      <div><label for="taskInterval">18 集后任务节点间隔</label><input id="taskInterval" type="number" min="1" max="1000" step="1"></div>
+      <div><label for="taskRedMin">追剧任务红包最小内部单位</label><input id="taskRedMin" type="number" min="0" step="100"></div>
+      <div><label for="taskRedMax">追剧任务红包最大内部单位</label><input id="taskRedMax" type="number" min="0" step="100"></div>
     </div>
 
     <h2 style="margin-top:25px">插屏广告规则</h2>
@@ -72,17 +72,18 @@ DASHBOARD_HTML = """<!doctype html>
     </div>
 
     <h2 style="margin-top:25px">皇冠与钱包广告成长</h2>
-    <div class="notice">只有用户在皇冠之路中主动观看的激励广告才计入成长；每完成指定数量可按 1 集有效追剧计入皇冠成长。钱包广告加速每次额外发放一笔可配置的现金奖励。</div>
+    <div class="notice">只有用户在皇冠之路中主动观看的激励广告才计入成长；每完成指定数量可按 1 集有效追剧计入皇冠成长。钱包广告加速每次额外发放一笔随机现金红包。</div>
     <div class="grid">
       <div><label for="crownAdsPerEpisode">皇冠：多少条激励广告抵 1 集追剧</label><input id="crownAdsPerEpisode" type="number" min="1" max="10" step="1"></div>
       <div><label for="crownRewardedDailyLimit">皇冠主动激励广告每日上限（0=不限制）</label><input id="crownRewardedDailyLimit" type="number" min="0" max="100" step="1"></div>
-      <div><label for="releaseBoostPercent">钱包广告加速比例（0.20 = 20%）</label><input id="releaseBoostPercent" type="number" min="0.01" max="1" step="0.01"></div>
+      <div><label for="walletRedMin">钱包红包最小内部单位</label><input id="walletRedMin" type="number" min="0" step="100"></div>
+      <div><label for="walletRedMax">钱包红包最大内部单位</label><input id="walletRedMax" type="number" min="0" step="100"></div>
       <div><label for="releaseBoostLimit">钱包广告加速每日次数</label><input id="releaseBoostLimit" type="number" min="0" max="100" step="1"></div>
       <div><label for="rvDailyLimit">激励广告每日次数（0=不限次数）</label><input id="rvDailyLimit" type="number" min="0" max="1000" step="1"></div>
     </div>
 
     <h2 style="margin-top:25px">全渠道现金奖励阻尼与总额上限</h2>
-    <div class="notice">欢迎、签到、分集追剧、随机宝箱、皇冠达成奖励均按结算时的累计奖励进度适用同一五档阻尼。用户界面只展示当地货币现金；阻尼参数仅用于控制后续现金奖励发放。</div>
+    <div class="notice">欢迎、签到、分集追剧、任务红包、钱包红包、皇冠达成奖励均按结算时的累计奖励进度适用同一五档阻尼。用户界面只展示当地货币现金；阻尼参数仅用于控制后续现金奖励发放。</div>
     <div class="grid">
       <div><label for="gemsCap">用户累计奖励进度上限（0=不限制）</label><input id="gemsCap" type="number" min="0" step="1000"></div>
       <div><label for="dampingTier1">第一档最大累计奖励进度</label><input id="dampingTier1" type="number" min="0" step="1000"></div>
@@ -95,7 +96,7 @@ DASHBOARD_HTML = """<!doctype html>
       <div><label for="dampingM4">第四档所有来源奖励系数</label><input id="dampingM4" type="number" min="0" max="1" step="0.01"></div>
       <div><label for="dampingM5">第五档所有来源奖励系数</label><input id="dampingM5" type="number" min="0" max="1" step="0.01"></div>
     </div>
-    <button id="saveOperating">保存随机宝箱与广告规则</button>
+    <button id="saveOperating">保存随机红包与广告规则</button>
 
     <h2 style="margin-top:25px">区域现金钱包策略</h2>
     <div class="notice">金额字段均使用“当地货币 × 1,000,000”的微单位：例如 USD 1.00 填 1000000，BRL 3.00 填 3000000，IDR 10000 填 10000000000。未匹配地区统一采用 DEFAULT/USD；已产生资产的用户不会自动切换币种，以避免账本混币。</div>
@@ -129,10 +130,10 @@ function number(id,value){$(id).value=Number(value);}
 function render(p){
   current=p; $('policy').hidden=false;
   number('episodeRewardGems',p.episode_reward_gems); number('episodesPerRewardedUnlock',p.episodes_per_rewarded_unlock); bool('episodeRewardBoostEnabled',p.episode_reward_boost_enabled);
-  number('chestMin',p.random_chest_min_gems); number('chestMax',p.random_chest_max_gems); number('dailyChestCount',p.daily_random_chest_count); number('episodesPerChest',p.episodes_per_random_chest);
+  number('taskMaxEpisode',p.episode_task_max_episode); number('taskInterval',p.episode_task_post18_interval); number('taskRedMin',p.episode_task_redpacket_min_gems); number('taskRedMax',p.episode_task_redpacket_max_gems);
   bool('rewardClaimEnabled',p.reward_claim_interstitial_enabled); bool('nextEpisodeEnabled',p.next_episode_interstitial_enabled); bool('midEpisodeEnabled',p.mid_episode_interstitial_enabled); bool('seekEnabled',p.seek_interstitial_enabled); bool('speedEnabled',p.speed_interstitial_enabled); bool('dramaSwitchEnabled',p.drama_switch_interstitial_enabled); bool('rewardedFallbackEnabled',p.rewarded_fallback_interstitial_enabled);
   number('midEpisodeSeconds',p.mid_episode_interstitial_trigger_seconds); number('interstitialCooldownSeconds',p.interstitial_cooldown_seconds); number('rewardedSkipThreshold',p.interstitial_rewarded_skip_threshold); number('midEpisodeLimit',p.mid_episode_interstitial_hourly_limit); number('globalInterstitialLimit',p.interstitial_global_hourly_limit); number('seekLimit',p.seek_interstitial_hourly_limit); number('speedLimit',p.speed_interstitial_hourly_limit); number('actionRewardThreshold',p.action_interstitial_reward_threshold_gems); number('reviewRewardGems',p.review_reward_gems); number('episodeInterstitialLimit',p.episode_interstitial_limit); number('dramaSwitchEveryCount',p.drama_switch_interstitial_every_count); number('dramaSwitchLimit',p.drama_switch_interstitial_hourly_limit);
-  number('crownAdsPerEpisode',p.crown_rewarded_ads_per_episode); number('crownRewardedDailyLimit',p.crown_rewarded_daily_limit); number('releaseBoostPercent',p.release_boost_percent); number('releaseBoostLimit',p.release_boost_daily_limit); number('rvDailyLimit',p.rv_daily_limit);
+  number('crownAdsPerEpisode',p.crown_rewarded_ads_per_episode); number('crownRewardedDailyLimit',p.crown_rewarded_daily_limit); number('walletRedMin',p.wallet_redpacket_min_gems); number('walletRedMax',p.wallet_redpacket_max_gems); number('releaseBoostLimit',p.release_boost_daily_limit); number('rvDailyLimit',p.rv_daily_limit);
   number('gemsCap',p.gems_earned_cap); number('dampingTier1',p.gem_damping_tier1_threshold); number('dampingTier2',p.gem_damping_tier2_threshold); number('dampingTier3',p.gem_damping_tier3_threshold); number('dampingTier4',p.gem_damping_tier4_threshold); number('dampingM1',p.gem_damping_tier1_multiplier); number('dampingM2',p.gem_damping_tier2_multiplier); number('dampingM3',p.gem_damping_tier3_multiplier); number('dampingM4',p.gem_damping_tier4_multiplier); number('dampingM5',p.gem_damping_tier5_multiplier);
   $('marketWalletRows').innerHTML=(p.market_wallet_policies||[]).map(m=>`<tr><td><strong>${m.market_code}</strong><input id="market-code-${m.market_code}" type="hidden" value="${m.market_code}"></td><td><input id="market-currency-${m.market_code}" maxlength="3" value="${m.currency_code}"><input id="market-symbol-${m.market_code}" value="${m.currency_symbol}"><input id="market-digits-${m.market_code}" type="number" min="0" max="6" value="${m.currency_fraction_digits}"></td><td><input id="market-local-${m.market_code}" type="number" min="1" step="1" value="${m.currency_micros_per_10000_gems}"></td><td><input id="market-usd-${m.market_code}" type="number" min="1" step="1" value="${m.usd_micros_per_10000_gems}"></td><td><input id="market-enabled-${m.market_code}" type="checkbox" ${m.enabled!==false?'checked':''} ${m.market_code==='DEFAULT'?'disabled':''}></td><td><button class="secondary" data-market="${m.market_code}">保存</button></td></tr><tr><td colspan="6"><small>提现门槛微单位：<input id="market-threshold-${m.market_code}" type="number" min="1" step="1" value="${m.withdrawal_threshold_micros}">　欢迎 Gems：<input id="market-welcome-${m.market_code}" type="number" min="0" step="1" value="${m.welcome_bonus_gems}">　每日转入微单位：<input id="market-release-${m.market_code}" type="number" min="1" step="1" value="${m.daily_release_micros}"></small></td></tr>`).join('');
   document.querySelectorAll('[data-market]').forEach(btn=>btn.onclick=()=>saveMarketWallet(btn.dataset.market));
@@ -142,9 +143,9 @@ function render(p){
 async function request(url,body){const r=await fetch(url,{method:'PUT',headers:auth(),body:JSON.stringify(body)});const j=await r.json();if(!r.ok)throw Error(j.msg||'保存失败');return j.data;}
 async function load(){status('正在读取规则…');try{const r=await fetch('/v2/admin/policy',{headers:auth()});const j=await r.json();if(!r.ok)throw Error(j.msg||'读取失败');render(j.data);status('规则已加载。','ok');}catch(e){status(e.message,'error');}}
 async function saveOperating(){
-  const body={episode_reward_gems:Number($('episodeRewardGems').value),episodes_per_rewarded_unlock:Number($('episodesPerRewardedUnlock').value),episode_reward_boost_enabled:$('episodeRewardBoostEnabled').checked,random_chest_min_gems:Number($('chestMin').value),random_chest_max_gems:Number($('chestMax').value),daily_random_chest_count:Number($('dailyChestCount').value),episodes_per_random_chest:Number($('episodesPerChest').value),reward_claim_interstitial_enabled:$('rewardClaimEnabled').checked,next_episode_interstitial_enabled:$('nextEpisodeEnabled').checked,mid_episode_interstitial_enabled:$('midEpisodeEnabled').checked,mid_episode_interstitial_trigger_seconds:Number($('midEpisodeSeconds').value),interstitial_cooldown_seconds:Number($('interstitialCooldownSeconds').value),interstitial_rewarded_skip_threshold:Number($('rewardedSkipThreshold').value),mid_episode_interstitial_hourly_limit:Number($('midEpisodeLimit').value),interstitial_global_hourly_limit:Number($('globalInterstitialLimit').value),seek_interstitial_enabled:$('seekEnabled').checked,seek_interstitial_hourly_limit:Number($('seekLimit').value),speed_interstitial_enabled:$('speedEnabled').checked,speed_interstitial_hourly_limit:Number($('speedLimit').value),action_interstitial_reward_threshold_gems:Number($('actionRewardThreshold').value),review_reward_gems:Number($('reviewRewardGems').value),episode_interstitial_limit:Number($('episodeInterstitialLimit').value),drama_switch_interstitial_enabled:$('dramaSwitchEnabled').checked,drama_switch_interstitial_every_count:Number($('dramaSwitchEveryCount').value),drama_switch_interstitial_hourly_limit:Number($('dramaSwitchLimit').value),rewarded_fallback_interstitial_enabled:$('rewardedFallbackEnabled').checked,crown_rewarded_ads_per_episode:Number($('crownAdsPerEpisode').value),crown_rewarded_daily_limit:Number($('crownRewardedDailyLimit').value),release_boost_percent:Number($('releaseBoostPercent').value),release_boost_daily_limit:Number($('releaseBoostLimit').value),rv_daily_limit:Number($('rvDailyLimit').value),gems_earned_cap:Number($('gemsCap').value),gem_damping_tier1_threshold:Number($('dampingTier1').value),gem_damping_tier2_threshold:Number($('dampingTier2').value),gem_damping_tier3_threshold:Number($('dampingTier3').value),gem_damping_tier4_threshold:Number($('dampingTier4').value),gem_damping_tier1_multiplier:Number($('dampingM1').value),gem_damping_tier2_multiplier:Number($('dampingM2').value),gem_damping_tier3_multiplier:Number($('dampingM3').value),gem_damping_tier4_multiplier:Number($('dampingM4').value),gem_damping_tier5_multiplier:Number($('dampingM5').value)};
-  if(body.random_chest_min_gems>body.random_chest_max_gems){status('随机宝箱最小宝石不能大于最大宝石。','error');return;}
-  status('正在保存…');try{render(await request('/v2/admin/policy/operating',body));status('随机宝箱与广告规则已保存。','ok');}catch(e){status(e.message,'error');}
+  const body={episode_reward_gems:Number($('episodeRewardGems').value),episodes_per_rewarded_unlock:Number($('episodesPerRewardedUnlock').value),episode_reward_boost_enabled:$('episodeRewardBoostEnabled').checked,episode_task_max_episode:Number($('taskMaxEpisode').value),episode_task_post18_interval:Number($('taskInterval').value),episode_task_redpacket_min_gems:Number($('taskRedMin').value),episode_task_redpacket_max_gems:Number($('taskRedMax').value),wallet_redpacket_min_gems:Number($('walletRedMin').value),wallet_redpacket_max_gems:Number($('walletRedMax').value),reward_claim_interstitial_enabled:$('rewardClaimEnabled').checked,next_episode_interstitial_enabled:$('nextEpisodeEnabled').checked,mid_episode_interstitial_enabled:$('midEpisodeEnabled').checked,mid_episode_interstitial_trigger_seconds:Number($('midEpisodeSeconds').value),interstitial_cooldown_seconds:Number($('interstitialCooldownSeconds').value),interstitial_rewarded_skip_threshold:Number($('rewardedSkipThreshold').value),mid_episode_interstitial_hourly_limit:Number($('midEpisodeLimit').value),interstitial_global_hourly_limit:Number($('globalInterstitialLimit').value),seek_interstitial_enabled:$('seekEnabled').checked,seek_interstitial_hourly_limit:Number($('seekLimit').value),speed_interstitial_enabled:$('speedEnabled').checked,speed_interstitial_hourly_limit:Number($('speedLimit').value),action_interstitial_reward_threshold_gems:Number($('actionRewardThreshold').value),review_reward_gems:Number($('reviewRewardGems').value),episode_interstitial_limit:Number($('episodeInterstitialLimit').value),drama_switch_interstitial_enabled:$('dramaSwitchEnabled').checked,drama_switch_interstitial_every_count:Number($('dramaSwitchEveryCount').value),drama_switch_interstitial_hourly_limit:Number($('dramaSwitchLimit').value),rewarded_fallback_interstitial_enabled:$('rewardedFallbackEnabled').checked,crown_rewarded_ads_per_episode:Number($('crownAdsPerEpisode').value),crown_rewarded_daily_limit:Number($('crownRewardedDailyLimit').value),release_boost_daily_limit:Number($('releaseBoostLimit').value),rv_daily_limit:Number($('rvDailyLimit').value),gems_earned_cap:Number($('gemsCap').value),gem_damping_tier1_threshold:Number($('dampingTier1').value),gem_damping_tier2_threshold:Number($('dampingTier2').value),gem_damping_tier3_threshold:Number($('dampingTier3').value),gem_damping_tier4_threshold:Number($('dampingTier4').value),gem_damping_tier1_multiplier:Number($('dampingM1').value),gem_damping_tier2_multiplier:Number($('dampingM2').value),gem_damping_tier3_multiplier:Number($('dampingM3').value),gem_damping_tier4_multiplier:Number($('dampingM4').value),gem_damping_tier5_multiplier:Number($('dampingM5').value)};
+  if(body.episode_task_redpacket_min_gems>body.episode_task_redpacket_max_gems||body.wallet_redpacket_min_gems>body.wallet_redpacket_max_gems){status('随机红包最小奖励不能大于最大奖励。','error');return;}
+  status('正在保存…');try{render(await request('/v2/admin/policy/operating',body));status('随机红包与广告规则已保存。','ok');}catch(e){status(e.message,'error');}
 }
 async function saveMarketWallet(market){const body={market_code:market,currency_code:$('market-currency-'+market).value.trim().toUpperCase(),currency_symbol:$('market-symbol-'+market).value.trim(),currency_fraction_digits:Number($('market-digits-'+market).value),currency_micros_per_10000_gems:Number($('market-local-'+market).value),usd_micros_per_10000_gems:Number($('market-usd-'+market).value),withdrawal_threshold_micros:Number($('market-threshold-'+market).value),welcome_bonus_gems:Number($('market-welcome-'+market).value),daily_release_micros:Number($('market-release-'+market).value),enabled:market==='DEFAULT'?true:$('market-enabled-'+market).checked};if(!body.currency_code||!body.currency_symbol||Object.values(body).some(v=>typeof v==='number'&&(!Number.isFinite(v)||v<0))){status('请完整填写有效的区域钱包参数。','error');return;}status('正在保存区域钱包策略…');try{await request('/v2/admin/policy/market-wallet',body);await load();status(market+' 区域钱包策略已保存。','ok');}catch(e){status(e.message,'error');}}
 async function saveCrown(code){const value=Number($('crown-'+code).value);if(!Number.isFinite(value)||value<1||value>10){status('皇冠倍率必须在 1.00 到 10.00 之间。','error');return;}status('正在保存皇冠倍率…');try{render(await request('/v2/admin/crown-multiplier',{code,episode_reward_multiplier:value}));status(code+' 单集宝石倍率已保存。','ok');}catch(e){status(e.message,'error');}}

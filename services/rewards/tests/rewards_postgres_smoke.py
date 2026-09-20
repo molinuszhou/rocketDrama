@@ -59,8 +59,9 @@ def run() -> None:
     assert initial["interstitial"]["mid_episode_enabled"] is True
     assert initial["interstitial"]["seek_enabled"] is True
     assert initial["interstitial"]["speed_enabled"] is True
-    assert initial["chest"]["available_count"] == 1
-    assert initial["chest"]["min_gems"] <= initial["chest"]["max_gems"]
+    assert initial["chest"]["available_count"] == 0
+    assert initial["chest"]["daily_available_count"] == 0
+    assert initial["episode_unlock"]["episodes_per_rewarded_unlock"] == 3
     assert [item["code"] for item in initial["crown_progress"]] == ["BRONZE", "SILVER", "GOLD", "DIAMOND", "CROWN"]
     assert initial["crown_progress"][0]["rounds"]["target"] == 30
     assert initial["crown_progress"][0]["ads_per_episode"] == 2
@@ -117,7 +118,7 @@ def run() -> None:
         boost_rejected = "未启用单集广告翻倍" in str(error)
     assert boost_rejected
 
-    # 每集形成待领取宝石；每十集产生追剧随机宝箱，宝石不会自动入账。
+    # 每集形成待领取奖励；随机宝箱已取消，并由广告领取的追剧任务红包替代。
     watched_rewards: list[int] = []
     for episode_index in range(1, 11):
         watch = service.record_watch_event(
@@ -128,18 +129,19 @@ def run() -> None:
             watched_seconds=60,
         )
         assert watch["result"]["gems_added"] == 0
-        if episode_index < 10:
-            assert watch["result"]["random_chests_created"] == []
-        else:
-            assert watch["result"]["random_chests_created"][0]["created_count"] == 1
+        assert watch["result"]["random_chests_created"] == []
         watched_rewards.append(watch["result"]["episode_reward"]["gems"])
 
     after_watches = service.bootstrap(user_id)
     assert len(after_watches["episode_reward_claims"]) == 10
     assert after_watches["ring"]["claimable"] is True
     assert after_watches["ring"]["reward_gems"] == sum(watched_rewards)
-    assert after_watches["chest"]["daily_available_count"] == 1
-    assert after_watches["chest"]["watch_available_count"] == 1
+    assert after_watches["chest"]["available_count"] == 0
+    task_targets = [item["target"] for item in after_watches["pending_claims"]]
+    assert task_targets[:4] == [1, 3, 6, 9]
+    assert after_watches["pending_claims"][0]["random_redpacket"] is True
+    assert after_watches["pending_claims"][0]["reward_min_gems"] == 4_000
+    assert after_watches["pending_claims"][0]["reward_max_gems"] == 8_000
 
     # 领取全部待领取分集奖励仍须先获得一次激励广告授权。
     authorization, authorization_event_id = rewarded(service, user_id, "rv_episode_rewards_claim")
@@ -153,18 +155,16 @@ def run() -> None:
     replay_claim = service.claim_all_episode_rewards(user_id, event_id("claim-replay"), authorization_event_id)
     assert replay_claim["idempotent"] is True
 
-    # 宝箱可连续开启，金额始终位于后台随机区间内；无库存时完整广告结算会被服务端拒绝。
-    before_chests = claim_all["snapshot"]["chest"]["available_count"]
-    for _ in range(before_chests):
-        opened, _ = rewarded(service, user_id, "rv_random_chest_open")
-        gems = opened["result"]["gems_added"]
-        assert initial["chest"]["min_gems"] <= gems <= initial["chest"]["max_gems"]
-    no_chest_error = False
+    # 追剧任务在完整观看任务领取广告后发放随机红包，并受同一阻尼逻辑影响。
+    task_redpacket, _ = rewarded(service, user_id, "rv_episode_task_claim", "1")
+    assert task_redpacket["result"]["action"] == "EPISODE_TASK_REDPACKET"
+    assert 4_000 <= task_redpacket["result"]["gems_added"] <= 8_000
+    duplicate_task_error = False
     try:
-        rewarded(service, user_id, "rv_random_chest_open")
-    except Exception as error:  # noqa: BLE001 - 验证服务端明确拒绝空库存。
-        no_chest_error = "没有可开启" in str(error)
-    assert no_chest_error
+        rewarded(service, user_id, "rv_episode_task_claim", "1")
+    except Exception as error:  # noqa: BLE001 - 验证任务红包只能领取一次。
+        duplicate_task_error = "已领取" in str(error)
+    assert duplicate_task_error
 
     # 皇冠广告成长：每 2 条皇冠页面主动激励广告抵 1 集追剧；与其它广告位隔离。
     crown_first, _ = rewarded(service, user_id, "rv_crown_upgrade")
@@ -252,13 +252,13 @@ def run() -> None:
         total_at(1_959_999)
         assert service._credit_gems(connection, damping_user, 10, policy, "EPISODE_REWARD_CLAIM", "damping", event_id("episode")) == 4  # noqa: SLF001
         total_at(1_979_999)
-        assert service._credit_gems(connection, damping_user, 10, policy, "RANDOM_CHEST_OPEN", "damping", event_id("chest")) == 4  # noqa: SLF001
+        assert service._credit_gems(connection, damping_user, 10, policy, "EPISODE_TASK_REDPACKET", "damping", event_id("task")) == 4  # noqa: SLF001
         total_at(1_989_999)
         assert service._credit_gems(connection, damping_user, 10, policy, "ACHIEVEMENT", "damping", event_id("crown")) == 2  # noqa: SLF001
         total_at(1_999_999)
-        assert service._credit_gems(connection, damping_user, 100, policy, "RANDOM_CHEST_OPEN", "damping", event_id("cap")) == 1  # noqa: SLF001
+        assert service._credit_gems(connection, damping_user, 100, policy, "WALLET_CASH_BOOST", "damping", event_id("cap")) == 1  # noqa: SLF001
 
-    print("PostgreSQL v1.6.4 rewards smoke test passed; direct-cash wallet, localized payouts, milestone tasks, cooldown ads and Crown Road growth verified")
+    print("PostgreSQL v1.6.4.7 rewards smoke test passed; direct-cash wallet, random task redpackets, cooldown ads and Crown Road growth verified")
 
 
 if __name__ == "__main__":

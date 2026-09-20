@@ -371,12 +371,11 @@ internal fun DramaAppActivity.recordCompletedEpisodeForRewards(index: Int, onCon
             validWatchSeconds = rewardsSnapshot?.unlock?.validWatchSeconds ?: 60,
             onSuccess = { reward -> runOnUiThread {
                 applyRewardsSnapshot(reward.snapshot)
-                if (reward.randomChestsCreated > 0) {
-                    routeChestAfterEpisode(index, reward.randomChestsCreated, reward.snapshot.chest.availableCount, onContinuePlayback)
-                } else if (reward.episodeRewardCoins > 0) {
+                if (reward.episodeRewardCoins > 0) {
                     toast(t("episode_reward_pending", reward.episodeRewardCoins))
-                    onContinuePlayback()
-                } else onContinuePlayback()
+                }
+                // v1.6.4.7: random chests are replaced by the ad-gated watch-task redpacket line.
+                onContinuePlayback()
             } },
             onFailure = { message -> runOnUiThread {
                 logStatus("Watch reward sync failed: $message")
@@ -419,7 +418,7 @@ internal fun DramaAppActivity.showRandomChestEarnedDialog(createdCount: Int, ava
             background = gradientDrawable(intArrayOf(0xFFFFF0E6.toInt(), 0xFFFFFFFF.toInt()), 28)
         }
         val chestImage = ImageView(this).apply {
-            setImageResource(com.dramaflow.app.R.drawable.ic_random_chest_reward)
+            setImageResource(com.dramaflow.app.R.drawable.ic_cash_reward)
             contentDescription = t("chest")
             scaleX = 0.55f
             scaleY = 0.55f

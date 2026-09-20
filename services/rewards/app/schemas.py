@@ -19,6 +19,7 @@ RewardedPlacement = Literal[
     "rv_welcome_bonus",
     "rv_checkin_complete",
     "rv_episode_rewards_claim",
+    "rv_episode_task_claim",
     "rv_crown_upgrade",
 ]
 InterstitialPlacement = Literal[
@@ -104,6 +105,12 @@ class RewardPolicyUpdateRequest(BaseModel):
     episode_reward_gems: int | None = Field(default=None, ge=0, le=10_000_000)
     episodes_per_rewarded_unlock: int | None = Field(default=None, ge=1, le=100)
     episode_reward_boost_enabled: bool | None = None
+    episode_task_max_episode: int | None = Field(default=None, ge=18, le=10_000)
+    episode_task_post18_interval: int | None = Field(default=None, ge=1, le=1_000)
+    episode_task_redpacket_min_gems: int | None = Field(default=None, ge=0, le=10_000_000)
+    episode_task_redpacket_max_gems: int | None = Field(default=None, ge=0, le=10_000_000)
+    wallet_redpacket_min_gems: int | None = Field(default=None, ge=0, le=10_000_000)
+    wallet_redpacket_max_gems: int | None = Field(default=None, ge=0, le=10_000_000)
     random_chest_min_gems: int | None = Field(default=None, ge=0, le=10_000_000)
     random_chest_max_gems: int | None = Field(default=None, ge=0, le=10_000_000)
     daily_random_chest_count: int | None = Field(default=None, ge=0, le=10)

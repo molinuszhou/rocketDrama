@@ -33,6 +33,7 @@ def apply_runtime_migrations(settings: Settings) -> None:
         ("017_v1635_checkin_200k_five_tier_damping", sql_directory / "017_v1635_checkin_200k_five_tier_damping.sql"),
         ("018_low_frequency_ad_policy", sql_directory / "018_low_frequency_ad_policy.sql"),
         ("019_direct_cash_wallet_tasks_and_ad_cooldowns", sql_directory / "019_direct_cash_wallet_tasks_and_ad_cooldowns.sql"),
+        ("020_v1647_random_task_redpackets", sql_directory / "020_v1647_random_task_redpackets.sql"),
     )
     with psycopg.connect(settings.database_url, autocommit=True) as connection:
         with connection.cursor() as cursor:

@@ -56,7 +56,7 @@ def run() -> None:
     assert snapshot["welcome"]["cash"] == "10.00"
     assert snapshot["episode_unlock"]["free_episodes_count"] == 3
     assert snapshot["episode_unlock"]["next_episode_rewarded_enabled"] is True
-    assert snapshot["chest"]["available_count"] == 1
+    assert snapshot["chest"]["available_count"] == 0
     assert snapshot["interstitial"]["mid_episode_enabled"] is True
     assert snapshot["interstitial"]["seek_enabled"] is True
     assert snapshot["interstitial"]["speed_enabled"] is True
@@ -115,16 +115,11 @@ def run() -> None:
     assert claimed["data"]["result"]["boosted_count"] == 0
     assert float(claimed["data"]["result"]["cash_added"]) > 0
 
-    _, task_claim = post("/v2/episode-tasks/claim", {"user_id": USER_ID, "milestone_episode_count": 3, "reference_id": event_id("episode-task")})
-    assert task_claim["data"]["result"]["action"] == "EPISODE_TASK_CLAIM"
-    assert float(task_claim["data"]["result"]["cash_added"]) > 0
-
-    available = claimed["data"]["snapshot"]["chest"]["available_count"]
-    assert available == 1
-    for _ in range(available):
-        _, opened, _ = rewarded("rv_random_chest_open")
-        amount = opened["data"]["result"]["gems_added"]
-        assert snapshot["chest"]["min_gems"] <= amount <= snapshot["chest"]["max_gems"]
+    # Each completed task milestone is claimed by its own rewarded ad and grants a random cash redpacket.
+    _, task_claim, _ = rewarded("rv_episode_task_claim", "3")
+    assert task_claim["data"]["result"]["action"] == "EPISODE_TASK_REDPACKET"
+    assert 4_000 <= task_claim["data"]["result"]["gems_added"] <= 8_000
+    assert task_claim["data"]["snapshot"]["chest"]["available_count"] == 0
 
     # 皇冠广告升级：以广告前的基线计算，连续两条激励广告至少增加一集等效追剧。
     _, before_crown = post("/v2/bootstrap", {"user_id": USER_ID})
@@ -140,8 +135,11 @@ def run() -> None:
             "PUT",
             "/v2/admin/policy/operating",
             {
-                "random_chest_min_gems": 400,
-                "random_chest_max_gems": 900,
+                "episode_task_max_episode": 120,
+                "episode_task_redpacket_min_gems": 400,
+                "episode_task_redpacket_max_gems": 900,
+                "wallet_redpacket_min_gems": 100,
+                "wallet_redpacket_max_gems": 300,
                 "speed_interstitial_enabled": True,
                 "speed_interstitial_hourly_limit": 0,
                 "interstitial_cooldown_seconds": 30,
@@ -152,7 +150,8 @@ def run() -> None:
             },
             admin=True,
         )
-        assert updated["data"]["random_chest_min_gems"] == 400
+        assert updated["data"]["episode_task_max_episode"] == 120
+        assert updated["data"]["episode_task_redpacket_min_gems"] == 400
         assert updated["data"]["speed_interstitial_enabled"] is True
         assert updated["data"]["interstitial_cooldown_seconds"] == 30
         assert updated["data"]["interstitial_rewarded_skip_threshold"] == 2
@@ -160,7 +159,7 @@ def run() -> None:
         _, crown = request("PUT", "/v2/admin/crown-multiplier", {"code": "BRONZE", "episode_reward_multiplier": 1.20}, admin=True)
         assert crown["data"]["crown_multipliers"][0]["episode_reward_multiplier"] == 1.2
 
-    print("HTTP API v1.6.4 smoke test passed; direct cash, milestones, cooldown ads, chests, Crown Road and operating policy verified")
+    print("HTTP API v1.6.4.7 smoke test passed; direct cash, random task redpackets, cooldown ads, Crown Road and operating policy verified")
 
 
 if __name__ == "__main__":

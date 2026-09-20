@@ -171,7 +171,7 @@ internal fun DramaAppActivity.showWelcomeRewardDialog(snapshot: RewardsApiClient
             setPadding(dp(30), dp(20), dp(30), dp(20))
         }
         val gem = ImageView(this@showWelcomeRewardDialog).apply {
-            setImageResource(R.drawable.ic_wallet)
+            setImageResource(R.drawable.ic_cash_reward)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
         }
         content.addView(gem, LinearLayout.LayoutParams(dp(154), dp(154)))
