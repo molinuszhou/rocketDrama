@@ -70,8 +70,9 @@ import kotlin.random.Random
 internal fun DramaAppActivity.createFloatingRewardWheel(compact: Boolean = false): View {
         val gemSize = if (compact) dp(62) else dp(68)
         val gem = ImageView(this).apply {
-            setImageResource(R.drawable.ic_cash_reward)
+            setImageResource(R.drawable.savings_jar)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
+            alpha = 0.84f
             contentDescription = t("claim_all")
             isClickable = true
             setOnClickListener {
@@ -318,9 +319,9 @@ internal fun DramaAppActivity.showWithdrawalDetailsDialog(wallet: RewardsApiClie
     }
 
 internal fun DramaAppActivity.showWalletReleaseBoostDialog() {
-        val release = rewardsSnapshot?.wallet?.release ?: return
-        showBrandedChoiceDialog("广告加速", "观看一段广告即可额外获得随机现金奖励。今日已完成 ${release.boostUsed}/${if (release.boostCap == 0) "不限" else release.boostCap} 次。", t("watch_ad_claim"), { requestWalletReleaseBoost() }, t("not_now"))
-    }
+        rewardsSnapshot?.wallet ?: return
+        showBrandedChoiceDialog("广告加速", "观看一段广告即可额外获得随机现金奖励。", t("watch_ad_claim"), { requestWalletReleaseBoost() }, t("not_now"))
+}
 
 internal fun DramaAppActivity.requestWalletReleaseBoost() {
         requestRewardedAction("rv_release_boost", onSettled = { action ->

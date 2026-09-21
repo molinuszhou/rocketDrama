@@ -485,7 +485,7 @@ class RewardsService:
             "wallet_redpacket_min_gems", "wallet_redpacket_max_gems",
             "random_chest_min_gems", "random_chest_max_gems", "daily_random_chest_count", "episodes_per_random_chest",
             "interstitial_cooldown_seconds", "interstitial_rewarded_skip_threshold",
-            "reward_claim_interstitial_enabled", "mid_episode_interstitial_enabled", "mid_episode_interstitial_trigger_seconds",
+            "reward_claim_interstitial_enabled", "mid_episode_interstitial_enabled", "mid_episode_interstitial_trigger_seconds", "mid_episode_interstitial_repeat_seconds",
             "mid_episode_interstitial_hourly_limit", "seek_interstitial_enabled", "seek_interstitial_hourly_limit",
             "next_episode_interstitial_enabled", "speed_interstitial_enabled", "speed_interstitial_hourly_limit",
             "action_interstitial_reward_threshold_gems", "review_reward_gems", "rv_daily_limit", "episode_interstitial_limit",
@@ -1604,6 +1604,7 @@ class RewardsService:
                 "reward_claim_enabled": bool(policy["reward_claim_interstitial_enabled"]),
                 "mid_episode_enabled": bool(policy["mid_episode_interstitial_enabled"]),
                 "mid_episode_trigger_seconds": int(policy["mid_episode_interstitial_trigger_seconds"]),
+                "mid_episode_repeat_seconds": int(policy.get("mid_episode_interstitial_repeat_seconds", 360)),
                 "mid_episode_hourly_limit": int(policy["mid_episode_interstitial_hourly_limit"]),
                 "seek_enabled": bool(policy["seek_interstitial_enabled"]),
                 "seek_hourly_limit": int(policy["seek_interstitial_hourly_limit"]),
@@ -1798,7 +1799,7 @@ class RewardsService:
     @staticmethod
     def _normalise_market_code(region: str | None) -> str:
         value = (region or "").strip().upper().replace("-", "_")
-        aliases = {"BRA": "BR", "BRAZIL": "BR", "PT_BR": "BR", "IDN": "ID", "INDONESIA": "ID", "IN_ID": "ID", "HKG": "HK", "HONG_KONG": "HK", "ZH_HK": "HK"}
+        aliases = {"BRA": "BR", "BRAZIL": "BR", "PT_BR": "BR", "IDN": "ID", "INDONESIA": "ID", "IN_ID": "ID"}
         return aliases.get(value, value if value and value != "DEFAULT" else "DEFAULT")
 
     def _active_market_or_default(self, connection: psycopg.Connection[Any], requested_market: str) -> str:

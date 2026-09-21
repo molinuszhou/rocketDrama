@@ -140,6 +140,8 @@ class DramaAppActivity : FragmentActivity() {
     internal var episodePlaybackPausedDurationMillis = 0L
     /** Actual content seconds accumulated across episodes since the last mid-roll attempt. */
     internal var contentWatchSecondsSinceMidroll = 0
+    /** The first mid-roll uses its own threshold; all later mid-rolls use the repeat interval. */
+    internal var midrollInterstitialShownInSession = false
     internal var lastMidrollSamplePositionSeconds = -1
     internal var midrollInterstitialRequestInFlight = false
     internal var pendingResumePositionSeconds = 0
@@ -425,9 +427,11 @@ class DramaAppActivity : FragmentActivity() {
     internal fun showCatalog() {
         exitImmersivePlayerMode()
         configureCatalogWindow()
+        // releasePlayer persists resume state only while the player is still marked visible.
+        // Keep this ordering so “My / Continue watching” always resumes the actual episode and time.
+        releasePlayer()
         playerShown = false
         activeTab = MainTab.HOME
-        releasePlayer()
         if (catalogItems.isNotEmpty()) renderActiveTab() else loadLocalCatalog()
     }
 
@@ -441,7 +445,7 @@ class DramaAppActivity : FragmentActivity() {
             setPadding(dp(44), dp(28), dp(44), dp(28))
         }
         column.addView(ImageView(this).apply {
-            setImageResource(R.drawable.ic_launcher_foreground)
+            setImageResource(R.drawable.joyedrama_app_icon)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             contentDescription = "JoyeDrama"
         }, LinearLayout.LayoutParams(dp(108), dp(108)).apply { bottomMargin = dp(18) })

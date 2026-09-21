@@ -61,7 +61,8 @@ def run() -> None:
     assert snapshot["interstitial"]["mid_episode_enabled"] is True
     assert snapshot["interstitial"]["seek_enabled"] is True
     assert snapshot["interstitial"]["speed_enabled"] is True
-    assert snapshot["interstitial"]["mid_episode_trigger_seconds"] == 120
+    assert snapshot["interstitial"]["mid_episode_trigger_seconds"] == 180
+    assert snapshot["interstitial"]["mid_episode_repeat_seconds"] == 360
     assert snapshot["interstitial"]["cooldown_seconds"] == 60
     assert snapshot["interstitial"]["rewarded_skip_threshold"] == 3
     assert snapshot["wallet"]["release"]["boost_cap"] == 10

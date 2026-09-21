@@ -69,6 +69,7 @@ import kotlin.random.Random
 
 internal fun DramaAppActivity.showWithdrawalPage(wallet: RewardsApiClient.Wallet) {
         withdrawalPageShown = true
+        if (playerShown) releasePlayer()
         playerShown = false
         window.statusBarColor = COLOR_BACKGROUND
         WindowInsetsControllerCompat(window, root).isAppearanceLightStatusBars = true
@@ -83,12 +84,11 @@ internal fun DramaAppActivity.showWithdrawalPage(wallet: RewardsApiClient.Wallet
         }
         root.removeAllViews()
         root.addView(page, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        root.addView(createPersistentAssetHeader(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(120), Gravity.TOP))
     }
 
 internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wallet): View = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
-        setPadding(dp(18), dp(132), dp(18), dp(34))
+        setPadding(dp(18), dp(56), dp(18), dp(34))
         addView(LinearLayout(this@createWithdrawalPage).apply {
             gravity = Gravity.CENTER_VERTICAL
             addView(ImageView(this@createWithdrawalPage).apply {
@@ -115,14 +115,15 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
                 addView(TextView(this@createWithdrawalPage).apply { text = "完成任务后，现金奖励会直接存入钱包"; textSize = 11f; setTextColor(0xBFFFFFFF.toInt()); setPadding(0, dp(6), 0, 0) })
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             balanceRow.addView(ImageView(this@createWithdrawalPage).apply {
-                setImageResource(R.drawable.ic_cash_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE; contentDescription = t("wallet")
+                setImageResource(R.drawable.wallet_money); scaleType = ImageView.ScaleType.CENTER_INSIDE; contentDescription = t("wallet")
             }, LinearLayout.LayoutParams(dp(72), dp(72)))
             addView(balanceRow)
             val threshold = rewardsSnapshot?.withdrawal?.threshold?.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO
             val balance = wallet.cashWallet.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO
             if (threshold > java.math.BigDecimal.ZERO) {
                 addView(TextView(this@createWithdrawalPage).apply {
-                    text = "距离首次提现门槛 ${formatCurrencyAmount(wallet, threshold.toPlainString(), null, false)}"
+                    val remaining = threshold.subtract(balance).max(java.math.BigDecimal.ZERO)
+                    text = t("cashout_progress", formatCurrencyAmount(wallet, threshold.toPlainString(), null, false), formatCurrencyAmount(wallet, remaining.toPlainString(), null, false))
                     textSize = 11f; setTextColor(0xCCFFFFFF.toInt()); setPadding(0, dp(14), 0, dp(5))
                 })
                 addView(ProgressBar(this@createWithdrawalPage, null, android.R.attr.progressBarStyleHorizontal).apply {
@@ -131,19 +132,18 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
                 }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(7)))
             }
         }, matchParams(bottom = 14))
-        val release = wallet.release
         addView(LinearLayout(this@createWithdrawalPage).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(16), dp(18), dp(16)); background = roundedDrawable(COLOR_CARD, 20)
             addView(TextView(this@createWithdrawalPage).apply { text = "广告加速"; textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
             addView(TextView(this@createWithdrawalPage).apply {
-                text = "观看一段广告，可额外获得随机现金奖励。今日已完成 ${release.boostUsed}/${if (release.boostCap == 0) "不限" else release.boostCap} 次。"
+                text = "观看一段广告，可额外获得随机现金奖励。"
                 textSize = 13f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(7), 0, 0)
             })
-        }, matchParams(bottom = 12))
-        addView(TextView(this@createWithdrawalPage).apply {
-            text = "观看广告，领取现金奖励"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
-            background = gradientDrawable(intArrayOf(COLOR_SUNSET, COLOR_CORAL), 18); setPadding(dp(14), dp(13), dp(14), dp(13)); isClickable = true
-            setOnClickListener { showWalletReleaseBoostDialog() }
+            addView(TextView(this@createWithdrawalPage).apply {
+                text = "观看广告，领取现金奖励"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
+                background = gradientDrawable(intArrayOf(COLOR_SUNSET, COLOR_CORAL), 18); setPadding(dp(14), dp(13), dp(14), dp(13)); isClickable = true
+                setOnClickListener { showWalletReleaseBoostDialog() }
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(13) })
         }, matchParams(bottom = 14))
         addView(TextView(this@createWithdrawalPage).apply {
             text = t("request_cashout"); textSize = 17f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
@@ -182,7 +182,14 @@ internal fun DramaAppActivity.formatWalletTotal(wallet: RewardsApiClient.Wallet,
     }
 
 internal fun DramaAppActivity.showCashoutEligibilityNotice() {
-        val dynamicReason = rewardsSnapshot?.withdrawal?.reason?.takeIf { it.isNotBlank() }
-            ?: t("cashout_minimum_notice")
+        val wallet = rewardsSnapshot?.wallet
+        val withdrawal = rewardsSnapshot?.withdrawal
+        val threshold = withdrawal?.threshold?.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO
+        val balance = wallet?.cashWallet?.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO
+        val dynamicReason = if (wallet != null && threshold > java.math.BigDecimal.ZERO && balance < threshold) {
+            t("cashout_threshold_notice", formatCurrencyAmount(wallet, threshold.toPlainString(), null, false))
+        } else {
+            withdrawal?.reason?.takeIf { it.isNotBlank() } ?: t("cashout_minimum_notice")
+        }
         showBrandedChoiceDialog(t("request_cashout"), dynamicReason, t("done"))
     }

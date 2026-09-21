@@ -52,7 +52,8 @@ def run() -> None:
     assert snapshot["gem_damping"]["scope"] == "ALL_GEM_SOURCES"
     assert snapshot["gem_damping"]["tier5_threshold"] == 1_995_000
     assert snapshot["gem_damping"]["tier6_multiplier"] == 0.01
-    assert snapshot["interstitial"]["mid_episode_trigger_seconds"] == 120
+    assert snapshot["interstitial"]["mid_episode_trigger_seconds"] == 180
+    assert snapshot["interstitial"]["mid_episode_repeat_seconds"] == 360
     assert snapshot["interstitial"]["cooldown_seconds"] == 60
 
     updated = service.update_market_wallet_policy(
@@ -81,9 +82,10 @@ def run() -> None:
         assert data["wallet"]["currency"]["code"] == "BRL"
         assert data["wallet"]["cash_mode"] is True
         assert data["wallet"]["currency"]["code"] == "BRL"
-        assert data["interstitial"]["mid_episode_trigger_seconds"] == 120
+        assert data["interstitial"]["mid_episode_trigger_seconds"] == 180
+        assert data["interstitial"]["mid_episode_repeat_seconds"] == 360
 
-    print("PostgreSQL v1.6.4.8 runtime-upgrade smoke test passed; six-tier damping, direct-cash migration and market-wallet admin update verified")
+    print("PostgreSQL v1.6.4.9 runtime-upgrade smoke test passed; six-tier damping, direct-cash migration and market-wallet admin update verified")
 
 
 if __name__ == "__main__":

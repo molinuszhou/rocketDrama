@@ -289,7 +289,7 @@ internal fun DramaAppActivity.showGemIncomeDetails() {
         else entries.forEach { entry ->
             detail.addView(LinearLayout(this@showGemIncomeDetails).apply {
                 gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(10), 0, dp(10))
-                addView(ImageView(this@showGemIncomeDetails).apply { setImageResource(R.drawable.ic_cash_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(28), dp(28)))
+                addView(ImageView(this@showGemIncomeDetails).apply { setImageResource(R.drawable.wallet_money); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(28), dp(28)))
                 addView(TextView(this@showGemIncomeDetails).apply { text = ledgerTitle(entry.type); textSize = 14f; setTextColor(COLOR_TEXT_PRIMARY); setPadding(dp(8), 0, 0, 0); maxLines = 1 }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
                 addView(TextView(this@showGemIncomeDetails).apply { text = "+${formatGems(entry.gemsDelta)}"; textSize = 14f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_CORAL) })
             })

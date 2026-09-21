@@ -418,7 +418,7 @@ internal fun DramaAppActivity.showRandomChestEarnedDialog(createdCount: Int, ava
             background = gradientDrawable(intArrayOf(0xFFFFF0E6.toInt(), 0xFFFFFFFF.toInt()), 28)
         }
         val chestImage = ImageView(this).apply {
-            setImageResource(com.dramaflow.app.R.drawable.ic_cash_reward)
+            setImageResource(com.dramaflow.app.R.drawable.wallet_money)
             contentDescription = t("chest")
             scaleX = 0.55f
             scaleY = 0.55f

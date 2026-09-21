@@ -66,25 +66,6 @@ BEGIN
         UPDATE market_wallet_policy
         SET welcome_bonus_gems = 100000,
             updated_at = NOW();
-        INSERT INTO market_wallet_policy (
-            market_code, currency_code, currency_symbol, currency_fraction_digits,
-            currency_micros_per_10000_gems, usd_micros_per_10000_gems,
-            withdrawal_threshold_micros, welcome_bonus_gems, daily_release_micros, enabled
-        ) VALUES (
-            'HK', 'HKD', 'HK$', 2,
-            7800000, 1000000,
-            7800000, 100000, 156000, TRUE
-        ) ON CONFLICT (market_code) DO UPDATE SET
-            currency_code = EXCLUDED.currency_code,
-            currency_symbol = EXCLUDED.currency_symbol,
-            currency_fraction_digits = EXCLUDED.currency_fraction_digits,
-            currency_micros_per_10000_gems = EXCLUDED.currency_micros_per_10000_gems,
-            usd_micros_per_10000_gems = EXCLUDED.usd_micros_per_10000_gems,
-            withdrawal_threshold_micros = EXCLUDED.withdrawal_threshold_micros,
-            welcome_bonus_gems = EXCLUDED.welcome_bonus_gems,
-            daily_release_micros = EXCLUDED.daily_release_micros,
-            enabled = TRUE,
-            updated_at = NOW();
         UPDATE welcome_rewards
         SET gems = 100000
         WHERE state = 'PENDING';
@@ -133,7 +114,7 @@ BEGIN
             interstitial_global_hourly_limit = 0,
             episode_interstitial_limit = 0,
             mid_episode_interstitial_enabled = TRUE,
-            mid_episode_interstitial_trigger_seconds = 120,
+            mid_episode_interstitial_trigger_seconds = 180,
             mid_episode_interstitial_hourly_limit = 0,
             seek_interstitial_enabled = TRUE,
             seek_interstitial_hourly_limit = 0,

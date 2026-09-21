@@ -45,6 +45,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.datasource.HttpDataSource
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil.load
 import coil.imageLoader
@@ -97,12 +98,16 @@ internal fun DramaAppActivity.showPlayer(drama: LocalDrama, startIndex: Int, res
         playerSpeed = 1.0f
         playerDescriptionExpanded = false
         playerControlsVisible = true
+        contentWatchSecondsSinceMidroll = 0
+        midrollInterstitialShownInSession = false
+        lastMidrollSamplePositionSeconds = -1
         playerShown = true
         root.removeAllViews()
 
         val player = ExoPlayer.Builder(this).build().also { exoPlayer = it }
         playerView = PlayerView(this).apply {
             useController = false
+            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
             setShutterBackgroundColor(Color.BLACK)
             this.player = player
         }
@@ -257,11 +262,11 @@ internal fun DramaAppActivity.createPlayerTopBar(): View {
         val assets = createPlayerAssetStrip()
         // Both controls share the true system safe inset. This avoids the fixed 14dp
         // offset that could overlap a notch/status region on first opening the player.
-        shell.addView(back, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.TOP or Gravity.START).apply { topMargin = dp(14); marginStart = dp(16) })
-        shell.addView(assets, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42), Gravity.TOP or Gravity.END).apply { topMargin = dp(15); marginEnd = dp(16) })
+        shell.addView(back, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.TOP or Gravity.START).apply { topMargin = dp(8); marginStart = dp(8) })
+        shell.addView(assets, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42), Gravity.TOP or Gravity.END).apply { topMargin = dp(8); marginEnd = dp(8) })
         ViewCompat.setOnApplyWindowInsetsListener(shell) { _, insets ->
             val safeTop = insets.getInsets(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()).top
-            val margin = maxOf(safeTop, dp(24)) + dp(12)
+            val margin = safeTop + dp(8)
             (back.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = margin; back.layoutParams = params }
             (assets.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = margin; assets.layoutParams = params }
             insets
@@ -335,10 +340,16 @@ internal fun DramaAppActivity.requestMidEpisodeInterstitialIfEligible(positionSe
         // The ticker runs twice per second. A larger jump is a seek and has its own ad candidate, so it is excluded.
         val delta = positionSeconds - previousPosition
         if (delta in 1..2) contentWatchSecondsSinceMidroll += delta
-        if (contentWatchSecondsSinceMidroll < policy.midEpisodeTriggerSeconds || midrollInterstitialRequestInFlight) return
+        val requiredWatchSeconds = if (midrollInterstitialShownInSession) {
+            policy.midEpisodeRepeatSeconds.coerceAtLeast(1)
+        } else {
+            policy.midEpisodeTriggerSeconds.coerceAtLeast(1)
+        }
+        if (contentWatchSecondsSinceMidroll < requiredWatchSeconds || midrollInterstitialRequestInFlight) return
         midrollInterstitialRequestInFlight = true
         showPlaybackActionInterstitial("int_episode_midroll", episodeId = selectedEpisode()?.id, onShown = {
             contentWatchSecondsSinceMidroll = 0
+            midrollInterstitialShownInSession = true
             midrollInterstitialRequestInFlight = false
         }, onUnavailable = { message ->
             // A failed candidate should not retry every ticker; the next candidate occurs after another interval.

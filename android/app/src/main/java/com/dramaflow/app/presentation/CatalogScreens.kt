@@ -104,7 +104,9 @@ internal fun DramaAppActivity.primaryFeaturedDrama(recommended: List<LocalDrama>
 internal fun DramaAppActivity.createProfilePage(): View = scrollPage { content ->
         content.addView(createProfileHero(), matchParams(bottom = 16))
         content.addView(createSectionHeader(t("continue_watching"), t("home_subtitle")), matchParams(bottom = 12))
-        catalogItems.take(4).forEach { content.addView(createHistoryRow(it), matchParams(bottom = 10)) }
+        val watchedItems = catalogItems.filter { playbackHistory.contains(resumePreferenceKey(it.id, "episode")) }.take(4)
+        if (watchedItems.isEmpty()) content.addView(createInlineNotice(t("watch_history_empty")), matchParams(bottom = 10))
+        else watchedItems.forEach { content.addView(createHistoryRow(it), matchParams(bottom = 10)) }
         content.addView(createSectionHeader(t("my_services"), t("profile_subtitle")), matchParams(top = 10, bottom = 10))
         content.addView(createSettingsRow(t("favorites"), t("continue_watching"), "›") { toast(t("favorites")) }, matchParams(bottom = 8))
         content.addView(createSettingsRow(t("reward_ledger"), t("ledger_note"), "›") { showRewardLedgerHint() }, matchParams(bottom = 8))

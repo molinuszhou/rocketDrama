@@ -64,12 +64,14 @@ def run() -> None:
     assert [item["code"] for item in initial["crown_progress"]] == ["BRONZE", "SILVER", "GOLD", "DIAMOND", "CROWN"]
     assert initial["crown_progress"][0]["rounds"]["target"] == 30
     assert initial["crown_progress"][0]["ads_per_episode"] == 2
-    assert initial["interstitial"]["mid_episode_trigger_seconds"] == 120
+    assert initial["interstitial"]["mid_episode_trigger_seconds"] == 180
+    assert initial["interstitial"]["mid_episode_repeat_seconds"] == 360
     assert initial["interstitial"]["cooldown_seconds"] == 60
     assert initial["interstitial"]["global_hourly_limit"] == 0
     assert initial["interstitial"]["rewarded_skip_threshold"] == 3
     assert initial["wallet"]["exchange_rate_gems"] == 10_000
     assert initial["wallet"]["currency"]["code"] == "USD"
+    assert initial["withdrawal"]["threshold"] == "200.00"
     assert initial["gem_damping"]["cap"] == 2_000_000
     assert initial["gem_damping"]["tier1_threshold"] == 1_900_000
     assert initial["gem_damping"]["tier2_threshold"] == 1_950_000
@@ -214,9 +216,9 @@ def run() -> None:
 
     hk_user = f"v164-hk-{uuid.uuid4()}"
     hk_initial = service.bootstrap(hk_user, "HK")
-    assert hk_initial["wallet"]["currency"]["code"] == "HKD"
+    assert hk_initial["wallet"]["currency"]["code"] == "USD"
     hk_welcome, _ = rewarded(service, hk_user, "rv_welcome_bonus")
-    assert hk_welcome["result"]["cash_added"] == "78.00"
+    assert hk_welcome["result"]["cash_added"] == "10.00"
     assert hk_welcome["result"]["cash_added_usd_reference"] == "10.00"
 
     # 通用区域钱包管理：新增 MX，停用后新用户回退 DEFAULT；历史用户仍可读取原策略。
@@ -263,7 +265,7 @@ def run() -> None:
         total_at(1_999_999)
         assert service._credit_gems(connection, damping_user, 100, policy, "WALLET_CASH_BOOST", "damping", event_id("tier6")) == 1  # noqa: SLF001
 
-    print("PostgreSQL v1.6.4.8 rewards smoke test passed; six-tier damping, direct-cash wallet, random task redpackets, cooldown ads and Crown Road growth verified")
+    print("PostgreSQL v1.6.4.9 rewards smoke test passed; six-tier damping, direct-cash wallet, random task redpackets, cooldown ads and Crown Road growth verified")
 
 
 if __name__ == "__main__":

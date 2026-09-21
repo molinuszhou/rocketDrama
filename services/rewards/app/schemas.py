@@ -118,6 +118,7 @@ class RewardPolicyUpdateRequest(BaseModel):
     reward_claim_interstitial_enabled: bool | None = None
     mid_episode_interstitial_enabled: bool | None = None
     mid_episode_interstitial_trigger_seconds: int | None = Field(default=None, ge=0, le=3600)
+    mid_episode_interstitial_repeat_seconds: int | None = Field(default=None, ge=0, le=3600)
     mid_episode_interstitial_hourly_limit: int | None = Field(default=None, ge=0, le=120)
     seek_interstitial_enabled: bool | None = None
     seek_interstitial_hourly_limit: int | None = Field(default=None, ge=0, le=120)

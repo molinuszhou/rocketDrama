@@ -13,7 +13,7 @@
 
     <style name="Theme.DramaFlow.Starting" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">@color/cloud_white</item>
-        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_empty</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/joyedrama_app_icon</item>
         <item name="windowSplashScreenAnimationDuration">0</item>
         <item name="postSplashScreenTheme">@style/Theme.DramaFlow</item>
     </style>

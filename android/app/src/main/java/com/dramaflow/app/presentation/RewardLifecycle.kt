@@ -120,7 +120,7 @@ internal fun DramaAppActivity.applyRewardsSnapshot(snapshot: RewardsApiClient.Sn
             root.post { animateClaimedGems(previousGems, snapshot.wallet.coins) }
         }
         val pending = snapshot.ring.rewardCoins
-        if (snapshot.ring.claimable && pending >= 10_000 && pending > lastFloatingClaimPromptedGems && !fullscreenAdInProgress) {
+        if (startupContentInitializationStarted && snapshot.ring.claimable && pending >= 10_000 && pending > lastFloatingClaimPromptedGems && !fullscreenAdInProgress) {
             lastFloatingClaimPromptedGems = pending
             root.post {
                 if (!isFinishing && !isDestroyed && !fullscreenAdInProgress) {
@@ -171,7 +171,7 @@ internal fun DramaAppActivity.showWelcomeRewardDialog(snapshot: RewardsApiClient
             setPadding(dp(30), dp(20), dp(30), dp(20))
         }
         val gem = ImageView(this@showWelcomeRewardDialog).apply {
-            setImageResource(R.drawable.ic_cash_reward)
+            setImageResource(R.drawable.wallet_money)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
         }
         content.addView(gem, LinearLayout.LayoutParams(dp(154), dp(154)))
