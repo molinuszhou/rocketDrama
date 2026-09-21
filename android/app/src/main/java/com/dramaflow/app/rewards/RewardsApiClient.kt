@@ -211,11 +211,13 @@ class RewardsApiClient(
         val tier2Threshold: Long = 0L,
         val tier3Threshold: Long = 0L,
         val tier4Threshold: Long = 0L,
+        val tier5Threshold: Long = 0L,
         val tier1Multiplier: Float = 1f,
         val tier2Multiplier: Float = 1f,
         val tier3Multiplier: Float = 1f,
         val tier4Multiplier: Float = 1f,
         val tier5Multiplier: Float = 1f,
+        val tier6Multiplier: Float = 1f,
     )
 
     data class Withdrawal(
@@ -559,8 +561,8 @@ class RewardsApiClient(
             ),
             gemDamping = GemDamping(
                 damping.optLong("total_gems_earned", walletJson.optLong("total_gems_earned")),
-                damping.optLong("cap"), damping.optLong("tier1_threshold"), damping.optLong("tier2_threshold"), damping.optLong("tier3_threshold"), damping.optLong("tier4_threshold"),
-                damping.optDouble("tier1_multiplier", 1.0).toFloat(), damping.optDouble("tier2_multiplier", 1.0).toFloat(), damping.optDouble("tier3_multiplier", 1.0).toFloat(), damping.optDouble("tier4_multiplier", 1.0).toFloat(), damping.optDouble("tier5_multiplier", 1.0).toFloat(),
+                damping.optLong("cap"), damping.optLong("tier1_threshold"), damping.optLong("tier2_threshold"), damping.optLong("tier3_threshold"), damping.optLong("tier4_threshold"), damping.optLong("tier5_threshold"),
+                damping.optDouble("tier1_multiplier", 1.0).toFloat(), damping.optDouble("tier2_multiplier", 1.0).toFloat(), damping.optDouble("tier3_multiplier", 1.0).toFloat(), damping.optDouble("tier4_multiplier", 1.0).toFloat(), damping.optDouble("tier5_multiplier", 1.0).toFloat(), damping.optDouble("tier6_multiplier", 1.0).toFloat(),
             ),
             withdrawal = Withdrawal(withdrawal.optBoolean("enabled"), withdrawal.optBoolean("eligible"), withdrawal.optString("reason"), withdrawal.optString("threshold", "0.00"), withdrawal.optString("threshold_usd_reference", withdrawal.optString("threshold", "0.00"))),
             achievements = achievements, crownProgress = crowns, rvCountToday = today.optInt("rv_count"), rvDailyLimit = today.optInt("rv_daily_limit", 20), lifecycleDay = user.optInt("lifecycle_day"), geoTier = user.optString("geo_tier", "t3"), ledger = ledger,

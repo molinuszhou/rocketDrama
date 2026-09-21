@@ -74,7 +74,11 @@ def run() -> None:
     assert initial["gem_damping"]["tier1_threshold"] == 1_900_000
     assert initial["gem_damping"]["tier2_threshold"] == 1_950_000
     assert initial["gem_damping"]["tier3_threshold"] == 1_980_000
+    assert initial["gem_damping"]["tier4_threshold"] == 1_990_000
+    assert initial["gem_damping"]["tier5_threshold"] == 1_995_000
     assert initial["gem_damping"]["tier4_multiplier"] == 0.20
+    assert initial["gem_damping"]["tier5_multiplier"] == 0.10
+    assert initial["gem_damping"]["tier6_multiplier"] == 0.01
     assert initial["gem_damping"]["scope"] == "ALL_GEM_SOURCES"
     assert initial["wallet"]["release"]["boost_cap"] == 10
     assert [item["gems"] for item in initial["checkin"]["tiers"][:7]] == [3000, 6000, 8000, 12000, 15000, 25000, 50000]
@@ -236,7 +240,7 @@ def run() -> None:
     assert service.bootstrap(fallback_user, "MX")["wallet"]["currency"]["code"] == "USD"
     assert service.bootstrap(mx_user)["wallet"]["currency"]["code"] == "MXN"
 
-    # 全渠道五档阻尼：内置奖励进度只用于后续现金奖励阻尼，任何渠道均使用同一套边界。
+    # 全渠道六档阻尼：内置奖励进度只用于后续现金奖励阻尼，任何渠道均使用同一套边界。
     damping_user = f"v163-damping-{uuid.uuid4()}"
     service.bootstrap(damping_user, "US")
     with service._transaction() as connection:  # noqa: SLF001 - boundary integration test setup
@@ -254,10 +258,12 @@ def run() -> None:
         assert service._credit_gems(connection, damping_user, 10, policy, "EPISODE_TASK_REDPACKET", "damping", event_id("task")) == 4  # noqa: SLF001
         total_at(1_989_999)
         assert service._credit_gems(connection, damping_user, 10, policy, "ACHIEVEMENT", "damping", event_id("crown")) == 2  # noqa: SLF001
+        total_at(1_994_999)
+        assert service._credit_gems(connection, damping_user, 10, policy, "EPISODE_TASK_REDPACKET", "damping", event_id("tier5")) == 1  # noqa: SLF001
         total_at(1_999_999)
-        assert service._credit_gems(connection, damping_user, 100, policy, "WALLET_CASH_BOOST", "damping", event_id("cap")) == 1  # noqa: SLF001
+        assert service._credit_gems(connection, damping_user, 100, policy, "WALLET_CASH_BOOST", "damping", event_id("tier6")) == 1  # noqa: SLF001
 
-    print("PostgreSQL v1.6.4.7 rewards smoke test passed; direct-cash wallet, random task redpackets, cooldown ads and Crown Road growth verified")
+    print("PostgreSQL v1.6.4.8 rewards smoke test passed; six-tier damping, direct-cash wallet, random task redpackets, cooldown ads and Crown Road growth verified")
 
 
 if __name__ == "__main__":

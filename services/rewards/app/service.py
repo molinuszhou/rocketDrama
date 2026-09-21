@@ -491,8 +491,8 @@ class RewardsService:
             "action_interstitial_reward_threshold_gems", "review_reward_gems", "rv_daily_limit", "episode_interstitial_limit",
             "drama_switch_interstitial_enabled", "drama_switch_interstitial_every_count", "drama_switch_interstitial_hourly_limit",
             "rewarded_fallback_interstitial_enabled", "gems_earned_cap", "gem_damping_tier1_threshold",
-            "gem_damping_tier2_threshold", "gem_damping_tier3_threshold", "gem_damping_tier4_threshold", "gem_damping_tier1_multiplier",
-            "gem_damping_tier2_multiplier", "gem_damping_tier3_multiplier", "gem_damping_tier4_multiplier", "gem_damping_tier5_multiplier",
+            "gem_damping_tier2_threshold", "gem_damping_tier3_threshold", "gem_damping_tier4_threshold", "gem_damping_tier5_threshold", "gem_damping_tier1_multiplier",
+            "gem_damping_tier2_multiplier", "gem_damping_tier3_multiplier", "gem_damping_tier4_multiplier", "gem_damping_tier5_multiplier", "gem_damping_tier6_multiplier",
             "crown_rewarded_ads_per_episode", "crown_rewarded_daily_limit", "release_boost_percent", "release_boost_daily_limit",
             "interstitial_global_hourly_limit",
         }
@@ -515,10 +515,11 @@ class RewardsService:
             damping_tier2 = int(changed.get("gem_damping_tier2_threshold", policy.get("gem_damping_tier2_threshold", 0)))
             damping_tier3 = int(changed.get("gem_damping_tier3_threshold", policy.get("gem_damping_tier3_threshold", 0)))
             damping_tier4 = int(changed.get("gem_damping_tier4_threshold", policy.get("gem_damping_tier4_threshold", 0)))
+            damping_tier5 = int(changed.get("gem_damping_tier5_threshold", policy.get("gem_damping_tier5_threshold", 0)))
             gems_cap = int(changed.get("gems_earned_cap", policy.get("gems_earned_cap", 0)))
-            if any(next_tier > 0 and current > next_tier for current, next_tier in ((damping_tier1, damping_tier2), (damping_tier2, damping_tier3), (damping_tier3, damping_tier4))):
-                raise ServiceError(1906, "五档宝石阻尼阈值必须按从小到大排序", 422)
-            if gems_cap > 0 and any(tier > gems_cap for tier in (damping_tier1, damping_tier2, damping_tier3, damping_tier4)):
+            if any(next_tier > 0 and current > next_tier for current, next_tier in ((damping_tier1, damping_tier2), (damping_tier2, damping_tier3), (damping_tier3, damping_tier4), (damping_tier4, damping_tier5))):
+                raise ServiceError(1906, "六档奖励阻尼阈值必须按从小到大排序", 422)
+            if gems_cap > 0 and any(tier > gems_cap for tier in (damping_tier1, damping_tier2, damping_tier3, damping_tier4, damping_tier5)):
                 raise ServiceError(1907, "宝石阻尼阈值不能大于累计宝石上限", 422)
             assignments = ", ".join(f"{key} = %s" for key in changed)
             values = tuple(changed.values()) + (1,)
@@ -1626,11 +1627,13 @@ class RewardsService:
                 "tier2_threshold": int(policy["gem_damping_tier2_threshold"]),
                 "tier3_threshold": int(policy["gem_damping_tier3_threshold"]),
                 "tier4_threshold": int(policy["gem_damping_tier4_threshold"]),
+                "tier5_threshold": int(policy["gem_damping_tier5_threshold"]),
                 "tier1_multiplier": float(policy["gem_damping_tier1_multiplier"]),
                 "tier2_multiplier": float(policy["gem_damping_tier2_multiplier"]),
                 "tier3_multiplier": float(policy["gem_damping_tier3_multiplier"]),
                 "tier4_multiplier": float(policy["gem_damping_tier4_multiplier"]),
                 "tier5_multiplier": float(policy["gem_damping_tier5_multiplier"]),
+                "tier6_multiplier": float(policy["gem_damping_tier6_multiplier"]),
                 "scope": "ALL_GEM_SOURCES",
             },
             "withdrawal": self.withdrawal_preflight_inline(connection, user_id, policy, user, wallet_policy),
@@ -1739,11 +1742,12 @@ class RewardsService:
         if cap > 0 and total_before >= cap:
             credited_gems = 0
         else:
-            # v1.6.3.5：欢迎、签到、分集/翻倍、宝箱、皇冠等全部 Gems 来源均在结算时适用同一五档阻尼。
+            # 欢迎、签到、分集、任务红包、钱包红包和皇冠等全部来源均在结算时适用同一六档阻尼。
             tier1 = int(policy.get("gem_damping_tier1_threshold", 0))
             tier2 = int(policy.get("gem_damping_tier2_threshold", 0))
             tier3 = int(policy.get("gem_damping_tier3_threshold", 0))
             tier4 = int(policy.get("gem_damping_tier4_threshold", 0))
+            tier5 = int(policy.get("gem_damping_tier5_threshold", 0))
             if tier1 > 0 and total_before < tier1:
                 multiplier = float(policy.get("gem_damping_tier1_multiplier", 1.0))
             elif tier2 > 0 and total_before < tier2:
@@ -1752,8 +1756,10 @@ class RewardsService:
                 multiplier = float(policy.get("gem_damping_tier3_multiplier", 1.0))
             elif tier4 > 0 and total_before < tier4:
                 multiplier = float(policy.get("gem_damping_tier4_multiplier", 1.0))
-            else:
+            elif tier5 > 0 and total_before < tier5:
                 multiplier = float(policy.get("gem_damping_tier5_multiplier", policy.get("gem_damping_tier4_multiplier", 1.0)))
+            else:
+                multiplier = float(policy.get("gem_damping_tier6_multiplier", policy.get("gem_damping_tier5_multiplier", 1.0)))
             credited_gems = max(0, math.floor(gems * multiplier + 1e-9))
             if cap > 0:
                 credited_gems = min(credited_gems, cap - total_before)
@@ -2033,11 +2039,13 @@ class RewardsService:
             "gem_damping_tier2_threshold": int(policy["gem_damping_tier2_threshold"]),
             "gem_damping_tier3_threshold": int(policy["gem_damping_tier3_threshold"]),
             "gem_damping_tier4_threshold": int(policy["gem_damping_tier4_threshold"]),
+            "gem_damping_tier5_threshold": int(policy["gem_damping_tier5_threshold"]),
             "gem_damping_tier1_multiplier": float(policy["gem_damping_tier1_multiplier"]),
             "gem_damping_tier2_multiplier": float(policy["gem_damping_tier2_multiplier"]),
             "gem_damping_tier3_multiplier": float(policy["gem_damping_tier3_multiplier"]),
             "gem_damping_tier4_multiplier": float(policy["gem_damping_tier4_multiplier"]),
             "gem_damping_tier5_multiplier": float(policy["gem_damping_tier5_multiplier"]),
+            "gem_damping_tier6_multiplier": float(policy["gem_damping_tier6_multiplier"]),
             "gem_damping_scope": "ALL_GEM_SOURCES",
             "next_episode_interstitial_cooldown_seconds": int(policy["next_episode_interstitial_cooldown_seconds"]),
             "pause_ad_enabled": bool(policy["pause_ad_enabled"]),

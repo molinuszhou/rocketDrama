@@ -23,7 +23,7 @@ def run() -> None:
     with service._transaction() as connection:  # noqa: SLF001 - upgrade verification needs direct migration marker access
         marker = service._one(  # noqa: SLF001
             connection,
-            "SELECT version FROM schema_migrations WHERE version = '019_direct_cash_wallet_tasks_and_ad_cooldowns'",
+            "SELECT version FROM schema_migrations WHERE version = '021_v1648_six_tier_damping'",
         )
         assert marker is not None
         columns = service._all(  # noqa: SLF001
@@ -31,13 +31,15 @@ def run() -> None:
             """
             SELECT column_name FROM information_schema.columns
             WHERE table_name = 'reward_policy'
-              AND column_name IN ('gem_damping_tier3_threshold', 'gem_damping_tier4_multiplier', 'interstitial_rewarded_skip_threshold')
+              AND column_name IN ('gem_damping_tier3_threshold', 'gem_damping_tier4_multiplier', 'gem_damping_tier5_threshold', 'gem_damping_tier6_multiplier', 'interstitial_rewarded_skip_threshold')
             ORDER BY column_name
             """,
         )
         assert {row["column_name"] for row in columns} == {
             "gem_damping_tier3_threshold",
             "gem_damping_tier4_multiplier",
+            "gem_damping_tier5_threshold",
+            "gem_damping_tier6_multiplier",
             "interstitial_rewarded_skip_threshold",
         }
 
@@ -48,6 +50,8 @@ def run() -> None:
     assert snapshot["wallet"]["cash_mode"] is True
     assert snapshot["welcome"]["cash"] == "30.00"
     assert snapshot["gem_damping"]["scope"] == "ALL_GEM_SOURCES"
+    assert snapshot["gem_damping"]["tier5_threshold"] == 1_995_000
+    assert snapshot["gem_damping"]["tier6_multiplier"] == 0.01
     assert snapshot["interstitial"]["mid_episode_trigger_seconds"] == 120
     assert snapshot["interstitial"]["cooldown_seconds"] == 60
 
@@ -79,7 +83,7 @@ def run() -> None:
         assert data["wallet"]["currency"]["code"] == "BRL"
         assert data["interstitial"]["mid_episode_trigger_seconds"] == 120
 
-    print("PostgreSQL v1.6.4 runtime-upgrade smoke test passed; direct-cash migration and market-wallet admin update verified")
+    print("PostgreSQL v1.6.4.8 runtime-upgrade smoke test passed; six-tier damping, direct-cash migration and market-wallet admin update verified")
 
 
 if __name__ == "__main__":

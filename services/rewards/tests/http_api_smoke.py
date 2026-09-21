@@ -148,6 +148,8 @@ def run() -> None:
                 "crown_rewarded_ads_per_episode": 2,
                 "release_boost_percent": 0.2,
                 "release_boost_daily_limit": 0,
+                "gem_damping_tier5_threshold": 1_996_000,
+                "gem_damping_tier6_multiplier": 0.02,
             },
             admin=True,
         )
@@ -157,10 +159,12 @@ def run() -> None:
         assert updated["data"]["interstitial_cooldown_seconds"] == 30
         assert updated["data"]["interstitial_rewarded_skip_threshold"] == 2
         assert updated["data"]["crown_rewarded_ads_per_episode"] == 2
+        assert updated["data"]["gem_damping_tier5_threshold"] == 1_996_000
+        assert updated["data"]["gem_damping_tier6_multiplier"] == 0.02
         _, crown = request("PUT", "/v2/admin/crown-multiplier", {"code": "BRONZE", "episode_reward_multiplier": 1.20}, admin=True)
         assert crown["data"]["crown_multipliers"][0]["episode_reward_multiplier"] == 1.2
 
-    print("HTTP API v1.6.4.7 smoke test passed; direct cash, random task redpackets, cooldown ads, Crown Road and operating policy verified")
+    print("HTTP API v1.6.4.8 smoke test passed; six-tier damping, direct cash, random task redpackets, cooldown ads, Crown Road and operating policy verified")
 
 
 if __name__ == "__main__":
