@@ -180,13 +180,17 @@ class DramaAppActivity : FragmentActivity() {
     internal val rewardWatchRecordedEpisodeKeys = mutableSetOf<String>()
     internal val floatingWheelLabels = mutableSetOf<TextView>()
     internal val floatingCrownChargeButtons = mutableSetOf<TextView>()
+    internal val crownSummaryChargeButtons = mutableSetOf<TextView>()
     internal val floatingBoostButtons = mutableSetOf<TextView>()
     internal val playerWalletBoostButtons = mutableSetOf<TextView>()
     internal val walletHeaderBoostButtons = mutableSetOf<TextView>()
+    internal val walletChargeButtons = mutableSetOf<TextView>()
+    internal val walletChargeQuotaLabels = mutableSetOf<TextView>()
+    internal val crownChargeCooldownBars = mutableSetOf<ProgressBar>()
     /** Server-backed cooldowns prevent back-to-back Crown and wallet rewarded placements. */
     internal var crownChargeCooldownUntilElapsedMillis = 0L
     internal var walletChargeCooldownUntilElapsedMillis = 0L
-    internal var chargeCooldownRefreshAtElapsedMillis = 0L
+    internal var chargeCooldownTickerRunning = false
     /** 当前页面可见的宝石余额锚点。领取成功后，宝石飞入此位置。 */
     internal var gemBalanceAnchor: View? = null
     internal var gemBalanceLabel: TextView? = null

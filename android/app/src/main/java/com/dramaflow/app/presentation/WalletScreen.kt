@@ -118,6 +118,26 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
                 setImageResource(R.drawable.wallet_money); scaleType = ImageView.ScaleType.CENTER_INSIDE; contentDescription = t("wallet")
             }, LinearLayout.LayoutParams(dp(72), dp(72)))
             addView(balanceRow)
+            addView(LinearLayout(this@createWithdrawalPage).apply {
+                orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(12), dp(14), dp(13)); background = roundedDrawable(0x26FFFFFF, 18)
+                val titleRow = LinearLayout(this@createWithdrawalPage).apply { gravity = Gravity.CENTER_VERTICAL }
+                titleRow.addView(TextView(this@createWithdrawalPage).apply { text = t("ad_boost"); textSize = 16f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                val quota = TextView(this@createWithdrawalPage).apply {
+                    textSize = 11f; typeface = Typeface.DEFAULT_BOLD; setTextColor(0xDDFFFFFF.toInt())
+                }
+                walletChargeQuotaLabels.add(quota); updateWalletChargeQuotaLabel(quota)
+                titleRow.addView(quota)
+                addView(titleRow)
+                addView(TextView(this@createWithdrawalPage).apply {
+                    text = t("wallet_boost_description")
+                    textSize = 12f; setTextColor(0xCCFFFFFF.toInt()); setPadding(0, dp(5), 0, dp(10))
+                })
+                val boostAction = TextView(this@createWithdrawalPage).apply {
+                    textSize = 14f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setPadding(dp(12), dp(10), dp(12), dp(10))
+                }
+                walletChargeButtons.add(boostAction); updateWalletChargeButton(boostAction)
+                addView(boostAction, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            }, matchParams(top = 16, bottom = 18))
             val threshold = rewardsSnapshot?.withdrawal?.threshold?.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO
             val balance = wallet.cashWallet.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO
             if (threshold > java.math.BigDecimal.ZERO) {
@@ -134,35 +154,14 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
                         val targetLabel = "US$${targetUsd.toPlainString()}"
                         val remainingLabel = "US$${remainingUsd.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString()}"
                         text = if (index == 0) t("cashout_progress", targetLabel, remainingLabel) else t("cashout_goal_progress", targetLabel, remainingLabel)
-                        textSize = 11f; setTextColor(0xCCFFFFFF.toInt()); setPadding(0, if (index == 0) dp(14) else dp(9), 0, dp(5))
+                        textSize = 11f; setTextColor(0xCCFFFFFF.toInt()); setPadding(0, if (index == 0) dp(4) else dp(16), 0, dp(8))
                     })
                     addView(ProgressBar(this@createWithdrawalPage, null, android.R.attr.progressBarStyleHorizontal).apply {
                         max = 100; progress = usdBalance.multiply(java.math.BigDecimal(100)).divide(targetUsd, 0, java.math.RoundingMode.DOWN).toInt().coerceIn(0, 100)
                         progressTintList = ColorStateList.valueOf(if (index == 0) COLOR_SUNSET else COLOR_AQUA); backgroundTintList = ColorStateList.valueOf(0x44FFFFFF)
-                    }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(6)))
+                    }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(6)).apply { topMargin = dp(2); bottomMargin = dp(3) })
                 }
             }
-            addView(LinearLayout(this@createWithdrawalPage).apply {
-                orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(12), dp(14), dp(13)); background = roundedDrawable(0x26FFFFFF, 18)
-                val titleRow = LinearLayout(this@createWithdrawalPage).apply { gravity = Gravity.CENTER_VERTICAL }
-                titleRow.addView(TextView(this@createWithdrawalPage).apply { text = t("ad_boost"); textSize = 16f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                titleRow.addView(TextView(this@createWithdrawalPage).apply {
-                    text = t("wallet_charge", wallet.release.boostUsed, if (wallet.release.boostCap > 0) wallet.release.boostCap else wallet.release.boostUsed)
-                    textSize = 11f; typeface = Typeface.DEFAULT_BOLD; setTextColor(0xDDFFFFFF.toInt())
-                })
-                addView(titleRow)
-                addView(TextView(this@createWithdrawalPage).apply {
-                    text = t("wallet_boost_description")
-                    textSize = 12f; setTextColor(0xCCFFFFFF.toInt()); setPadding(0, dp(5), 0, dp(10))
-                })
-                addView(TextView(this@createWithdrawalPage).apply {
-                    val cooldown = walletChargeCooldownRemainingSeconds()
-                    text = if (cooldown > 0) t("charge_cooldown", cooldown) else t("wallet_boost_action")
-                    textSize = 14f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_PRIMARY)
-                    background = roundedDrawable(if (wallet.release.boostAvailable && cooldown <= 0) COLOR_ACCENT else 0x66FFFFFF, 15); setPadding(dp(12), dp(10), dp(12), dp(10)); isClickable = wallet.release.boostAvailable && cooldown <= 0
-                    setOnClickListener { if (wallet.release.boostAvailable && cooldown <= 0) showWalletReleaseBoostDialog() }
-                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-            }, matchParams(top = 15))
         }, matchParams(bottom = 14))
         addView(TextView(this@createWithdrawalPage).apply {
             text = t("request_cashout"); textSize = 17f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE)

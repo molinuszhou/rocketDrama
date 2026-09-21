@@ -110,16 +110,7 @@ internal fun DramaAppActivity.applyRewardsSnapshot(snapshot: RewardsApiClient.Sn
         walletChargeCooldownUntilElapsedMillis = if (walletCooldown > 0) elapsedNow + walletCooldown * 1_000L else 0L
         val refreshInSeconds = maxOf(crownCooldown, walletCooldown)
         if (refreshInSeconds > 0) {
-            val refreshAt = elapsedNow + refreshInSeconds * 1_000L + 250L
-            if (refreshAt > chargeCooldownRefreshAtElapsedMillis) {
-                chargeCooldownRefreshAtElapsedMillis = refreshAt
-                root.postDelayed({
-                    if (!isFinishing && !isDestroyed && android.os.SystemClock.elapsedRealtime() >= chargeCooldownRefreshAtElapsedMillis) {
-                        chargeCooldownRefreshAtElapsedMillis = 0L
-                        refreshRewardsSnapshot()
-                    }
-                }, refreshInSeconds * 1_000L + 300L)
-            }
+            startChargeCooldownTicker()
         }
         unlockedEpisodeKeys.clear()
         unlockedEpisodeKeys.addAll(snapshot.unlockedEpisodeTargets)
@@ -149,6 +140,26 @@ internal fun DramaAppActivity.applyRewardsSnapshot(snapshot: RewardsApiClient.Sn
         } else if (!snapshot.ring.claimable) {
             lastFloatingClaimPromptedGems = 0
         }
+    }
+
+internal fun DramaAppActivity.startChargeCooldownTicker() {
+        if (chargeCooldownTickerRunning) return
+        chargeCooldownTickerRunning = true
+        fun tick() {
+            if (isFinishing || isDestroyed) {
+                chargeCooldownTickerRunning = false
+                return
+            }
+            refreshFloatingRewardWheels()
+            val stillCooling = crownChargeCooldownRemainingSeconds() > 0 || walletChargeCooldownRemainingSeconds() > 0
+            if (stillCooling) {
+                root.postDelayed({ tick() }, 250L)
+            } else {
+                chargeCooldownTickerRunning = false
+                refreshRewardsSnapshot()
+            }
+        }
+        tick()
     }
 
 internal fun DramaAppActivity.showStartupCheckinWhenReady() {
