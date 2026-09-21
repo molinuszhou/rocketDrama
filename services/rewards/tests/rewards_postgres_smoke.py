@@ -145,9 +145,12 @@ def run() -> None:
     assert after_watches["chest"]["available_count"] == 0
     task_targets = [item["target"] for item in after_watches["pending_claims"]]
     assert task_targets[:4] == [1, 3, 6, 9]
+    assert task_targets[-1] == 90
     assert after_watches["pending_claims"][0]["random_redpacket"] is True
-    assert after_watches["pending_claims"][0]["reward_min_gems"] == 4_000
-    assert after_watches["pending_claims"][0]["reward_max_gems"] == 8_000
+    assert after_watches["pending_claims"][0]["reward_min_gems"] == 800
+    assert after_watches["pending_claims"][0]["reward_max_gems"] == 1_200
+    assert after_watches["pending_claims"][1]["reward_min_gems"] == 1_200
+    assert after_watches["pending_claims"][1]["reward_max_gems"] == 1_800
 
     # 领取全部待领取分集奖励仍须先获得一次激励广告授权。
     authorization, authorization_event_id = rewarded(service, user_id, "rv_episode_rewards_claim")
@@ -164,13 +167,32 @@ def run() -> None:
     # 追剧任务在完整观看任务领取广告后发放随机红包，并受同一阻尼逻辑影响。
     task_redpacket, _ = rewarded(service, user_id, "rv_episode_task_claim", "1")
     assert task_redpacket["result"]["action"] == "EPISODE_TASK_REDPACKET"
-    assert 4_000 <= task_redpacket["result"]["gems_added"] <= 8_000
+    assert 800 <= task_redpacket["result"]["gems_added"] <= 1_200
     duplicate_task_error = False
     try:
         rewarded(service, user_id, "rv_episode_task_claim", "1")
     except Exception as error:  # noqa: BLE001 - 验证任务红包只能领取一次。
         duplicate_task_error = "已领取" in str(error)
     assert duplicate_task_error
+
+    # 每日任务按业务日独立重置：次日重新完成第 1 集后，可再次领取同一节点。
+    original_business_date = service._business_date  # noqa: SLF001 - deterministic business-date boundary verification
+    next_business_date = original_business_date() + timedelta(days=1)
+    service._business_date = lambda: next_business_date  # type: ignore[method-assign] # noqa: SLF001
+    try:
+        day_two_watch = service.record_watch_event(
+            user_id=user_id,
+            event_id=event_id("watch-day-two"),
+            drama_id="owned:smoke",
+            episode_id="owned:smoke:ep:day-two",
+            watched_seconds=60,
+        )
+        assert day_two_watch["snapshot"]["today"]["episode_count"] == 1
+        assert day_two_watch["snapshot"]["pending_claims"][0]["state"] == "PENDING"
+        day_two_task, _ = rewarded(service, user_id, "rv_episode_task_claim", "1")
+        assert 800 <= day_two_task["result"]["gems_added"] <= 1_200
+    finally:
+        service._business_date = original_business_date  # type: ignore[method-assign] # noqa: SLF001
 
     # 皇冠广告成长：每 2 条皇冠页面主动激励广告抵 1 集追剧；与其它广告位隔离。
     crown_first, _ = rewarded(service, user_id, "rv_crown_upgrade")
@@ -266,7 +288,7 @@ def run() -> None:
         total_at(1_999_999)
         assert service._credit_gems(connection, damping_user, 100, policy, "WALLET_CASH_BOOST", "damping", event_id("tier6")) == 1  # noqa: SLF001
 
-    print("PostgreSQL v1.6.5.0 rewards smoke test passed; six-tier damping, direct-cash wallet, random task redpackets, claim prompt threshold, cooldown ads and Crown Road growth verified")
+    print("PostgreSQL v1.6.5.1 rewards smoke test passed; six-tier damping, direct-cash wallet, random task redpackets, claim prompt threshold, cooldown ads and Crown Road growth verified")
 
 
 if __name__ == "__main__":

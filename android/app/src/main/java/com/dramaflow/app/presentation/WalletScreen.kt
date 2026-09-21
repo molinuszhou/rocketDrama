@@ -131,19 +131,25 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
                     progressTintList = ColorStateList.valueOf(COLOR_SUNSET); backgroundTintList = ColorStateList.valueOf(0x44FFFFFF)
                 }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(7)))
             }
-        }, matchParams(bottom = 14))
-        addView(LinearLayout(this@createWithdrawalPage).apply {
-            orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(16), dp(18), dp(16)); background = roundedDrawable(COLOR_CARD, 20)
-            addView(TextView(this@createWithdrawalPage).apply { text = t("ad_boost"); textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
-            addView(TextView(this@createWithdrawalPage).apply {
-                text = t("wallet_boost_description")
-                textSize = 13f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(7), 0, 0)
-            })
-            addView(TextView(this@createWithdrawalPage).apply {
-                text = t("wallet_boost_action"); textSize = 15f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
-                background = gradientDrawable(intArrayOf(COLOR_SUNSET, COLOR_CORAL), 18); setPadding(dp(14), dp(13), dp(14), dp(13)); isClickable = true
-                setOnClickListener { showWalletReleaseBoostDialog() }
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(13) })
+            addView(LinearLayout(this@createWithdrawalPage).apply {
+                orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(12), dp(14), dp(13)); background = roundedDrawable(0x26FFFFFF, 18)
+                val titleRow = LinearLayout(this@createWithdrawalPage).apply { gravity = Gravity.CENTER_VERTICAL }
+                titleRow.addView(TextView(this@createWithdrawalPage).apply { text = t("ad_boost"); textSize = 16f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                titleRow.addView(TextView(this@createWithdrawalPage).apply {
+                    text = t("wallet_charge", wallet.release.boostUsed, if (wallet.release.boostCap > 0) wallet.release.boostCap else wallet.release.boostUsed)
+                    textSize = 11f; typeface = Typeface.DEFAULT_BOLD; setTextColor(0xDDFFFFFF.toInt())
+                })
+                addView(titleRow)
+                addView(TextView(this@createWithdrawalPage).apply {
+                    text = t("wallet_boost_description")
+                    textSize = 12f; setTextColor(0xCCFFFFFF.toInt()); setPadding(0, dp(5), 0, dp(10))
+                })
+                addView(TextView(this@createWithdrawalPage).apply {
+                    text = t("wallet_boost_action"); textSize = 14f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_PRIMARY)
+                    background = roundedDrawable(if (wallet.release.boostAvailable) COLOR_ACCENT else 0x66FFFFFF, 15); setPadding(dp(12), dp(10), dp(12), dp(10)); isClickable = wallet.release.boostAvailable
+                    setOnClickListener { if (wallet.release.boostAvailable) showWalletReleaseBoostDialog() }
+                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            }, matchParams(top = 15))
         }, matchParams(bottom = 14))
         addView(TextView(this@createWithdrawalPage).apply {
             text = t("request_cashout"); textSize = 17f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE)

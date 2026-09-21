@@ -37,6 +37,7 @@ def apply_runtime_migrations(settings: Settings) -> None:
         ("021_v1648_six_tier_damping", sql_directory / "021_v1648_six_tier_damping.sql"),
         ("022_v1649_interstitial_schedule_and_usd_default", sql_directory / "022_v1649_interstitial_schedule_and_usd_default.sql"),
         ("023_v1650_episode_reward_claim_prompt_threshold", sql_directory / "023_v1650_episode_reward_claim_prompt_threshold.sql"),
+        ("024_v1651_daily_task_tiers", sql_directory / "024_v1651_daily_task_tiers.sql"),
     )
     with psycopg.connect(settings.database_url, autocommit=True) as connection:
         with connection.cursor() as cursor:

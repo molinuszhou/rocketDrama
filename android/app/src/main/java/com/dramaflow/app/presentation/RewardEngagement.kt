@@ -94,6 +94,12 @@ internal fun DramaAppActivity.createFloatingRewardWheel(compact: Boolean = false
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; clipChildren = false; clipToPadding = false
             addView(gem, LinearLayout.LayoutParams(gemSize, gemSize))
             addView(label, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(30)).apply { topMargin = -dp(4) })
+            val crownCharge = TextView(this@createFloatingRewardWheel).apply {
+                textSize = if (compact) 9f else 10f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END; setPadding(dp(7), dp(5), dp(7), dp(5))
+            }
+            floatingCrownChargeButtons.add(crownCharge); updateFloatingCrownChargeButton(crownCharge)
+            addView(crownCharge, LinearLayout.LayoutParams(dp(120), dp(30)).apply { topMargin = dp(5) })
             if (playerShown && rewardsSnapshot?.unlock?.episodeRewardBoostEnabled == true) {
                 val boostButton = TextView(this@createFloatingRewardWheel).apply { textSize = 11f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setPadding(dp(10), dp(6), dp(10), dp(6)) }
                 floatingBoostButtons.add(boostButton); updateFloatingRewardBoostButton(boostButton)
@@ -105,8 +111,30 @@ internal fun DramaAppActivity.createFloatingRewardWheel(compact: Boolean = false
 internal fun DramaAppActivity.refreshFloatingRewardWheels() {
         floatingWheelLabels.removeAll { !it.isAttachedToWindow }
         floatingWheelLabels.forEach { updateFloatingRewardWheel(it) }
+        floatingCrownChargeButtons.removeAll { !it.isAttachedToWindow }
+        floatingCrownChargeButtons.forEach { updateFloatingCrownChargeButton(it) }
         floatingBoostButtons.removeAll { !it.isAttachedToWindow }
         floatingBoostButtons.forEach { updateFloatingRewardBoostButton(it) }
+    }
+
+internal fun DramaAppActivity.updateFloatingCrownChargeButton(button: TextView) {
+        val crowns = rewardsSnapshot?.crownProgress?.sortedBy { it.levelRank }.orEmpty()
+        if (crowns.isEmpty()) {
+            button.visibility = View.GONE
+            button.isClickable = false
+            return
+        }
+        val current = crowns.filter { it.earned }.maxByOrNull { it.levelRank }
+        val next = crowns.firstOrNull { !it.earned }
+        val title = current?.let { t(crownTitleKey(it.code)) } ?: t("crown_newbie")
+        val multiplier = current?.episodeRewardMultiplier ?: 1f
+        button.visibility = View.VISIBLE
+        button.text = if (next == null) t("crown_charge_complete", title, multiplier) else t("crown_charge", title, multiplier)
+        button.setTextColor(if (next == null) COLOR_TEXT_PRIMARY else Color.WHITE)
+        button.background = if (next == null) roundedDrawable(0xFFFFE5A8.toInt(), 14) else gradientDrawable(intArrayOf(0xFFFF9A62.toInt(), 0xFFFF5C63.toInt()), 14)
+        button.isClickable = next != null
+        button.alpha = if (next == null) 0.82f else 1f
+        button.setOnClickListener { next?.let(::showCrownRewardedUpgradeDialog) }
     }
 
 internal fun DramaAppActivity.updateFloatingRewardBoostButton(button: TextView) {
@@ -282,8 +310,22 @@ internal fun DramaAppActivity.claimWelcomeBonus(onCompleted: (() -> Unit)? = nul
         requestRewardedAction("rv_welcome_bonus", onSettled = { action ->
             applyRewardsSnapshot(action.snapshot)
             resumeAfterFullscreenAdIfNeeded()
-            toast(if (action.idempotent) t("welcome_claimed") else "新人现金奖励已存入钱包")
-            onCompleted?.invoke()
+            if (action.idempotent) {
+                toast(t("welcome_claimed"))
+                onCompleted?.invoke()
+            } else {
+                showBrandedChoiceDialog(
+                    t("welcome_rewards_guide_title"),
+                    t("welcome_rewards_guide_message"),
+                    t("welcome_rewards_guide_action"),
+                    {
+                        activeTab = MainTab.TASKS
+                        if (playerShown) showCatalog() else if (catalogItems.isNotEmpty()) renderActiveTab()
+                        onCompleted?.invoke()
+                    },
+                    cancelable = false,
+                )
+            }
         })
     }
 

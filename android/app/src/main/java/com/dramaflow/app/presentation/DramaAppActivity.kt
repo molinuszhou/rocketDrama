@@ -180,6 +180,7 @@ class DramaAppActivity : FragmentActivity() {
     internal val completedEpisodeKeys = mutableSetOf<String>()
     internal val rewardWatchRecordedEpisodeKeys = mutableSetOf<String>()
     internal val floatingWheelLabels = mutableSetOf<TextView>()
+    internal val floatingCrownChargeButtons = mutableSetOf<TextView>()
     internal val floatingBoostButtons = mutableSetOf<TextView>()
     /** 当前页面可见的宝石余额锚点。领取成功后，宝石飞入此位置。 */
     internal var gemBalanceAnchor: View? = null
@@ -332,8 +333,8 @@ class DramaAppActivity : FragmentActivity() {
             }
         }
         root.addView(createBottomNavigation(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(68), Gravity.BOTTOM))
-        root.addView(createFloatingRewardWheel(), FrameLayout.LayoutParams(dp(92), dp(112), Gravity.END or Gravity.BOTTOM).apply {
-            marginEnd = dp(2)
+        root.addView(createFloatingRewardWheel(), FrameLayout.LayoutParams(dp(130), dp(154), Gravity.END or Gravity.BOTTOM).apply {
+            marginEnd = 0
             bottomMargin = dp(80)
         })
     }

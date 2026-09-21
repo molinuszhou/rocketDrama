@@ -121,7 +121,7 @@ def run() -> None:
     # Each completed task milestone is claimed by its own rewarded ad and grants a random cash redpacket.
     _, task_claim, _ = rewarded("rv_episode_task_claim", "3")
     assert task_claim["data"]["result"]["action"] == "EPISODE_TASK_REDPACKET"
-    assert 4_000 <= task_claim["data"]["result"]["gems_added"] <= 8_000
+    assert 1_200 <= task_claim["data"]["result"]["gems_added"] <= 1_800
     assert task_claim["data"]["snapshot"]["chest"]["available_count"] == 0
 
     # 皇冠广告升级：以广告前的基线计算，连续两条激励广告至少增加一集等效追剧。
@@ -138,9 +138,11 @@ def run() -> None:
             "PUT",
             "/v2/admin/policy/operating",
             {
-                "episode_task_max_episode": 120,
-                "episode_task_redpacket_min_gems": 400,
-                "episode_task_redpacket_max_gems": 900,
+                "episode_task_max_episode": 90,
+                "episode_task_tier1_min_gems": 400,
+                "episode_task_tier1_max_gems": 900,
+                "episode_task_tier4_min_gems": 2_500,
+                "episode_task_tier4_max_gems": 3_500,
                 "wallet_redpacket_min_gems": 100,
                 "wallet_redpacket_max_gems": 300,
                 "speed_interstitial_enabled": True,
@@ -157,8 +159,9 @@ def run() -> None:
             },
             admin=True,
         )
-        assert updated["data"]["episode_task_max_episode"] == 120
-        assert updated["data"]["episode_task_redpacket_min_gems"] == 400
+        assert updated["data"]["episode_task_max_episode"] == 90
+        assert updated["data"]["episode_task_tier1_min_gems"] == 400
+        assert updated["data"]["episode_task_tier4_max_gems"] == 3_500
         assert updated["data"]["speed_interstitial_enabled"] is True
         assert updated["data"]["interstitial_cooldown_seconds"] == 30
         assert updated["data"]["interstitial_rewarded_skip_threshold"] == 2
@@ -170,7 +173,7 @@ def run() -> None:
         _, crown = request("PUT", "/v2/admin/crown-multiplier", {"code": "BRONZE", "episode_reward_multiplier": 1.20}, admin=True)
         assert crown["data"]["crown_multipliers"][0]["episode_reward_multiplier"] == 1.2
 
-    print("HTTP API v1.6.5.0 smoke test passed; six-tier damping, direct cash, random task redpackets, claim prompt threshold, cooldown ads, Crown Road and operating policy verified")
+    print("HTTP API v1.6.5.1 smoke test passed; six-tier damping, direct cash, random task redpackets, claim prompt threshold, cooldown ads, Crown Road and operating policy verified")
 
 
 if __name__ == "__main__":

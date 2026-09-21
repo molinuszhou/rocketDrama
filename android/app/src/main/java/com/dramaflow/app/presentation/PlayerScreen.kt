@@ -162,7 +162,7 @@ internal fun DramaAppActivity.showPlayer(drama: LocalDrama, startIndex: Int, res
         })
         root.addView(playerView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         root.addView(createPlayerChrome(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        root.addView(createFloatingRewardWheel(compact = true), FrameLayout.LayoutParams(dp(96), dp(128), Gravity.END or Gravity.CENTER_VERTICAL).apply {
+        root.addView(createFloatingRewardWheel(compact = true), FrameLayout.LayoutParams(dp(130), dp(190), Gravity.END or Gravity.CENTER_VERTICAL).apply {
             marginEnd = -dp(2)
             topMargin = dp(42)
         })
