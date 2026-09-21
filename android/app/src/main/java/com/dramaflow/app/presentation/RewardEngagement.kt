@@ -94,8 +94,9 @@ internal fun DramaAppActivity.createFloatingRewardWheel(compact: Boolean = false
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; clipChildren = false; clipToPadding = false
             addView(FrameLayout(this@createFloatingRewardWheel).apply {
+                clipChildren = false; clipToPadding = false
                 addView(gem, FrameLayout.LayoutParams(gemSize, gemSize, Gravity.CENTER))
-                addView(label, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(30), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(3) })
+                addView(label, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(26), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = -dp(8) })
             }, LinearLayout.LayoutParams(gemSize, gemSize))
             val crownCharge = TextView(this@createFloatingRewardWheel).apply {
                 textSize = if (compact) 9f else 10f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; maxLines = 1
@@ -120,6 +121,8 @@ internal fun DramaAppActivity.refreshFloatingRewardWheels() {
         floatingBoostButtons.forEach { updateFloatingRewardBoostButton(it) }
         playerWalletBoostButtons.removeAll { !it.isAttachedToWindow }
         playerWalletBoostButtons.forEach { updatePlayerWalletBoostButton(it) }
+        walletHeaderBoostButtons.removeAll { !it.isAttachedToWindow }
+        walletHeaderBoostButtons.forEach { updateWalletHeaderBoostButton(it) }
     }
 
 internal fun DramaAppActivity.updateFloatingCrownChargeButton(button: TextView) {
@@ -159,8 +162,25 @@ internal fun DramaAppActivity.updatePlayerWalletBoostButton(button: TextView) {
         val available = wallet?.release?.boostAvailable == true && cooldown <= 0
         button.visibility = if (wallet == null) View.GONE else View.VISIBLE
         button.text = if (cooldown > 0) t("charge_cooldown", cooldown) else t("extra_reward")
+        button.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_charge_bolt, 0, 0, 0)
+        button.compoundDrawablePadding = dp(3)
         button.setTextColor(if (available) Color.WHITE else 0xCCFFFFFF.toInt())
         button.background = roundedDrawable(if (available) COLOR_CORAL else 0x661C1C1C, 13)
+        button.alpha = if (available) 1f else 0.72f
+        button.isClickable = available
+        button.setOnClickListener { if (available) showWalletReleaseBoostDialog() }
+    }
+
+internal fun DramaAppActivity.updateWalletHeaderBoostButton(button: TextView) {
+        val wallet = rewardsSnapshot?.wallet
+        val cooldown = walletChargeCooldownRemainingSeconds()
+        val available = wallet?.release?.boostAvailable == true && cooldown <= 0
+        button.visibility = if (wallet == null) View.GONE else View.VISIBLE
+        button.text = if (cooldown > 0) t("charge_cooldown", cooldown) else t("extra_reward")
+        button.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_charge_bolt, 0, 0, 0)
+        button.compoundDrawablePadding = dp(3)
+        button.setTextColor(if (available) COLOR_TEXT_PRIMARY else 0x991C1C1C.toInt())
+        button.background = roundedDrawable(if (available) 0xFFFFE2A7.toInt() else 0x33A85B00, 14)
         button.alpha = if (available) 1f else 0.72f
         button.isClickable = available
         button.setOnClickListener { if (available) showWalletReleaseBoostDialog() }
@@ -424,7 +444,7 @@ internal fun DramaAppActivity.showGemsExchangeDialog(wallet: RewardsApiClient.Wa
         }
         showBrandedInputDialog(t("exchange_gems"), t("exchange_gems_message"), input, t("done"), { value ->
             val gems = value.toLongOrNull()
-            if (gems == null) { toast(t("valid_gem_amount")); return@showBrandedInputDialog }
+            if (gems == null) { toast(t("valid_cash_amount")); return@showBrandedInputDialog }
             rewardsApi.exchangeGems(anonymousInstallationId(), gems, { snapshot -> runOnUiThread { applyRewardsSnapshot(snapshot); toast(t("exchange_recorded")) } }, { message -> runOnUiThread { toast(message) } })
         })
     }

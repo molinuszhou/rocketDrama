@@ -277,21 +277,32 @@ internal fun DramaAppActivity.showPlaybackActionInterstitial(
         } }
     }
 
-internal fun DramaAppActivity.showGemIncomeDetails() {
+internal fun DramaAppActivity.showCashIncomeDetails() {
         val snapshot = rewardsSnapshot
         if (snapshot == null) { toast(t("wallet_syncing")); return }
         val wallet = snapshot.wallet
         val detail = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(22), dp(18), dp(22), dp(12)); background = roundedDrawable(COLOR_CARD, 24) }
-        detail.addView(TextView(this@showGemIncomeDetails).apply { text = t("gem_income_details"); textSize = 21f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
-        detail.addView(TextView(this@showGemIncomeDetails).apply { text = t("gem_income_summary", formatGems(wallet.coins), formatGems(wallet.totalGemsEarned)); textSize = 13f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(5), 0, dp(12)) })
-        val entries = snapshot.ledger.filter { it.gemsDelta > 0 }
-        if (entries.isEmpty()) detail.addView(TextView(this@showGemIncomeDetails).apply { text = t("ledger_empty"); textSize = 14f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(2), dp(0), dp(14)) })
+        detail.addView(TextView(this@showCashIncomeDetails).apply { text = t("cash_income_details"); textSize = 21f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
+        detail.addView(TextView(this@showCashIncomeDetails).apply {
+            text = t("cash_income_summary", formatWalletTotal(wallet, includeUsdReference = false), formatCurrencyAmount(wallet, wallet.availableBalance, wallet.availableBalanceUsdReference, includeUsdReference = false))
+            textSize = 13f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(5), 0, dp(12))
+        })
+        val entries = snapshot.ledger.filter {
+            (it.cashWalletDelta.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO) > java.math.BigDecimal.ZERO ||
+                (it.availableBalanceDelta.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO) > java.math.BigDecimal.ZERO
+        }
+        if (entries.isEmpty()) detail.addView(TextView(this@showCashIncomeDetails).apply { text = t("ledger_empty"); textSize = 14f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(2), dp(0), dp(14)) })
         else entries.forEach { entry ->
-            detail.addView(LinearLayout(this@showGemIncomeDetails).apply {
+            detail.addView(LinearLayout(this@showCashIncomeDetails).apply {
                 gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(10), 0, dp(10))
-                addView(ImageView(this@showGemIncomeDetails).apply { setImageResource(R.drawable.wallet_money); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(28), dp(28)))
-                addView(TextView(this@showGemIncomeDetails).apply { text = ledgerTitle(entry.type); textSize = 14f; setTextColor(COLOR_TEXT_PRIMARY); setPadding(dp(8), 0, 0, 0); maxLines = 1 }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                addView(TextView(this@showGemIncomeDetails).apply { text = "+${formatGems(entry.gemsDelta)}"; textSize = 14f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_CORAL) })
+                addView(ImageView(this@showCashIncomeDetails).apply { setImageResource(R.drawable.wallet_money); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(28), dp(28)))
+                addView(TextView(this@showCashIncomeDetails).apply { text = ledgerTitle(entry.type); textSize = 14f; setTextColor(COLOR_TEXT_PRIMARY); setPadding(dp(8), 0, 0, 0); maxLines = 1 }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                addView(TextView(this@showCashIncomeDetails).apply {
+                    val cashDelta = (entry.cashWalletDelta.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO) +
+                        (entry.availableBalanceDelta.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO)
+                    text = if (cashDelta.signum() > 0) "+${formatCurrencyAmount(wallet, cashDelta.toPlainString(), null, includeUsdReference = false)}" else "—"
+                    textSize = 14f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_CORAL)
+                })
             })
         }
         detail.addView(TextView(this).apply {
@@ -312,7 +323,7 @@ internal fun DramaAppActivity.ledgerTitle(type: String): String = when (type) {
 internal fun DramaAppActivity.showRewardLedgerHint() {
         val snapshot = rewardsSnapshot
         val message = snapshot?.let { t("reward_ledger_hint", it.ruleVersion) } ?: t("rewards_service_unavailable")
-        showBrandedChoiceDialog(t("gem_income_details"), message, t("done"))
+        showBrandedChoiceDialog(t("cash_income_details"), message, t("done"))
     }
 
 /** The ordinary asset header appears only after balances in the reward hero have scrolled out of view. */

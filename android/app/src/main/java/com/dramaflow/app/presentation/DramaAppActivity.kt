@@ -182,6 +182,7 @@ class DramaAppActivity : FragmentActivity() {
     internal val floatingCrownChargeButtons = mutableSetOf<TextView>()
     internal val floatingBoostButtons = mutableSetOf<TextView>()
     internal val playerWalletBoostButtons = mutableSetOf<TextView>()
+    internal val walletHeaderBoostButtons = mutableSetOf<TextView>()
     /** Server-backed cooldowns prevent back-to-back Crown and wallet rewarded placements. */
     internal var crownChargeCooldownUntilElapsedMillis = 0L
     internal var walletChargeCooldownUntilElapsedMillis = 0L

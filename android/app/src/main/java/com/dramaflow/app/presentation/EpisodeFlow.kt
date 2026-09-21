@@ -433,7 +433,7 @@ internal fun DramaAppActivity.showRandomChestEarnedDialog(createdCount: Int, ava
             setTextColor(COLOR_TEXT_PRIMARY)
         })
         content.addView(TextView(this).apply {
-            text = if (createdCount > 0) t("chest_earned_message") else "签到奖励已到账，打开宝箱领取额外宝石"
+            text = if (createdCount > 0) t("chest_earned_message") else t("chest_cash_hint")
             textSize = 13f
             gravity = Gravity.CENTER
             setTextColor(COLOR_TEXT_MUTED)

@@ -86,7 +86,14 @@ internal fun DramaAppActivity.createPersistentAssetHeader(): View {
             val wallet = rewardsSnapshot?.wallet
             val balanceBar = LinearLayout(this@createPersistentAssetHeader).apply {
                 gravity = Gravity.CENTER_VERTICAL; background = roundedDrawable(0xF2FFFFFF.toInt(), 20); setPadding(dp(5), dp(4), dp(5), dp(4)); clipToOutline = true
-                addView(createAssetPill(icon = R.drawable.wallet_money, label = t("wallet_balance"), value = wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—", isGem = false) { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
+                addView(createAssetPill(icon = R.drawable.wallet_money, label = t("wallet_balance"), value = wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—", isGem = false) { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) }, LinearLayout.LayoutParams(0, dp(48), 1f))
+                val charge = TextView(this@createPersistentAssetHeader).apply {
+                    textSize = 10f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; maxLines = 1
+                    setPadding(dp(7), dp(5), dp(7), dp(5)); contentDescription = t("extra_reward")
+                }
+                walletHeaderBoostButtons.add(charge)
+                updateWalletHeaderBoostButton(charge)
+                addView(charge, LinearLayout.LayoutParams(dp(96), dp(40)).apply { marginStart = dp(4) })
             }
             addView(balanceBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)))
         }
