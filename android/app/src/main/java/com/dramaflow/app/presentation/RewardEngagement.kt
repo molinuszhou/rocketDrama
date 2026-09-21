@@ -72,7 +72,7 @@ internal fun DramaAppActivity.createFloatingRewardWheel(compact: Boolean = false
         val gem = ImageView(this).apply {
             setImageResource(R.drawable.savings_jar)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            alpha = 0.30f
+            alpha = 0.84f
             contentDescription = t("claim_all")
             isClickable = true
             setOnClickListener {
@@ -87,19 +87,22 @@ internal fun DramaAppActivity.createFloatingRewardWheel(compact: Boolean = false
         val label = TextView(this).apply {
             gravity = Gravity.CENTER; textSize = if (compact) 10f else 11f; typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE); setPadding(dp(10), dp(5), dp(10), dp(5)); background = gradientDrawable(intArrayOf(0xEFFF9061.toInt(), 0xE8FF5B62.toInt()), 14)
+            alpha = 0.84f
             isClickable = true; setOnClickListener { gem.performClick() }
         }
         floatingWheelLabels.add(label); updateFloatingRewardWheel(label)
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; clipChildren = false; clipToPadding = false
-            addView(gem, LinearLayout.LayoutParams(gemSize, gemSize))
-            addView(label, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(30)).apply { topMargin = -dp(4) })
+            addView(FrameLayout(this@createFloatingRewardWheel).apply {
+                addView(gem, FrameLayout.LayoutParams(gemSize, gemSize, Gravity.CENTER))
+                addView(label, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(30), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(3) })
+            }, LinearLayout.LayoutParams(gemSize, gemSize))
             val crownCharge = TextView(this@createFloatingRewardWheel).apply {
                 textSize = if (compact) 9f else 10f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END; setPadding(dp(7), dp(5), dp(7), dp(5))
             }
             floatingCrownChargeButtons.add(crownCharge); updateFloatingCrownChargeButton(crownCharge)
-            addView(crownCharge, LinearLayout.LayoutParams(dp(120), dp(30)).apply { topMargin = dp(5) })
+            addView(crownCharge, LinearLayout.LayoutParams(dp(120), dp(30)))
             if (playerShown && rewardsSnapshot?.unlock?.episodeRewardBoostEnabled == true) {
                 val boostButton = TextView(this@createFloatingRewardWheel).apply { textSize = 11f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setPadding(dp(10), dp(6), dp(10), dp(6)) }
                 floatingBoostButtons.add(boostButton); updateFloatingRewardBoostButton(boostButton)
@@ -115,6 +118,8 @@ internal fun DramaAppActivity.refreshFloatingRewardWheels() {
         floatingCrownChargeButtons.forEach { updateFloatingCrownChargeButton(it) }
         floatingBoostButtons.removeAll { !it.isAttachedToWindow }
         floatingBoostButtons.forEach { updateFloatingRewardBoostButton(it) }
+        playerWalletBoostButtons.removeAll { !it.isAttachedToWindow }
+        playerWalletBoostButtons.forEach { updatePlayerWalletBoostButton(it) }
     }
 
 internal fun DramaAppActivity.updateFloatingCrownChargeButton(button: TextView) {
@@ -128,13 +133,37 @@ internal fun DramaAppActivity.updateFloatingCrownChargeButton(button: TextView) 
         val next = crowns.firstOrNull { !it.earned }
         val title = current?.let { t(crownTitleKey(it.code)) } ?: t("crown_newbie")
         val multiplier = current?.episodeRewardMultiplier ?: 1f
+        val cooldown = crownChargeCooldownRemainingSeconds()
         button.visibility = View.VISIBLE
-        button.text = if (next == null) t("crown_charge_complete", title, multiplier) else t("crown_charge", title, multiplier)
+        button.text = when {
+            next == null -> t("crown_charge_complete", title, multiplier)
+            cooldown > 0 -> "${t("crown_charge", title, multiplier)} · ${t("charge_cooldown", cooldown)}"
+            else -> t("crown_charge", title, multiplier)
+        }
         button.setTextColor(if (next == null) COLOR_TEXT_PRIMARY else Color.WHITE)
         button.background = if (next == null) roundedDrawable(0xFFFFE5A8.toInt(), 14) else gradientDrawable(intArrayOf(0xFFFF9A62.toInt(), 0xFFFF5C63.toInt()), 14)
-        button.isClickable = next != null
-        button.alpha = if (next == null) 0.82f else 1f
+        button.isClickable = next != null && cooldown <= 0
+        button.alpha = if (next == null || cooldown > 0) 0.72f else 1f
         button.setOnClickListener { next?.let(::showCrownRewardedUpgradeDialog) }
+    }
+
+internal fun DramaAppActivity.crownChargeCooldownRemainingSeconds(): Int =
+    ((crownChargeCooldownUntilElapsedMillis - android.os.SystemClock.elapsedRealtime() + 999L) / 1_000L).toInt().coerceAtLeast(0)
+
+internal fun DramaAppActivity.walletChargeCooldownRemainingSeconds(): Int =
+    ((walletChargeCooldownUntilElapsedMillis - android.os.SystemClock.elapsedRealtime() + 999L) / 1_000L).toInt().coerceAtLeast(0)
+
+internal fun DramaAppActivity.updatePlayerWalletBoostButton(button: TextView) {
+        val wallet = rewardsSnapshot?.wallet
+        val cooldown = walletChargeCooldownRemainingSeconds()
+        val available = wallet?.release?.boostAvailable == true && cooldown <= 0
+        button.visibility = if (wallet == null) View.GONE else View.VISIBLE
+        button.text = if (cooldown > 0) t("charge_cooldown", cooldown) else t("extra_reward")
+        button.setTextColor(if (available) Color.WHITE else 0xCCFFFFFF.toInt())
+        button.background = roundedDrawable(if (available) COLOR_CORAL else 0x661C1C1C, 13)
+        button.alpha = if (available) 1f else 0.72f
+        button.isClickable = available
+        button.setOnClickListener { if (available) showWalletReleaseBoostDialog() }
     }
 
 internal fun DramaAppActivity.updateFloatingRewardBoostButton(button: TextView) {
@@ -361,7 +390,16 @@ internal fun DramaAppActivity.showWithdrawalDetailsDialog(wallet: RewardsApiClie
 }
 
 internal fun DramaAppActivity.showWalletReleaseBoostDialog() {
-        rewardsSnapshot?.wallet ?: return
+        val wallet = rewardsSnapshot?.wallet ?: return
+        val cooldown = walletChargeCooldownRemainingSeconds()
+        if (cooldown > 0) {
+            toast(t("charge_cooldown", cooldown))
+            return
+        }
+        if (!wallet.release.boostAvailable) {
+            toast(t("wallet_boost_already_settled"))
+            return
+        }
         showBrandedChoiceDialog(t("ad_boost"), t("wallet_boost_description"), t("wallet_boost_action"), { requestWalletReleaseBoost() }, t("not_now"))
 }
 
@@ -370,11 +408,11 @@ internal fun DramaAppActivity.requestWalletReleaseBoost() {
             applyRewardsSnapshot(action.snapshot)
             resumeAfterFullscreenAdIfNeeded()
             val wallet = action.snapshot.wallet
-            val updatedRelease = wallet.release
             val received = formatCurrencyAmount(wallet, action.cashAdded, action.cashAddedUsdReference, includeUsdReference = false)
             val nextMessage = if (action.idempotent) t("wallet_boost_already_settled") else t("wallet_boost_received", received)
-            val canContinue = updatedRelease.boostAvailable
-            showBrandedChoiceDialog(t("wallet_boost_received_title"), nextMessage, if (canContinue) t("continue_accelerating") else t("done"), { if (canContinue) showWalletReleaseBoostDialog() }, if (canContinue) t("later") else null)
+            val cooldown = walletChargeCooldownRemainingSeconds()
+            val message = if (cooldown > 0) "$nextMessage\n\n${t("charge_cooldown", cooldown)}" else nextMessage
+            showBrandedChoiceDialog(t("wallet_boost_received_title"), message, t("done"))
         })
     }
 
@@ -465,38 +503,38 @@ internal fun DramaAppActivity.createAchievementSummary(snapshot: RewardsApiClien
                 backgroundTintList = ColorStateList.valueOf(0x33333333)
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(8)))
             addView(TextView(this@createAchievementSummary).apply {
-                text = "继续追剧即可升级；越高档位，后续每集现金奖励越高"
+                text = t("crown_progress_rule", next.episodeProgressPoints, next.rewardedAdProgressPoints)
                 textSize = 12f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(10), 0, dp(9))
             })
             addView(TextView(this@createAchievementSummary).apply {
-                text = "看 ${next.adsPerEpisode} 段广告加快升级"
+                text = if (crownChargeCooldownRemainingSeconds() > 0) t("charge_cooldown", crownChargeCooldownRemainingSeconds()) else t("crown_accelerate")
                 textSize = 13f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_PRIMARY)
-                background = gradientDrawable(intArrayOf(0xFFFF5D69.toInt(), 0xFFC42048.toInt()), 13); setPadding(dp(12), dp(9), dp(12), dp(9)); isClickable = true
-                setOnClickListener { showCrownRewardedUpgradeDialog(next) }
+                background = gradientDrawable(intArrayOf(0xFFFF5D69.toInt(), 0xFFC42048.toInt()), 13); setPadding(dp(12), dp(9), dp(12), dp(9)); isClickable = crownChargeCooldownRemainingSeconds() <= 0
+                alpha = if (crownChargeCooldownRemainingSeconds() > 0) 0.65f else 1f
+                setOnClickListener { if (crownChargeCooldownRemainingSeconds() <= 0) showCrownRewardedUpgradeDialog(next) }
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)))
         }
     }
 
 internal fun DramaAppActivity.showCrownRewardedUpgradeDialog(crown: RewardsApiClient.CrownProgress) {
+        val cooldown = crownChargeCooldownRemainingSeconds()
+        if (cooldown > 0) {
+            toast(t("charge_cooldown", cooldown))
+            return
+        }
         val remainingToday = if (crown.rewardedAdsDailyLimit > 0) crown.rewardedAdsDailyLimit - crown.rewardedAdsToday else crown.adsPerEpisode
         if (remainingToday <= 0) {
             toast("今日皇冠成长广告已完成，明天继续加速")
             return
         }
-        val batchSize = minOf(crown.adsPerEpisode, remainingToday)
-        showBrandedChoiceDialog(t("crown_accelerate"), t("crown_accelerate_message", batchSize), t("watch_ad_claim"), { requestCrownRewardedUpgrade(batchSize, crown.title) }, t("not_now"))
+        showBrandedChoiceDialog(t("crown_accelerate"), t("crown_accelerate_message", crown.rewardedAdProgressPoints), t("watch_ad_claim"), { requestCrownRewardedUpgrade(crown.title) }, t("not_now"))
 }
 
-internal fun DramaAppActivity.requestCrownRewardedUpgrade(remaining: Int, title: String) {
-        if (remaining <= 0) { refreshRewardsSnapshot(); return }
+internal fun DramaAppActivity.requestCrownRewardedUpgrade(title: String) {
         requestRewardedAction("rv_crown_upgrade", onSettled = { action ->
             applyRewardsSnapshot(action.snapshot)
             resumeAfterFullscreenAdIfNeeded()
-            if (remaining > 1) {
-                showBrandedChoiceDialog(t("crown_accelerating"), t("crown_accelerating_message", remaining - 1), t("continue_watching"), { requestCrownRewardedUpgrade(remaining - 1, title) }, t("later"))
-            } else {
-                toast("已完成皇冠广告升级，${title}进度已刷新")
-            }
+            toast("${title}进度已增加")
         })
     }
 

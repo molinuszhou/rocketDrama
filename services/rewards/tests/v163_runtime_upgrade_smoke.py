@@ -23,7 +23,7 @@ def run() -> None:
     with service._transaction() as connection:  # noqa: SLF001 - upgrade verification needs direct migration marker access
         marker = service._one(  # noqa: SLF001
             connection,
-            "SELECT version FROM schema_migrations WHERE version = '024_v1651_daily_task_tiers'",
+            "SELECT version FROM schema_migrations WHERE version = '025_v1652_charge_cooldowns_and_crown_points'",
         )
         assert marker is not None
         columns = service._all(  # noqa: SLF001
@@ -31,7 +31,7 @@ def run() -> None:
             """
             SELECT column_name FROM information_schema.columns
             WHERE table_name = 'reward_policy'
-              AND column_name IN ('gem_damping_tier3_threshold', 'gem_damping_tier4_multiplier', 'gem_damping_tier5_threshold', 'gem_damping_tier6_multiplier', 'interstitial_rewarded_skip_threshold', 'episode_reward_claim_prompt_threshold_gems', 'episode_task_tier1_min_gems', 'episode_task_tier4_max_gems')
+              AND column_name IN ('gem_damping_tier3_threshold', 'gem_damping_tier4_multiplier', 'gem_damping_tier5_threshold', 'gem_damping_tier6_multiplier', 'interstitial_rewarded_skip_threshold', 'episode_reward_claim_prompt_threshold_gems', 'episode_task_tier1_min_gems', 'episode_task_tier4_max_gems', 'crown_episode_progress_points', 'crown_rewarded_ad_progress_points', 'crown_rewarded_cooldown_seconds', 'release_boost_cooldown_seconds')
             ORDER BY column_name
             """,
         )
@@ -44,6 +44,10 @@ def run() -> None:
             "episode_reward_claim_prompt_threshold_gems",
             "episode_task_tier1_min_gems",
             "episode_task_tier4_max_gems",
+            "crown_episode_progress_points",
+            "crown_rewarded_ad_progress_points",
+            "crown_rewarded_cooldown_seconds",
+            "release_boost_cooldown_seconds",
         }
 
     user_id = f"v163-runtime-br-{uuid.uuid4()}"
@@ -59,6 +63,11 @@ def run() -> None:
     assert snapshot["interstitial"]["mid_episode_repeat_seconds"] == 360
     assert snapshot["interstitial"]["cooldown_seconds"] == 60
     assert snapshot["ring"]["claim_prompt_threshold_gems"] == 50_000
+    assert snapshot["interstitial"]["seek_enabled"] is False
+    assert snapshot["interstitial"]["speed_enabled"] is False
+    assert snapshot["crown_progress"][0]["episode_progress_points"] == 2
+    assert snapshot["crown_progress"][0]["rewarded_ad_progress_points"] == 1
+    assert snapshot["wallet"]["release"]["charge_cooldown_seconds"] == 30
     assert snapshot["pending_claims"][-1]["target"] == 90
     assert snapshot["pending_claims"][0]["reward_min_gems"] == 800
 
@@ -91,7 +100,7 @@ def run() -> None:
         assert data["interstitial"]["mid_episode_trigger_seconds"] == 180
         assert data["interstitial"]["mid_episode_repeat_seconds"] == 360
 
-    print("PostgreSQL v1.6.5.1 runtime-upgrade smoke test passed; six-tier damping, direct-cash migration, claim prompt threshold and market-wallet admin update verified")
+    print("PostgreSQL v1.6.5.2 runtime-upgrade smoke test passed; six-tier damping, direct-cash migration, charge cooldowns, Crown points and market-wallet admin update verified")
 
 
 if __name__ == "__main__":

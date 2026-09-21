@@ -121,15 +121,26 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
             val threshold = rewardsSnapshot?.withdrawal?.threshold?.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO
             val balance = wallet.cashWallet.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO
             if (threshold > java.math.BigDecimal.ZERO) {
-                addView(TextView(this@createWithdrawalPage).apply {
-                    val remaining = threshold.subtract(balance).max(java.math.BigDecimal.ZERO)
-                    text = t("cashout_progress", formatCurrencyAmount(wallet, threshold.toPlainString(), null, false), formatCurrencyAmount(wallet, remaining.toPlainString(), null, false))
-                    textSize = 11f; setTextColor(0xCCFFFFFF.toInt()); setPadding(0, dp(14), 0, dp(5))
-                })
-                addView(ProgressBar(this@createWithdrawalPage, null, android.R.attr.progressBarStyleHorizontal).apply {
-                    max = 100; progress = balance.multiply(java.math.BigDecimal(100)).divide(threshold, 0, java.math.RoundingMode.DOWN).toInt().coerceIn(0, 100)
-                    progressTintList = ColorStateList.valueOf(COLOR_SUNSET); backgroundTintList = ColorStateList.valueOf(0x44FFFFFF)
-                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(7)))
+                val usdBalance = wallet.availableBalanceUsdReference.toBigDecimalOrNull()
+                    ?: wallet.cashWalletUsdReference.toBigDecimalOrNull()
+                    ?: balance
+                val cashoutTargetsUsd = listOf(
+                    java.math.BigDecimal("200"), java.math.BigDecimal("500"),
+                    java.math.BigDecimal("800"), java.math.BigDecimal("1000"),
+                )
+                cashoutTargetsUsd.forEachIndexed { index, targetUsd ->
+                    val remainingUsd = targetUsd.subtract(usdBalance).max(java.math.BigDecimal.ZERO)
+                    addView(TextView(this@createWithdrawalPage).apply {
+                        val targetLabel = "US$${targetUsd.toPlainString()}"
+                        val remainingLabel = "US$${remainingUsd.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString()}"
+                        text = if (index == 0) t("cashout_progress", targetLabel, remainingLabel) else t("cashout_goal_progress", targetLabel, remainingLabel)
+                        textSize = 11f; setTextColor(0xCCFFFFFF.toInt()); setPadding(0, if (index == 0) dp(14) else dp(9), 0, dp(5))
+                    })
+                    addView(ProgressBar(this@createWithdrawalPage, null, android.R.attr.progressBarStyleHorizontal).apply {
+                        max = 100; progress = usdBalance.multiply(java.math.BigDecimal(100)).divide(targetUsd, 0, java.math.RoundingMode.DOWN).toInt().coerceIn(0, 100)
+                        progressTintList = ColorStateList.valueOf(if (index == 0) COLOR_SUNSET else COLOR_AQUA); backgroundTintList = ColorStateList.valueOf(0x44FFFFFF)
+                    }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(6)))
+                }
             }
             addView(LinearLayout(this@createWithdrawalPage).apply {
                 orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(12), dp(14), dp(13)); background = roundedDrawable(0x26FFFFFF, 18)
@@ -145,9 +156,11 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
                     textSize = 12f; setTextColor(0xCCFFFFFF.toInt()); setPadding(0, dp(5), 0, dp(10))
                 })
                 addView(TextView(this@createWithdrawalPage).apply {
-                    text = t("wallet_boost_action"); textSize = 14f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_PRIMARY)
-                    background = roundedDrawable(if (wallet.release.boostAvailable) COLOR_ACCENT else 0x66FFFFFF, 15); setPadding(dp(12), dp(10), dp(12), dp(10)); isClickable = wallet.release.boostAvailable
-                    setOnClickListener { if (wallet.release.boostAvailable) showWalletReleaseBoostDialog() }
+                    val cooldown = walletChargeCooldownRemainingSeconds()
+                    text = if (cooldown > 0) t("charge_cooldown", cooldown) else t("wallet_boost_action")
+                    textSize = 14f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_PRIMARY)
+                    background = roundedDrawable(if (wallet.release.boostAvailable && cooldown <= 0) COLOR_ACCENT else 0x66FFFFFF, 15); setPadding(dp(12), dp(10), dp(12), dp(10)); isClickable = wallet.release.boostAvailable && cooldown <= 0
+                    setOnClickListener { if (wallet.release.boostAvailable && cooldown <= 0) showWalletReleaseBoostDialog() }
                 }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             }, matchParams(top = 15))
         }, matchParams(bottom = 14))

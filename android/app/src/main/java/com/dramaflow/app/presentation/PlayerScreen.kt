@@ -314,7 +314,7 @@ internal fun DramaAppActivity.triggerSwipePreviousEpisode() {
         if (currentEpisodeIndex <= 0) switchDramaBySwipe(forward = false) else selectEpisode(currentEpisodeIndex - 1)
     }
 
-    /** 左右切剧：每累计指定手势次数展示一次独立插屏，广告失败不阻断切剧。 */
+    /** 横滑切剧保留独立频控插屏；拖动和倍速则永远不触发插屏。 */
 internal fun DramaAppActivity.switchDramaBySwipe(forward: Boolean = true) {
         if (catalogItems.size < 2 || fullscreenAdInProgress) return
         val current = selectedDrama ?: return
@@ -400,20 +400,9 @@ internal fun DramaAppActivity.createPlayerProgressControls(): View = LinearLayou
                 override fun onStartTrackingTouch(seekBar: SeekBar?) { playerIsSeeking = true }
                 override fun onStopTrackingTouch(seekBar: SeekBar?) {
                     val targetSeconds = seekBar?.progress ?: return
-                    val policy = rewardsSnapshot?.interstitial
-                    if (policy?.seekEnabled == true && !seekInterstitialInProgress) {
-                        seekInterstitialInProgress = true
-                        showPlaybackActionInterstitial("int_seek", onShown = {
-                            seekInterstitialInProgress = false
-                            completeSeekAndResume(targetSeconds)
-                        }, onUnavailable = { message ->
-                            seekInterstitialInProgress = false
-                            logStatus("拖拽插屏未展示：$message")
-                            completeSeekAndResume(targetSeconds)
-                        })
-                    } else {
-                        completeSeekAndResume(targetSeconds)
-                    }
+                    // Seeking must be immediate. Interstitials are now requested only from
+                    // measured real playback time, never from a progress-bar interaction.
+                    completeSeekAndResume(targetSeconds)
                 }
             })
         }
@@ -523,13 +512,8 @@ internal fun DramaAppActivity.showPlaybackSpeedPicker() {
                 speedButton?.text = labels[which]
                 resumeAfterFullscreenAdIfNeeded()
             }
-            val policy = rewardsSnapshot?.interstitial
-            if (policy?.speedEnabled == true) {
-                showPlaybackActionInterstitial("int_speed", onShown = applySpeed, onUnavailable = { message ->
-                    logStatus("Speed interstitial unavailable: $message")
-                    applySpeed()
-                })
-            } else applySpeed()
+            // Playback speed is an immediate accessibility/control action; it never requests an ad.
+            applySpeed()
         }
     }
 

@@ -169,10 +169,9 @@ class DramaAppActivity : FragmentActivity() {
     internal val sessionUnlockedEpisodeKeys = mutableSetOf<String>()
     internal val interstitialRequestedEpisodeKeys = mutableSetOf<String>()
     internal val midEpisodeInterstitialRequestedEpisodeKeys = mutableSetOf<String>()
-    /** First successful seek/speed/mid-roll per viewing session wins; unavailable ads never reserve the slot. */
+    /** Player mid-roll ownership guard; unavailable ads never reserve the current playback slot. */
     internal val actionInterstitialShownEpisodeKeys = mutableSetOf<String>()
-    internal var seekInterstitialInProgress = false
-    /** 仅统计“剧中/拖动/倍速/激励回退”等受每集互斥约束的插屏；横滑切剧有独立频控。 */
+    /** 仅统计剧中和激励回退等受每集互斥约束的插屏；横滑切剧有独立频控。 */
     internal val interstitialCountByEpisodeKey = mutableMapOf<String, Int>()
     /** Client-side guard for the server-backed all-placement hourly interstitial cap. */
     internal val playbackInterstitialShownAtElapsedMillis = mutableListOf<Long>()
@@ -182,6 +181,11 @@ class DramaAppActivity : FragmentActivity() {
     internal val floatingWheelLabels = mutableSetOf<TextView>()
     internal val floatingCrownChargeButtons = mutableSetOf<TextView>()
     internal val floatingBoostButtons = mutableSetOf<TextView>()
+    internal val playerWalletBoostButtons = mutableSetOf<TextView>()
+    /** Server-backed cooldowns prevent back-to-back Crown and wallet rewarded placements. */
+    internal var crownChargeCooldownUntilElapsedMillis = 0L
+    internal var walletChargeCooldownUntilElapsedMillis = 0L
+    internal var chargeCooldownRefreshAtElapsedMillis = 0L
     /** 当前页面可见的宝石余额锚点。领取成功后，宝石飞入此位置。 */
     internal var gemBalanceAnchor: View? = null
     internal var gemBalanceLabel: TextView? = null

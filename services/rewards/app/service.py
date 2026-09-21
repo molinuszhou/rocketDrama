@@ -74,6 +74,26 @@ class RewardsService:
             rv_daily_limit = int(policy["rv_daily_limit"])
             if rv_daily_limit > 0 and int(counters["rv_count"]) >= rv_daily_limit:
                 raise ServiceError(1001, "今日激励广告次数已达上限，请明天再来", 429)
+            cooldown_policy = {
+                "rv_crown_upgrade": ("crown_rewarded_cooldown_seconds", "皇冠成长正在充能，请稍后再试"),
+                "rv_release_boost": ("release_boost_cooldown_seconds", "钱包额外奖励正在充能，请稍后再试"),
+            }
+            if placement_id in cooldown_policy:
+                cooldown_field, message = cooldown_policy[placement_id]
+                cooldown_seconds = int(policy.get(cooldown_field, 30))
+                if cooldown_seconds > 0:
+                    last_charge = self._one(
+                        connection,
+                        """SELECT processed_at FROM rewarded_ad_events
+                           WHERE user_id = %s AND placement_id = %s
+                           ORDER BY processed_at DESC LIMIT 1""",
+                        (user_id, placement_id),
+                    )
+                    if last_charge:
+                        elapsed = int((self._now() - last_charge["processed_at"]).total_seconds())
+                        remaining = cooldown_seconds - elapsed
+                        if remaining > 0:
+                            raise ServiceError(1004, f"{message}（{remaining} 秒后可再次领取）", 429)
             if placement_id == "rv_crown_upgrade":
                 crown_daily_limit = int(policy.get("crown_rewarded_daily_limit", 0))
                 crown_used_today = int(self._one(
@@ -499,7 +519,9 @@ class RewardsService:
             "rewarded_fallback_interstitial_enabled", "gems_earned_cap", "gem_damping_tier1_threshold",
             "gem_damping_tier2_threshold", "gem_damping_tier3_threshold", "gem_damping_tier4_threshold", "gem_damping_tier5_threshold", "gem_damping_tier1_multiplier",
             "gem_damping_tier2_multiplier", "gem_damping_tier3_multiplier", "gem_damping_tier4_multiplier", "gem_damping_tier5_multiplier", "gem_damping_tier6_multiplier",
-            "crown_rewarded_ads_per_episode", "crown_rewarded_daily_limit", "release_boost_percent", "release_boost_daily_limit",
+            "crown_rewarded_ads_per_episode", "crown_rewarded_daily_limit", "crown_episode_progress_points",
+            "crown_rewarded_ad_progress_points", "crown_rewarded_cooldown_seconds", "release_boost_percent",
+            "release_boost_daily_limit", "release_boost_cooldown_seconds",
             "interstitial_global_hourly_limit",
         }
         changed = {key: value for key, value in updates.items() if key in allowed and value is not None}
@@ -1428,15 +1450,18 @@ class RewardsService:
                 "SELECT COUNT(*) AS count FROM watch_events WHERE user_id = %s AND recorded_at >= %s",
                 (user_id, start),
             )["count"])
-            # Only ads explicitly started from Crown Road advance Crown Road.
-            # Unlock, check-in, chest, wallet, review and other rewarded ads are excluded.
+            # Crown Road scoring is intentionally explicit: completed episodes add two
+            # points and a Crown Road rewarded ad adds one. Other rewarded placements
+            # never advance this score.
             rewarded_rounds = int(self._one(
                 connection,
                 "SELECT COUNT(*) AS count FROM rewarded_ad_events WHERE user_id = %s AND placement_id = 'rv_crown_upgrade' AND processed_at >= %s",
                 (user_id, start),
             )["count"])
-            equivalent_rounds = rewarded_rounds // max(1, int(policy["crown_rewarded_ads_per_episode"]))
-            rounds = watched_rounds + equivalent_rounds
+            episode_points = int(policy.get("crown_episode_progress_points", 2))
+            ad_points = int(policy.get("crown_rewarded_ad_progress_points", 1))
+            equivalent_rounds = rewarded_rounds * ad_points
+            rounds = watched_rounds * episode_points + equivalent_rounds
             if rounds < item["required_rounds"]:
                 continue
             rvs = rewarded_rounds
@@ -1512,6 +1537,18 @@ class RewardsService:
         cash_wallet_micros = int(user["cash_wallet_micros"])
         expected_boost_units = (int(policy["wallet_redpacket_min_gems"]) + int(policy["wallet_redpacket_max_gems"])) // 2
         expected_boost_transfer = self._reward_units_to_micros(expected_boost_units, wallet_policy)
+        wallet_charge_cooldown_seconds = int(policy.get("release_boost_cooldown_seconds", 30))
+        last_wallet_charge = self._one(
+            connection,
+            """SELECT processed_at FROM rewarded_ad_events
+               WHERE user_id = %s AND placement_id = 'rv_release_boost'
+               ORDER BY processed_at DESC LIMIT 1""",
+            (user_id,),
+        )
+        wallet_charge_cooldown_remaining = max(
+            0,
+            wallet_charge_cooldown_seconds - int((self._now() - last_wallet_charge["processed_at"]).total_seconds()),
+        ) if last_wallet_charge and wallet_charge_cooldown_seconds > 0 else 0
         currency = self._currency_payload(wallet_policy)
         task_rows = self._episode_task_progress(connection, user_id, business_date, int(counters["episode_count"]), wallet_policy)
         return {
@@ -1545,8 +1582,13 @@ class RewardsService:
                     "expected_tomorrow_transfer_usd_reference": "0",
                     "expected_boost_transfer": self._money(expected_boost_transfer, wallet_policy),
                     "expected_boost_transfer_usd_reference": self._usd_reference_money(expected_boost_transfer, wallet_policy),
-                    # The boost is a direct cash reward and remains available until the daily cap.
-                    "boost_available": int(policy["release_boost_daily_limit"]) <= 0 or int(counters["release_boost_count"]) < int(policy["release_boost_daily_limit"]),
+                    "charge_cooldown_seconds": wallet_charge_cooldown_seconds,
+                    "charge_cooldown_remaining_seconds": wallet_charge_cooldown_remaining,
+                    # The boost is a direct cash reward and remains available until the daily cap or a short charge cooldown.
+                    "boost_available": (
+                        wallet_charge_cooldown_remaining <= 0
+                        and (int(policy["release_boost_daily_limit"]) <= 0 or int(counters["release_boost_count"]) < int(policy["release_boost_daily_limit"]))
+                    ),
                     "estimated_days_remaining": 0,
                     "pending_days": 0,
                 },
@@ -1699,18 +1741,31 @@ class RewardsService:
             "SELECT COUNT(*) AS count FROM rewarded_ad_events WHERE user_id = %s AND business_date = %s AND placement_id = 'rv_crown_upgrade'",
             (user_id, self._business_date()),
         )["count"])
+        crown_cooldown_seconds = int(reward_policy.get("crown_rewarded_cooldown_seconds", 30))
+        last_crown_charge = self._one(
+            connection,
+            """SELECT processed_at FROM rewarded_ad_events
+               WHERE user_id = %s AND placement_id = 'rv_crown_upgrade'
+               ORDER BY processed_at DESC LIMIT 1""",
+            (user_id,),
+        )
+        crown_cooldown_remaining = max(
+            0,
+            crown_cooldown_seconds - int((now - last_crown_charge["processed_at"]).total_seconds()),
+        ) if last_crown_charge and crown_cooldown_seconds > 0 else 0
+        episode_points = int(reward_policy.get("crown_episode_progress_points", 2))
+        ad_points = int(reward_policy.get("crown_rewarded_ad_progress_points", 1))
         earned_codes = {item["code"] for item in self._all(connection, "SELECT code FROM user_achievements WHERE user_id = %s", (user_id,))}
         result: list[dict[str, Any]] = []
         titles = {"BRONZE": "青铜", "SILVER": "白银", "GOLD": "黄金", "DIAMOND": "钻石", "CROWN": "皇冠"}
         for row in rows:
             start = now - timedelta(hours=int(row["window_hours"]))
             watched_rounds = int(self._one(connection, "SELECT COUNT(*) AS count FROM watch_events WHERE user_id = %s AND recorded_at >= %s", (user_id, start))["count"])
-            # Crown Road uses watched episodes plus only its own explicit upgrade ads.
+            # Only completed episodes and explicit Crown Road ads produce Crown points.
             signins = 0
             rvs = int(self._one(connection, "SELECT COUNT(*) AS count FROM rewarded_ad_events WHERE user_id = %s AND placement_id = 'rv_crown_upgrade' AND processed_at >= %s", (user_id, start))["count"])
-            ads_per_episode = max(1, int(self._policy(connection)["crown_rewarded_ads_per_episode"]))
-            equivalent_rounds = rvs // ads_per_episode
-            rounds = watched_rounds + equivalent_rounds
+            equivalent_rounds = rvs * ad_points
+            rounds = watched_rounds * episode_points + equivalent_rounds
             requirements = [
                 (rounds, int(row["required_rounds"])),
                 (signins, int(row["required_signin_days"])),
@@ -1729,9 +1784,13 @@ class RewardsService:
                 "rounds": {"current": rounds, "target": row["required_rounds"]},
                 "watched_rounds": {"current": watched_rounds, "target": row["required_rounds"]},
                 "ad_equivalent_rounds": equivalent_rounds,
-                "ads_per_episode": ads_per_episode,
+                "ads_per_episode": 1,
+                "episode_progress_points": episode_points,
+                "rewarded_ad_progress_points": ad_points,
                 "crown_rewarded_ads_today": crown_ads_today,
                 "crown_rewarded_daily_limit": crown_daily_limit,
+                "charge_cooldown_seconds": crown_cooldown_seconds,
+                "charge_cooldown_remaining_seconds": crown_cooldown_remaining,
                 "signins": {"current": 0, "target": 0},
                 "rewarded_ads": {"current": rvs, "target": 0},
                 "progress": round(progress, 4),
@@ -2073,8 +2132,12 @@ class RewardsService:
             "review_reward_gems": int(policy["review_reward_gems"]),
             "crown_rewarded_ads_per_episode": int(policy["crown_rewarded_ads_per_episode"]),
             "crown_rewarded_daily_limit": int(policy.get("crown_rewarded_daily_limit", 0)),
+            "crown_episode_progress_points": int(policy.get("crown_episode_progress_points", 2)),
+            "crown_rewarded_ad_progress_points": int(policy.get("crown_rewarded_ad_progress_points", 1)),
+            "crown_rewarded_cooldown_seconds": int(policy.get("crown_rewarded_cooldown_seconds", 30)),
             "release_boost_percent": float(policy["release_boost_percent"]),
             "release_boost_daily_limit": int(policy["release_boost_daily_limit"]),
+            "release_boost_cooldown_seconds": int(policy.get("release_boost_cooldown_seconds", 30)),
             "rv_daily_limit": int(policy["rv_daily_limit"]),
             "episode_interstitial_limit": int(policy["episode_interstitial_limit"]),
             "interstitial_global_hourly_limit": int(policy.get("interstitial_global_hourly_limit", 0)),

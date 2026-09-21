@@ -57,14 +57,17 @@ def run() -> None:
     assert initial["episode_unlock"]["episodes_per_rewarded_unlock"] == 2
     assert initial["episode_unlock"]["episode_reward_boost_enabled"] is False
     assert initial["interstitial"]["mid_episode_enabled"] is True
-    assert initial["interstitial"]["seek_enabled"] is True
-    assert initial["interstitial"]["speed_enabled"] is True
+    assert initial["interstitial"]["seek_enabled"] is False
+    assert initial["interstitial"]["speed_enabled"] is False
     assert initial["chest"]["available_count"] == 0
     assert initial["ring"]["claim_prompt_threshold_gems"] == 50_000
     assert initial["chest"]["daily_available_count"] == 0
     assert [item["code"] for item in initial["crown_progress"]] == ["BRONZE", "SILVER", "GOLD", "DIAMOND", "CROWN"]
     assert initial["crown_progress"][0]["rounds"]["target"] == 30
-    assert initial["crown_progress"][0]["ads_per_episode"] == 2
+    assert initial["crown_progress"][0]["episode_progress_points"] == 2
+    assert initial["crown_progress"][0]["rewarded_ad_progress_points"] == 1
+    assert initial["crown_progress"][0]["charge_cooldown_seconds"] == 30
+    assert initial["wallet"]["release"]["charge_cooldown_seconds"] == 30
     assert initial["interstitial"]["mid_episode_trigger_seconds"] == 180
     assert initial["interstitial"]["mid_episode_repeat_seconds"] == 360
     assert initial["interstitial"]["cooldown_seconds"] == 60
@@ -194,8 +197,16 @@ def run() -> None:
     finally:
         service._business_date = original_business_date  # type: ignore[method-assign] # noqa: SLF001
 
-    # 皇冠广告成长：每 2 条皇冠页面主动激励广告抵 1 集追剧；与其它广告位隔离。
+    # 皇冠成长积分：完整看一集 +2，皇冠页面完整看一条广告 +1；两次广告之间有充能 CD。
     crown_first, _ = rewarded(service, user_id, "rv_crown_upgrade")
+    assert crown_first["snapshot"]["crown_progress"][0]["charge_cooldown_remaining_seconds"] > 0
+    crown_cooldown_rejected = False
+    try:
+        rewarded(service, user_id, "rv_crown_upgrade")
+    except Exception as error:  # noqa: BLE001 - 验证皇冠主动广告的独立充能冷却。
+        crown_cooldown_rejected = "正在充能" in str(error)
+    assert crown_cooldown_rejected
+    service.update_operating_policy("Bearer smoke-admin-token", {"crown_rewarded_cooldown_seconds": 0})
     crown_second, _ = rewarded(service, user_id, "rv_crown_upgrade")
     bronze = crown_second["snapshot"]["crown_progress"][0]
     assert bronze["ad_equivalent_rounds"] >= crown_first["snapshot"]["crown_progress"][0]["ad_equivalent_rounds"] + 1
@@ -219,6 +230,8 @@ def run() -> None:
     assert boost["result"]["action"] == "WALLET_CASH_BOOST"
     assert float(boost["result"]["cash_added"]) > 0
     assert float(boost["snapshot"]["wallet"]["cash_wallet"]) > float(claim_all["snapshot"]["wallet"]["cash_wallet"])
+    assert boost["snapshot"]["wallet"]["release"]["charge_cooldown_remaining_seconds"] > 0
+    assert boost["snapshot"]["wallet"]["release"]["boost_available"] is False
 
     # 市场本币：欢迎奖励与每集奖励直接展示本币现金，且仍提供美元参考值。
     br_user = f"v163-br-{uuid.uuid4()}"
@@ -288,7 +301,7 @@ def run() -> None:
         total_at(1_999_999)
         assert service._credit_gems(connection, damping_user, 100, policy, "WALLET_CASH_BOOST", "damping", event_id("tier6")) == 1  # noqa: SLF001
 
-    print("PostgreSQL v1.6.5.1 rewards smoke test passed; six-tier damping, direct-cash wallet, random task redpackets, claim prompt threshold, cooldown ads and Crown Road growth verified")
+    print("PostgreSQL v1.6.5.2 rewards smoke test passed; six-tier damping, direct-cash wallet, daily task redpackets, charge cooldowns and Crown points verified")
 
 
 if __name__ == "__main__":

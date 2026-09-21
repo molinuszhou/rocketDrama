@@ -103,6 +103,24 @@ internal fun DramaAppActivity.applyRewardsSnapshot(snapshot: RewardsApiClient.Sn
         val previousGems = rewardsSnapshot?.wallet?.coins ?: lastConfirmedGemBalance
         val previousCash = rewardsSnapshot?.wallet?.cashWallet ?: lastConfirmedCashBalance
         rewardsSnapshot = snapshot
+        val elapsedNow = android.os.SystemClock.elapsedRealtime()
+        val crownCooldown = snapshot.crownProgress.maxOfOrNull { it.chargeCooldownRemainingSeconds } ?: 0
+        crownChargeCooldownUntilElapsedMillis = if (crownCooldown > 0) elapsedNow + crownCooldown * 1_000L else 0L
+        val walletCooldown = snapshot.wallet.release.chargeCooldownRemainingSeconds
+        walletChargeCooldownUntilElapsedMillis = if (walletCooldown > 0) elapsedNow + walletCooldown * 1_000L else 0L
+        val refreshInSeconds = maxOf(crownCooldown, walletCooldown)
+        if (refreshInSeconds > 0) {
+            val refreshAt = elapsedNow + refreshInSeconds * 1_000L + 250L
+            if (refreshAt > chargeCooldownRefreshAtElapsedMillis) {
+                chargeCooldownRefreshAtElapsedMillis = refreshAt
+                root.postDelayed({
+                    if (!isFinishing && !isDestroyed && android.os.SystemClock.elapsedRealtime() >= chargeCooldownRefreshAtElapsedMillis) {
+                        chargeCooldownRefreshAtElapsedMillis = 0L
+                        refreshRewardsSnapshot()
+                    }
+                }, refreshInSeconds * 1_000L + 300L)
+            }
+        }
         unlockedEpisodeKeys.clear()
         unlockedEpisodeKeys.addAll(snapshot.unlockedEpisodeTargets)
         lastConfirmedGemBalance = snapshot.wallet.coins

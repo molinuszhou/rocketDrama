@@ -59,13 +59,16 @@ def run() -> None:
     assert snapshot["episode_unlock"]["episodes_per_rewarded_unlock"] == 2
     assert snapshot["chest"]["available_count"] == 0
     assert snapshot["interstitial"]["mid_episode_enabled"] is True
-    assert snapshot["interstitial"]["seek_enabled"] is True
-    assert snapshot["interstitial"]["speed_enabled"] is True
+    assert snapshot["interstitial"]["seek_enabled"] is False
+    assert snapshot["interstitial"]["speed_enabled"] is False
     assert snapshot["interstitial"]["mid_episode_trigger_seconds"] == 180
     assert snapshot["interstitial"]["mid_episode_repeat_seconds"] == 360
     assert snapshot["interstitial"]["cooldown_seconds"] == 60
     assert snapshot["interstitial"]["rewarded_skip_threshold"] == 3
     assert snapshot["wallet"]["release"]["boost_cap"] == 10
+    assert snapshot["wallet"]["release"]["charge_cooldown_seconds"] == 30
+    assert snapshot["crown_progress"][0]["episode_progress_points"] == 2
+    assert snapshot["crown_progress"][0]["rewarded_ad_progress_points"] == 1
     assert snapshot["ring"]["claim_prompt_threshold_gems"] == 50_000
 
     # 欢迎奖励和签到均通过激励广告落账，不能直接绕过。
@@ -124,12 +127,12 @@ def run() -> None:
     assert 1_200 <= task_claim["data"]["result"]["gems_added"] <= 1_800
     assert task_claim["data"]["snapshot"]["chest"]["available_count"] == 0
 
-    # 皇冠广告升级：以广告前的基线计算，连续两条激励广告至少增加一集等效追剧。
+    # 皇冠广告升级：每条皇冠主动激励广告增加 1 点成长积分。
     _, before_crown = post("/v2/bootstrap", {"user_id": USER_ID})
     baseline_equivalent = before_crown["data"]["crown_progress"][0]["ad_equivalent_rounds"]
-    _, _, _ = rewarded("rv_crown_upgrade")
-    _, crown_two, _ = rewarded("rv_crown_upgrade")
-    assert crown_two["data"]["snapshot"]["crown_progress"][0]["ad_equivalent_rounds"] >= baseline_equivalent + 1
+    _, crown_one, _ = rewarded("rv_crown_upgrade")
+    assert crown_one["data"]["snapshot"]["crown_progress"][0]["ad_equivalent_rounds"] >= baseline_equivalent + 1
+    assert crown_one["data"]["snapshot"]["crown_progress"][0]["charge_cooldown_remaining_seconds"] > 0
 
     if ADMIN_TOKEN:
         _, policy = request("GET", "/v2/admin/policy", admin=True)
@@ -145,13 +148,13 @@ def run() -> None:
                 "episode_task_tier4_max_gems": 3_500,
                 "wallet_redpacket_min_gems": 100,
                 "wallet_redpacket_max_gems": 300,
-                "speed_interstitial_enabled": True,
-                "speed_interstitial_hourly_limit": 0,
                 "interstitial_cooldown_seconds": 30,
-                "interstitial_rewarded_skip_threshold": 2,
-                "crown_rewarded_ads_per_episode": 2,
+                "crown_episode_progress_points": 2,
+                "crown_rewarded_ad_progress_points": 1,
+                "crown_rewarded_cooldown_seconds": 0,
                 "release_boost_percent": 0.2,
                 "release_boost_daily_limit": 0,
+                "release_boost_cooldown_seconds": 0,
                 "episode_reward_claim_prompt_threshold_gems": 75_000,
                 "mid_episode_interstitial_repeat_seconds": 300,
                 "gem_damping_tier5_threshold": 1_996_000,
@@ -162,10 +165,11 @@ def run() -> None:
         assert updated["data"]["episode_task_max_episode"] == 90
         assert updated["data"]["episode_task_tier1_min_gems"] == 400
         assert updated["data"]["episode_task_tier4_max_gems"] == 3_500
-        assert updated["data"]["speed_interstitial_enabled"] is True
         assert updated["data"]["interstitial_cooldown_seconds"] == 30
-        assert updated["data"]["interstitial_rewarded_skip_threshold"] == 2
-        assert updated["data"]["crown_rewarded_ads_per_episode"] == 2
+        assert updated["data"]["crown_episode_progress_points"] == 2
+        assert updated["data"]["crown_rewarded_ad_progress_points"] == 1
+        assert updated["data"]["crown_rewarded_cooldown_seconds"] == 0
+        assert updated["data"]["release_boost_cooldown_seconds"] == 0
         assert updated["data"]["episode_reward_claim_prompt_threshold_gems"] == 75_000
         assert updated["data"]["mid_episode_interstitial_repeat_seconds"] == 300
         assert updated["data"]["gem_damping_tier5_threshold"] == 1_996_000
@@ -173,7 +177,7 @@ def run() -> None:
         _, crown = request("PUT", "/v2/admin/crown-multiplier", {"code": "BRONZE", "episode_reward_multiplier": 1.20}, admin=True)
         assert crown["data"]["crown_multipliers"][0]["episode_reward_multiplier"] == 1.2
 
-    print("HTTP API v1.6.5.1 smoke test passed; six-tier damping, direct cash, random task redpackets, claim prompt threshold, cooldown ads, Crown Road and operating policy verified")
+    print("HTTP API v1.6.5.2 smoke test passed; six-tier damping, direct cash, daily task redpackets, charge cooldowns, Crown points and operating policy verified")
 
 
 if __name__ == "__main__":

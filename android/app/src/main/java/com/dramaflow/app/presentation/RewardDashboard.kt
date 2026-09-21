@@ -349,6 +349,10 @@ internal fun DramaAppActivity.createCrownLevelRow(level: RewardsApiClient.CrownP
             text = t("crown_effective_progress", level.rounds.current, level.rounds.target)
             textSize = 9f; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(4), 0, 0)
         })
+        if (isCurrent) addView(TextView(this@createCrownLevelRow).apply {
+            text = t("crown_progress_rule", level.episodeProgressPoints, level.rewardedAdProgressPoints)
+            textSize = 9f; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; setTextColor(COLOR_CORAL); setPadding(0, dp(2), 0, 0)
+        })
     }
     addView(middle, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(6) })
     val reward = LinearLayout(this@createCrownLevelRow).apply {

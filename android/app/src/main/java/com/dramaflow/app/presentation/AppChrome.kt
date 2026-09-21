@@ -246,6 +246,13 @@ internal fun DramaAppActivity.createPlayerAssetStrip(): View = LinearLayout(this
         val cash = TextView(this@createPlayerAssetStrip).apply { text = wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—"; textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(dp(3), 0, 0, 0); isClickable = true; setOnClickListener { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) } }
         cashBalanceLabel = cash
         addView(cash)
+        val extraReward = TextView(this@createPlayerAssetStrip).apply {
+            textSize = 10f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; maxLines = 1
+            setPadding(dp(8), dp(5), dp(8), dp(5)); contentDescription = t("extra_reward")
+        }
+        playerWalletBoostButtons.add(extraReward)
+        updatePlayerWalletBoostButton(extraReward)
+        addView(extraReward, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(30)).apply { marginStart = dp(7) })
     }
 
 internal fun DramaAppActivity.createTopSafePlayerAssetStrip(): View {

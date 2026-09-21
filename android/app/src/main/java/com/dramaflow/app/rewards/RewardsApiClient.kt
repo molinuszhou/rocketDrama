@@ -63,6 +63,8 @@ class RewardsApiClient(
         val expectedBoostTransferUsdReference: String = "0.00",
         val boostAvailable: Boolean = false,
         val boostPercent: Float = 0.2f,
+        val chargeCooldownSeconds: Int = 30,
+        val chargeCooldownRemainingSeconds: Int = 0,
     )
 
     data class Currency(
@@ -144,6 +146,10 @@ class RewardsApiClient(
         val adsPerEpisode: Int = 2,
         val rewardedAdsToday: Int = 0,
         val rewardedAdsDailyLimit: Int = 0,
+        val episodeProgressPoints: Int = 2,
+        val rewardedAdProgressPoints: Int = 1,
+        val chargeCooldownSeconds: Int = 30,
+        val chargeCooldownRemainingSeconds: Int = 0,
     )
 
     data class UnlockRule(
@@ -497,7 +503,9 @@ class RewardsApiClient(
                     release.optString("expected_tomorrow_transfer", "0.00"), release.optString("expected_boost_transfer", "0.00"),
                     release.optString("expected_tomorrow_transfer_usd_reference", release.optString("expected_tomorrow_transfer", "0.00")),
                     release.optString("expected_boost_transfer_usd_reference", release.optString("expected_boost_transfer", "0.00")),
-                    release.optBoolean("boost_available"), release.optDouble("boost_percent", 0.2).toFloat()),
+                    release.optBoolean("boost_available"), release.optDouble("boost_percent", 0.2).toFloat(),
+                    release.optInt("charge_cooldown_seconds", 30).coerceAtLeast(0),
+                    release.optInt("charge_cooldown_remaining_seconds", 0).coerceAtLeast(0)),
             ),
             tasks = taskList,
             pendingEpisodeRewards = pendingEpisodeRewards,
@@ -629,6 +637,8 @@ class RewardsApiClient(
                 item.optString("episode_reward_cash", "0.00"), item.optString("cash", "0.00"),
                 metric("watched_rounds"), item.optInt("ad_equivalent_rounds"), item.optInt("ads_per_episode", 2).coerceAtLeast(1),
                 item.optInt("crown_rewarded_ads_today", 0).coerceAtLeast(0), item.optInt("crown_rewarded_daily_limit", 0).coerceAtLeast(0),
+                item.optInt("episode_progress_points", 2).coerceAtLeast(1), item.optInt("rewarded_ad_progress_points", 1).coerceAtLeast(1),
+                item.optInt("charge_cooldown_seconds", 30).coerceAtLeast(0), item.optInt("charge_cooldown_remaining_seconds", 0).coerceAtLeast(0),
             ))
         }
     }
