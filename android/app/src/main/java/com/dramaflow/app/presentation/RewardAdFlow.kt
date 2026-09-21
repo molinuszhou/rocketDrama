@@ -74,26 +74,27 @@ internal fun DramaAppActivity.requestRewardedAction(
         episodeIndex: Int? = null,
         onSettled: ((RewardsApiClient.RewardAction) -> Unit)? = null,
         onSettlementUnavailable: ((String) -> Unit)? = null,
-        fallbackToInterstitialWhenUnavailable: Boolean = false,
+        fallbackToInterstitialWhenUnavailable: Boolean = true,
     ) {
         if (fullscreenAdInProgress || fullscreenAdRequestInFlight) { toast(t("ad_loading")); return }
         if (consentStore.read() != AdConsent.GRANTED) { toast("请先在广告与隐私中启用广告"); return }
         if (!rewardsApi.isConfigured) { toast("独立积分服务尚未配置，广告奖励无法结算"); return }
         fullscreenAdRequestInFlight = true
-        toast(t("ad_loading"))
+        showFullscreenAdLoadingOverlay()
+        pauseForFullscreenAd()
         var rewardedWasPresented = false
-        var wasPlayingBeforeRewarded = false
+        val wasPlayingBeforeRewarded = resumeAfterFullscreenAd
         topOnAds.showRewarded(
             activity = this,
             onWillShow = {
                 rewardedWasPresented = true
                 fullscreenAdRequestInFlight = false
                 fullscreenAdInProgress = true
-                pauseForFullscreenAd()
-                wasPlayingBeforeRewarded = resumeAfterFullscreenAd
+                runOnUiThread { hideFullscreenAdLoadingOverlay() }
             },
         ) { result -> runOnUiThread {
             fullscreenAdRequestInFlight = false
+            hideFullscreenAdLoadingOverlay()
             when (result) {
                 TopOnAdsManager.RewardedResult.RewardEarned -> {
                     fullscreenAdInProgress = false
@@ -150,7 +151,7 @@ internal fun DramaAppActivity.recordRewardedSkipThenMaybeShowInterstitial(should
         } }, { _ -> runOnUiThread { showRewardedUnavailableNotice(shouldResume, "广告未完整观看，未获得奖励或解锁权益") } })
 }
 
-    /** 无激励广告资源时直接在内容层展示说明，不再触发会遮挡说明的插屏回退。 */
+    /** 无激励广告资源时恢复内容并说明不会发放原激励权益。 */
 internal fun DramaAppActivity.showRewardedUnavailableNotice(shouldResume: Boolean, message: String) {
         fullscreenAdInProgress = false
         fullscreenAdRequestInFlight = false
@@ -168,16 +169,39 @@ internal fun DramaAppActivity.showRewardedFallbackInterstitial(shouldResume: Boo
         if (rewardsSnapshot?.interstitial?.rewardedFallbackEnabled != true) {
             resumeAfterFullscreenAd = shouldResume; resumeAfterFullscreenAdIfNeeded(); toast(message); return
         }
-        // The rewarded creative has already been closed. Resume while the fallback placement loads,
-        // then let its own onWillShow callback pause at the exact moment it is ready to present.
+        // 失败回退是一条独立的例外插屏：展示一次，但绝不替代原激励奖励或解锁权益。
         resumeAfterFullscreenAd = shouldResume
-        resumeAfterFullscreenAdIfNeeded()
         showPlaybackActionInterstitial(
             placementId = "int_rewarded_fallback", episodeId = selectedEpisode()?.id,
+            countTowardEpisodeLimit = false,
+            bypassSharedFrequencyCaps = true,
             resumePlaybackAfter = shouldResume,
             onShown = { toast(message) },
             onUnavailable = { reason -> logStatus("激励回退插屏未展示：$reason"); toast(message) },
         )
+    }
+
+internal fun DramaAppActivity.showFullscreenAdLoadingOverlay() {
+        if (isFinishing || isDestroyed) return
+        val overlay = fullscreenAdLoadingOverlay ?: FrameLayout(this).apply {
+            setBackgroundColor(0x72000000)
+            isClickable = true
+            isFocusable = true
+            contentDescription = t("ad_loading")
+            addView(ProgressBar(this@showFullscreenAdLoadingOverlay).apply {
+                indeterminateTintList = ColorStateList.valueOf(0xF2FFFFFF.toInt())
+                alpha = 0.92f
+            }, FrameLayout.LayoutParams(dp(48), dp(48), Gravity.CENTER))
+        }.also { fullscreenAdLoadingOverlay = it }
+        if (overlay.parent == null) {
+            root.addView(overlay, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        }
+        overlay.visibility = View.VISIBLE
+        overlay.bringToFront()
+    }
+
+internal fun DramaAppActivity.hideFullscreenAdLoadingOverlay() {
+        fullscreenAdLoadingOverlay?.visibility = View.GONE
     }
 
 internal fun DramaAppActivity.pauseForFullscreenAd() {
@@ -220,6 +244,7 @@ internal fun DramaAppActivity.showPlaybackActionInterstitial(
         placementId: String,
         episodeId: String? = selectedEpisode()?.id,
         countTowardEpisodeLimit: Boolean = true,
+        bypassSharedFrequencyCaps: Boolean = false,
         resumePlaybackAfter: Boolean? = null,
         onShown: () -> Unit,
         onUnavailable: (String) -> Unit,
@@ -228,34 +253,34 @@ internal fun DramaAppActivity.showPlaybackActionInterstitial(
         val episodeKey = episodeId?.let { "${selectedDrama?.id}:$it" }
         val now = SystemClock.elapsedRealtime()
         playbackInterstitialShownAtElapsedMillis.removeAll { now - it >= 60 * 60 * 1_000L }
-        if (policy != null && policy.cooldownSeconds > 0 && playbackInterstitialShownAtElapsedMillis.lastOrNull()?.let { now - it < policy.cooldownSeconds * 1_000L } == true) {
+        if (!bypassSharedFrequencyCaps && policy != null && policy.cooldownSeconds > 0 && playbackInterstitialShownAtElapsedMillis.lastOrNull()?.let { now - it < policy.cooldownSeconds * 1_000L } == true) {
             onUnavailable("插屏冷却期未结束"); return
         }
-        if (policy != null && policy.globalHourlyLimit > 0 && playbackInterstitialShownAtElapsedMillis.size >= policy.globalHourlyLimit) {
+        if (!bypassSharedFrequencyCaps && policy != null && policy.globalHourlyLimit > 0 && playbackInterstitialShownAtElapsedMillis.size >= policy.globalHourlyLimit) {
             onUnavailable("本小时插屏展示已达总上限"); return
         }
-        if (countTowardEpisodeLimit && policy != null && policy.episodeInterstitialLimit > 0 && episodeKey != null && (interstitialCountByEpisodeKey[episodeKey] ?: 0) >= policy.episodeInterstitialLimit) {
+        if (!bypassSharedFrequencyCaps && countTowardEpisodeLimit && policy != null && policy.episodeInterstitialLimit > 0 && episodeKey != null && (interstitialCountByEpisodeKey[episodeKey] ?: 0) >= policy.episodeInterstitialLimit) {
             onUnavailable("本集插屏次数已达上限"); return
         }
         if (fullscreenAdInProgress || fullscreenAdRequestInFlight) { onUnavailable("广告正在展示"); return }
         if (consentStore.read() != AdConsent.GRANTED) { onUnavailable("请先在广告与隐私中启用广告"); return }
+        val shouldResume = resumePlaybackAfter ?: (exoPlayer?.isPlaying == true)
         fullscreenAdRequestInFlight = true
-        toast(t("ad_loading"))
-        var interstitialWasPresented = false
-        var shouldResume = false
+        showFullscreenAdLoadingOverlay()
+        pauseForFullscreenAd()
+        resumeAfterFullscreenAd = shouldResume
         topOnAds.showInterstitialForPlaybackAction(
             activity = this,
             onWillShow = {
-                interstitialWasPresented = true
                 fullscreenAdRequestInFlight = false
                 fullscreenAdInProgress = true
-                shouldResume = resumePlaybackAfter ?: (exoPlayer?.isPlaying == true)
-                pauseForFullscreenAd()
                 resumeAfterFullscreenAd = shouldResume
+                runOnUiThread { hideFullscreenAdLoadingOverlay() }
             },
         ) { result -> runOnUiThread {
             fullscreenAdRequestInFlight = false
             fullscreenAdInProgress = false
+            hideFullscreenAdLoadingOverlay()
             when (result) {
                 TopOnAdsManager.FullscreenResult.Shown -> {
                     resumeAfterFullscreenAdIfNeeded()
@@ -271,8 +296,8 @@ internal fun DramaAppActivity.showPlaybackActionInterstitial(
                         )
                     } else settled()
                 }
-                is TopOnAdsManager.FullscreenResult.Skipped -> { if (interstitialWasPresented) resumeAfterFullscreenAdIfNeeded(); onUnavailable(result.reason) }
-                is TopOnAdsManager.FullscreenResult.Failed -> { if (interstitialWasPresented) resumeAfterFullscreenAdIfNeeded(); onUnavailable("加载失败（${result.code}）") }
+                is TopOnAdsManager.FullscreenResult.Skipped -> { resumeAfterFullscreenAdIfNeeded(); onUnavailable(result.reason) }
+                is TopOnAdsManager.FullscreenResult.Failed -> { resumeAfterFullscreenAdIfNeeded(); onUnavailable("加载失败（${result.code}）") }
             }
         } }
     }

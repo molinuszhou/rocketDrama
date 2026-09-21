@@ -154,8 +154,10 @@ class DramaAppActivity : FragmentActivity() {
     internal var lastSwipeNextAtMillis = 0L
     /** Set only while a full-screen creative is actually on screen. */
     internal var fullscreenAdInProgress = false
-    /** Keeps duplicate taps out while an ad is loading, without pausing the currently playing episode. */
+    /** Blocks duplicate taps while an ad is loading and pauses playback behind the loading overlay. */
     internal var fullscreenAdRequestInFlight = false
+    /** A semi-transparent input-blocking indicator remains until the ad creative takes over or fails. */
+    internal var fullscreenAdLoadingOverlay: View? = null
     internal var episodeTransitionInProgress = false
     internal var resumeAfterFullscreenAd = false
     /** 广告展示前退出沉浸模式，关闭后仅在原本处于沉浸播放时恢复。 */

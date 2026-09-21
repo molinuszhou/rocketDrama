@@ -219,6 +219,32 @@ def run() -> None:
         crown_daily_cap_rejected = "皇冠成长广告次数已达上限" in str(error)
     assert crown_daily_cap_rejected
 
+    # 横滑切剧与激励加载失败回退都有独立频控：不能被内容流插屏的共享 CD 静默吞掉。
+    service.update_operating_policy("Bearer smoke-admin-token", {
+        "interstitial_cooldown_seconds": 0,
+        "interstitial_global_hourly_limit": 0,
+        "interstitial_rewarded_skip_threshold": 0,
+    })
+    service.record_interstitial(user_id, event_id("midroll-before-exception"), "int_episode_midroll", "owned:smoke:ep:cooldown")
+    service.update_operating_policy("Bearer smoke-admin-token", {
+        "interstitial_cooldown_seconds": 600,
+        "interstitial_global_hourly_limit": 1,
+    })
+    shared_cooldown_rejected = False
+    try:
+        service.record_interstitial(user_id, event_id("midroll-shared-cooldown"), "int_episode_midroll", "owned:smoke:ep:shared")
+    except Exception as error:  # noqa: BLE001 - shared content placements retain the common CD.
+        shared_cooldown_rejected = "冷却期" in str(error)
+    assert shared_cooldown_rejected
+    switch_exception = service.record_interstitial(user_id, event_id("switch-exception"), "int_drama_switch", "owned:smoke:ep:switch")
+    fallback_exception = service.record_interstitial(user_id, event_id("fallback-exception"), "int_rewarded_fallback", "owned:smoke:ep:fallback")
+    assert switch_exception["snapshot"]["interstitial"]["drama_switch_enabled"] is True
+    assert fallback_exception["snapshot"]["interstitial"]["rewarded_fallback_enabled"] is True
+    service.update_operating_policy("Bearer smoke-admin-token", {
+        "interstitial_cooldown_seconds": 60,
+        "interstitial_global_hourly_limit": 0,
+    })
+
     # 直接现金钱包不再支持 Gems 兑换；钱包广告加速直接向同一个钱包发放现金。
     exchange_rejected = False
     try:

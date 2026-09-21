@@ -704,13 +704,17 @@ class RewardsService:
             policy = self._policy(connection)
             counters = self._daily_counter(connection, user_id, business_date, lock=True)
             now = self._now()
+            # Horizontal drama switching and a failed rewarded placement are explicit
+            # exception routes. Their own enablement/hourly controls below remain in
+            # force, but a prior content mid-roll must not silently suppress them.
+            independent_exception = placement_id in {"int_drama_switch", "int_rewarded_fallback"}
 
             cooldown_seconds = int(policy.get("interstitial_cooldown_seconds", 0))
-            if counters["last_interstitial_at"] and now - counters["last_interstitial_at"] < timedelta(seconds=cooldown_seconds):
+            if not independent_exception and counters["last_interstitial_at"] and now - counters["last_interstitial_at"] < timedelta(seconds=cooldown_seconds):
                 raise ServiceError(2002, "插屏冷却期未结束", 409)
 
             global_hourly_limit = int(policy.get("interstitial_global_hourly_limit", 0))
-            if global_hourly_limit > 0:
+            if not independent_exception and global_hourly_limit > 0:
                 global_count = int(self._one(
                     connection,
                     "SELECT COUNT(*) AS count FROM interstitial_events WHERE user_id = %s AND shown_at >= NOW() - INTERVAL '1 hour'",

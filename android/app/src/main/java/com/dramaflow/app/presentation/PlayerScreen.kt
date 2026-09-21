@@ -314,7 +314,7 @@ internal fun DramaAppActivity.triggerSwipePreviousEpisode() {
         if (currentEpisodeIndex <= 0) switchDramaBySwipe(forward = false) else selectEpisode(currentEpisodeIndex - 1)
     }
 
-    /** 横滑切剧保留独立频控插屏；拖动和倍速则永远不触发插屏。 */
+    /** 横滑切剧每累计三次都尝试独立插屏；拖动和倍速则永远不触发插屏。 */
 internal fun DramaAppActivity.switchDramaBySwipe(forward: Boolean = true) {
         if (catalogItems.size < 2 || fullscreenAdInProgress) return
         val current = selectedDrama ?: return
@@ -325,7 +325,14 @@ internal fun DramaAppActivity.switchDramaBySwipe(forward: Boolean = true) {
         val shouldShow = policy?.dramaSwitchEnabled == true && dramaSwitchSwipeCount % policy.dramaSwitchEveryCount == 0
         val switch = { showPlayer(nextDrama, 0) }
         if (shouldShow) {
-            showPlaybackActionInterstitial("int_drama_switch", episodeId = selectedEpisode()?.id, countTowardEpisodeLimit = false, onShown = switch, onUnavailable = { reason -> logStatus("切剧插屏未展示：$reason"); switch() })
+            showPlaybackActionInterstitial(
+                placementId = "int_drama_switch",
+                episodeId = selectedEpisode()?.id,
+                countTowardEpisodeLimit = false,
+                bypassSharedFrequencyCaps = true,
+                onShown = switch,
+                onUnavailable = { reason -> logStatus("切剧插屏未展示：$reason"); switch() },
+            )
         } else switch()
     }
 
