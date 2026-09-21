@@ -221,7 +221,7 @@ internal fun DramaAppActivity.createEpisodeTaskLine(snapshot: RewardsApiClient.S
         actionRow.addView(LinearLayout(this@createEpisodeTaskLine).apply {
             orientation = LinearLayout.VERTICAL
             addView(TextView(this@createEpisodeTaskLine).apply { text = t("watch_task_progress", current.progress, current.target); textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
-            addView(TextView(this@createEpisodeTaskLine).apply { text = t("watch_task_random_redpacket", current.target, formatCurrencyAmount(snapshot.wallet, current.rewardCashMin, null, false), formatCurrencyAmount(snapshot.wallet, current.rewardCashMax, null, false)); textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_CORAL); setPadding(0, dp(4), 0, 0) })
+            addView(TextView(this@createEpisodeTaskLine).apply { text = t("watch_task_random_redpacket", current.target); textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_CORAL); setPadding(0, dp(4), 0, 0) })
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         actionRow.addView(TextView(this@createEpisodeTaskLine).apply {
             text = when (current.status) { "CLAIMABLE" -> t("task_claim"); "CLAIMED" -> t("task_claimed"); else -> t("task_go_watch") }

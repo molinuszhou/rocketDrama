@@ -72,7 +72,7 @@ internal fun DramaAppActivity.createFloatingRewardWheel(compact: Boolean = false
         val gem = ImageView(this).apply {
             setImageResource(R.drawable.savings_jar)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            alpha = 0.84f
+            alpha = 0.30f
             contentDescription = t("claim_all")
             isClickable = true
             setOnClickListener {
@@ -314,13 +314,13 @@ internal fun DramaAppActivity.createRewardsWalletSummary(): View {
 
 internal fun DramaAppActivity.showWithdrawalDetailsDialog(wallet: RewardsApiClient.Wallet) {
         val release = wallet.release
-        val details = "钱包余额：${formatWalletTotal(wallet, includeUsdReference = false)}\n\n${rewardsSnapshot?.withdrawal?.reason.orEmpty()}\n\n观看广告可额外获得随机现金奖励。"
+        val details = "${t("wallet_balance")}：${formatWalletTotal(wallet, includeUsdReference = false)}\n\n${rewardsSnapshot?.withdrawal?.reason.orEmpty()}\n\n${t("wallet_boost_description")}"
         showBrandedChoiceDialog(t("withdrawal_details"), details, t("ad_boost"), { showWalletReleaseBoostDialog() }, t("close"))
-    }
+}
 
 internal fun DramaAppActivity.showWalletReleaseBoostDialog() {
         rewardsSnapshot?.wallet ?: return
-        showBrandedChoiceDialog("广告加速", "观看一段广告即可额外获得随机现金奖励。", t("watch_ad_claim"), { requestWalletReleaseBoost() }, t("not_now"))
+        showBrandedChoiceDialog(t("ad_boost"), t("wallet_boost_description"), t("wallet_boost_action"), { requestWalletReleaseBoost() }, t("not_now"))
 }
 
 internal fun DramaAppActivity.requestWalletReleaseBoost() {
@@ -330,9 +330,9 @@ internal fun DramaAppActivity.requestWalletReleaseBoost() {
             val wallet = action.snapshot.wallet
             val updatedRelease = wallet.release
             val received = formatCurrencyAmount(wallet, action.cashAdded, action.cashAddedUsdReference, includeUsdReference = false)
-            val nextMessage = if (action.idempotent) "今日该次现金奖励已经结算。" else "已领取 $received 现金奖励，已直接存入钱包。"
+            val nextMessage = if (action.idempotent) t("wallet_boost_already_settled") else t("wallet_boost_received", received)
             val canContinue = updatedRelease.boostAvailable
-            showBrandedChoiceDialog("现金奖励已到账", nextMessage, if (canContinue) t("continue_accelerating") else t("done"), { if (canContinue) showWalletReleaseBoostDialog() }, if (canContinue) t("later") else null)
+            showBrandedChoiceDialog(t("wallet_boost_received_title"), nextMessage, if (canContinue) t("continue_accelerating") else t("done"), { if (canContinue) showWalletReleaseBoostDialog() }, if (canContinue) t("later") else null)
         })
     }
 

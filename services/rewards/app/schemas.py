@@ -105,6 +105,7 @@ class RewardPolicyUpdateRequest(BaseModel):
     episode_reward_gems: int | None = Field(default=None, ge=0, le=10_000_000)
     episodes_per_rewarded_unlock: int | None = Field(default=None, ge=1, le=100)
     episode_reward_boost_enabled: bool | None = None
+    episode_reward_claim_prompt_threshold_gems: int | None = Field(default=None, ge=0, le=1_000_000_000)
     episode_task_max_episode: int | None = Field(default=None, ge=18, le=10_000)
     episode_task_post18_interval: int | None = Field(default=None, ge=1, le=1_000)
     episode_task_redpacket_min_gems: int | None = Field(default=None, ge=0, le=10_000_000)

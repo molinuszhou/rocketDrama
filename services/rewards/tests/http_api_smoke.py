@@ -66,6 +66,7 @@ def run() -> None:
     assert snapshot["interstitial"]["cooldown_seconds"] == 60
     assert snapshot["interstitial"]["rewarded_skip_threshold"] == 3
     assert snapshot["wallet"]["release"]["boost_cap"] == 10
+    assert snapshot["ring"]["claim_prompt_threshold_gems"] == 50_000
 
     # 欢迎奖励和签到均通过激励广告落账，不能直接绕过。
     _, welcome, _ = rewarded("rv_welcome_bonus")
@@ -149,6 +150,8 @@ def run() -> None:
                 "crown_rewarded_ads_per_episode": 2,
                 "release_boost_percent": 0.2,
                 "release_boost_daily_limit": 0,
+                "episode_reward_claim_prompt_threshold_gems": 75_000,
+                "mid_episode_interstitial_repeat_seconds": 300,
                 "gem_damping_tier5_threshold": 1_996_000,
                 "gem_damping_tier6_multiplier": 0.02,
             },
@@ -160,12 +163,14 @@ def run() -> None:
         assert updated["data"]["interstitial_cooldown_seconds"] == 30
         assert updated["data"]["interstitial_rewarded_skip_threshold"] == 2
         assert updated["data"]["crown_rewarded_ads_per_episode"] == 2
+        assert updated["data"]["episode_reward_claim_prompt_threshold_gems"] == 75_000
+        assert updated["data"]["mid_episode_interstitial_repeat_seconds"] == 300
         assert updated["data"]["gem_damping_tier5_threshold"] == 1_996_000
         assert updated["data"]["gem_damping_tier6_multiplier"] == 0.02
         _, crown = request("PUT", "/v2/admin/crown-multiplier", {"code": "BRONZE", "episode_reward_multiplier": 1.20}, admin=True)
         assert crown["data"]["crown_multipliers"][0]["episode_reward_multiplier"] == 1.2
 
-    print("HTTP API v1.6.4.8 smoke test passed; six-tier damping, direct cash, random task redpackets, cooldown ads, Crown Road and operating policy verified")
+    print("HTTP API v1.6.5.0 smoke test passed; six-tier damping, direct cash, random task redpackets, claim prompt threshold, cooldown ads, Crown Road and operating policy verified")
 
 
 if __name__ == "__main__":

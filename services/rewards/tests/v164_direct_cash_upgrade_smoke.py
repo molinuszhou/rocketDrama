@@ -48,6 +48,7 @@ def run() -> None:
     assert snapshot["wallet"]["currency"]["code"] == "BRL"
     assert snapshot["interstitial"]["cooldown_seconds"] == 60
     assert snapshot["wallet"]["release"]["boost_cap"] == 10
+    assert snapshot["ring"]["claim_prompt_threshold_gems"] == 50_000
 
     # A second migration pass is deliberately harmless; it must never replay v3's
     # older rewarded-placement CHECK constraint against current ledger data.
@@ -55,7 +56,7 @@ def run() -> None:
     after_repeat = service.bootstrap(user_id, "BR")
     assert after_repeat["wallet"]["cash_wallet"] == "20.00"
 
-    print("PostgreSQL v1.6.4 direct-cash runtime upgrade smoke test passed; legacy Gem and split-wallet assets migrated exactly once")
+    print("PostgreSQL v1.6.5.0 direct-cash runtime upgrade smoke test passed; legacy Gem and split-wallet assets migrated exactly once")
 
 
 if __name__ == "__main__":

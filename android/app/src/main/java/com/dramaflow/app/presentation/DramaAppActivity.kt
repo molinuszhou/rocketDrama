@@ -333,7 +333,7 @@ class DramaAppActivity : FragmentActivity() {
         }
         root.addView(createBottomNavigation(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(68), Gravity.BOTTOM))
         root.addView(createFloatingRewardWheel(), FrameLayout.LayoutParams(dp(92), dp(112), Gravity.END or Gravity.BOTTOM).apply {
-            marginEnd = dp(10)
+            marginEnd = dp(2)
             bottomMargin = dp(80)
         })
     }
@@ -439,6 +439,7 @@ class DramaAppActivity : FragmentActivity() {
         playerShown = false
         configureCatalogWindow()
         root.removeAllViews()
+        root.setBackgroundColor(0xFFFFFCF4.toInt())
         val column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER

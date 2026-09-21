@@ -480,6 +480,7 @@ class RewardsService:
         self._verify_admin_token(authorization)
         allowed = {
             "episode_reward_gems", "episodes_per_rewarded_unlock", "episode_reward_boost_enabled",
+            "episode_reward_claim_prompt_threshold_gems",
             "episode_task_max_episode", "episode_task_post18_interval",
             "episode_task_redpacket_min_gems", "episode_task_redpacket_max_gems",
             "wallet_redpacket_min_gems", "wallet_redpacket_max_gems",
@@ -1556,6 +1557,7 @@ class RewardsService:
                 "progress": len(pending_episode_rewards),
                 "target": max(1, len(pending_episode_rewards)),
                 "claimable": bool(pending_episode_rewards),
+                "claim_prompt_threshold_gems": int(policy.get("episode_reward_claim_prompt_threshold_gems", 50_000)),
                 "reward_gems": pending_reward_gems,
                 "reward_cash": self._money(self._reward_units_to_micros(pending_reward_gems, wallet_policy), wallet_policy),
                 "reward_cash_usd_reference": self._usd_reference_money(self._reward_units_to_micros(pending_reward_gems, wallet_policy), wallet_policy),
@@ -2000,6 +2002,7 @@ class RewardsService:
             "episode_reward_gems": int(policy["episode_reward_gems"]),
             "episodes_per_rewarded_unlock": int(policy.get("episodes_per_rewarded_unlock", 1)),
             "episode_reward_boost_enabled": bool(policy.get("episode_reward_boost_enabled", True)),
+            "episode_reward_claim_prompt_threshold_gems": int(policy.get("episode_reward_claim_prompt_threshold_gems", 50_000)),
             "episode_task_max_episode": int(policy.get("episode_task_max_episode", 90)),
             "episode_task_post18_interval": int(policy.get("episode_task_post18_interval", 6)),
             "episode_task_redpacket_min_gems": int(policy.get("episode_task_redpacket_min_gems", 4000)),
@@ -2015,6 +2018,7 @@ class RewardsService:
             "interstitial_rewarded_skip_threshold": int(policy.get("interstitial_rewarded_skip_threshold", 0)),
             "mid_episode_interstitial_enabled": bool(policy["mid_episode_interstitial_enabled"]),
             "mid_episode_interstitial_trigger_seconds": int(policy["mid_episode_interstitial_trigger_seconds"]),
+            "mid_episode_interstitial_repeat_seconds": int(policy.get("mid_episode_interstitial_repeat_seconds", 360)),
             "mid_episode_interstitial_hourly_limit": int(policy["mid_episode_interstitial_hourly_limit"]),
             "seek_interstitial_enabled": bool(policy["seek_interstitial_enabled"]),
             "seek_interstitial_hourly_limit": int(policy["seek_interstitial_hourly_limit"]),

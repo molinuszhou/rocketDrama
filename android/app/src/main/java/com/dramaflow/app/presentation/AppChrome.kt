@@ -251,7 +251,7 @@ internal fun DramaAppActivity.createPlayerAssetStrip(): View = LinearLayout(this
 internal fun DramaAppActivity.createTopSafePlayerAssetStrip(): View {
         val shell = FrameLayout(this)
         val strip = createPlayerAssetStrip()
-        shell.addView(strip, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42), Gravity.TOP or Gravity.END).apply { topMargin = dp(26); marginEnd = dp(18) })
+        shell.addView(strip, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(26) })
         ViewCompat.setOnApplyWindowInsetsListener(shell) { _, insets ->
             val safeTop = insets.getInsets(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()).top
             val params = strip.layoutParams as FrameLayout.LayoutParams

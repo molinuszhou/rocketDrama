@@ -100,6 +100,7 @@ class RewardsApiClient(
         val target: Int = 1,
         val claimable: Boolean = false,
         val rewardCoins: Int = 0,
+        val claimPromptThresholdCoins: Int = 50_000,
         val rewardCash: String = "0.00",
         val rewardCashUsdReference: String = "0.00",
         val label: String = "攒币",
@@ -506,7 +507,7 @@ class RewardsApiClient(
             nextTenRoundPreviewCoins = today.optLong("next_ten_round_preview_gems").coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
             episodesPerRandomChest = today.optInt("episodes_per_random_chest", 3).coerceAtLeast(1),
             episodesToNextRandomChest = today.optInt("episodes_to_next_random_chest", 0).coerceAtLeast(0),
-            ring = (json.optJSONObject("ring") ?: JSONObject()).let { Ring(it.optBoolean("enabled", true), it.optInt("progress"), it.optInt("target", 1).coerceAtLeast(1), it.optBoolean("claimable"), it.optLong("reward_gems").coerceAtMost(Int.MAX_VALUE.toLong()).toInt(), it.optString("reward_cash", "0.00"), it.optString("reward_cash_usd_reference", "0.00"), it.optString("label", "攒币")) },
+            ring = (json.optJSONObject("ring") ?: JSONObject()).let { Ring(it.optBoolean("enabled", true), it.optInt("progress"), it.optInt("target", 1).coerceAtLeast(1), it.optBoolean("claimable"), it.optLong("reward_gems").coerceAtMost(Int.MAX_VALUE.toLong()).toInt(), it.optInt("claim_prompt_threshold_gems", 50_000).coerceAtLeast(0), it.optString("reward_cash", "0.00"), it.optString("reward_cash_usd_reference", "0.00"), it.optString("label", "攒币")) },
             welcome = (json.optJSONObject("welcome") ?: JSONObject()).let { WelcomeReward(it.optBoolean("available"), it.optBoolean("claimed"), it.optLong("gems"), it.optString("cash", "0.00"), it.optString("cash_usd_reference", "0.00")) },
             review = ReviewReward(review.optBoolean("available"), review.optBoolean("claimed"), review.optLong("gems"), review.optString("cash", "0.00")),
             unlock = UnlockRule(

@@ -112,7 +112,7 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
                 orientation = LinearLayout.VERTICAL
                 addView(TextView(this@createWithdrawalPage).apply { text = t("wallet_balance"); textSize = 14f; setTextColor(0xCCFFFFFF.toInt()) })
                 addView(TextView(this@createWithdrawalPage).apply { text = formatWalletTotal(wallet, includeUsdReference = false); textSize = 34f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(0, dp(5), 0, 0); maxLines = 2 })
-                addView(TextView(this@createWithdrawalPage).apply { text = "完成任务后，现金奖励会直接存入钱包"; textSize = 11f; setTextColor(0xBFFFFFFF.toInt()); setPadding(0, dp(6), 0, 0) })
+                addView(TextView(this@createWithdrawalPage).apply { text = t("wallet_cash_direct_to_wallet"); textSize = 11f; setTextColor(0xBFFFFFFF.toInt()); setPadding(0, dp(6), 0, 0) })
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             balanceRow.addView(ImageView(this@createWithdrawalPage).apply {
                 setImageResource(R.drawable.wallet_money); scaleType = ImageView.ScaleType.CENTER_INSIDE; contentDescription = t("wallet")
@@ -134,13 +134,13 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
         }, matchParams(bottom = 14))
         addView(LinearLayout(this@createWithdrawalPage).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(16), dp(18), dp(16)); background = roundedDrawable(COLOR_CARD, 20)
-            addView(TextView(this@createWithdrawalPage).apply { text = "广告加速"; textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
+            addView(TextView(this@createWithdrawalPage).apply { text = t("ad_boost"); textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
             addView(TextView(this@createWithdrawalPage).apply {
-                text = "观看一段广告，可额外获得随机现金奖励。"
+                text = t("wallet_boost_description")
                 textSize = 13f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(7), 0, 0)
             })
             addView(TextView(this@createWithdrawalPage).apply {
-                text = "观看广告，领取现金奖励"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
+                text = t("wallet_boost_action"); textSize = 15f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
                 background = gradientDrawable(intArrayOf(COLOR_SUNSET, COLOR_CORAL), 18); setPadding(dp(14), dp(13), dp(14), dp(13)); isClickable = true
                 setOnClickListener { showWalletReleaseBoostDialog() }
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(13) })

@@ -36,6 +36,7 @@ def apply_runtime_migrations(settings: Settings) -> None:
         ("020_v1647_random_task_redpackets", sql_directory / "020_v1647_random_task_redpackets.sql"),
         ("021_v1648_six_tier_damping", sql_directory / "021_v1648_six_tier_damping.sql"),
         ("022_v1649_interstitial_schedule_and_usd_default", sql_directory / "022_v1649_interstitial_schedule_and_usd_default.sql"),
+        ("023_v1650_episode_reward_claim_prompt_threshold", sql_directory / "023_v1650_episode_reward_claim_prompt_threshold.sql"),
     )
     with psycopg.connect(settings.database_url, autocommit=True) as connection:
         with connection.cursor() as cursor:
@@ -67,5 +68,4 @@ def apply_runtime_migrations(settings: Settings) -> None:
                         cursor.execute("INSERT INTO schema_migrations (version) VALUES (%s) ON CONFLICT DO NOTHING", (version,))
                         continue
                 cursor.execute(sql_path.read_text(encoding="utf-8"))
-                if version == "002_monetization_v3":
-                    cursor.execute("INSERT INTO schema_migrations (version) VALUES (%s) ON CONFLICT DO NOTHING", (version,))
+                cursor.execute("INSERT INTO schema_migrations (version) VALUES (%s) ON CONFLICT DO NOTHING", (version,))

@@ -163,7 +163,7 @@ internal fun DramaAppActivity.showPlayer(drama: LocalDrama, startIndex: Int, res
         root.addView(playerView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         root.addView(createPlayerChrome(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         root.addView(createFloatingRewardWheel(compact = true), FrameLayout.LayoutParams(dp(96), dp(128), Gravity.END or Gravity.CENTER_VERTICAL).apply {
-            marginEnd = dp(10)
+            marginEnd = -dp(2)
             topMargin = dp(42)
         })
         selectEpisode(currentEpisodeIndex)
@@ -263,7 +263,7 @@ internal fun DramaAppActivity.createPlayerTopBar(): View {
         // Both controls share the true system safe inset. This avoids the fixed 14dp
         // offset that could overlap a notch/status region on first opening the player.
         shell.addView(back, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.TOP or Gravity.START).apply { topMargin = dp(8); marginStart = dp(8) })
-        shell.addView(assets, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42), Gravity.TOP or Gravity.END).apply { topMargin = dp(8); marginEnd = dp(8) })
+        shell.addView(assets, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(8) })
         ViewCompat.setOnApplyWindowInsetsListener(shell) { _, insets ->
             val safeTop = insets.getInsets(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()).top
             val margin = safeTop + dp(8)

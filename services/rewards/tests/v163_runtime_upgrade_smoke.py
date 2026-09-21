@@ -23,7 +23,7 @@ def run() -> None:
     with service._transaction() as connection:  # noqa: SLF001 - upgrade verification needs direct migration marker access
         marker = service._one(  # noqa: SLF001
             connection,
-            "SELECT version FROM schema_migrations WHERE version = '021_v1648_six_tier_damping'",
+            "SELECT version FROM schema_migrations WHERE version = '023_v1650_episode_reward_claim_prompt_threshold'",
         )
         assert marker is not None
         columns = service._all(  # noqa: SLF001
@@ -31,7 +31,7 @@ def run() -> None:
             """
             SELECT column_name FROM information_schema.columns
             WHERE table_name = 'reward_policy'
-              AND column_name IN ('gem_damping_tier3_threshold', 'gem_damping_tier4_multiplier', 'gem_damping_tier5_threshold', 'gem_damping_tier6_multiplier', 'interstitial_rewarded_skip_threshold')
+              AND column_name IN ('gem_damping_tier3_threshold', 'gem_damping_tier4_multiplier', 'gem_damping_tier5_threshold', 'gem_damping_tier6_multiplier', 'interstitial_rewarded_skip_threshold', 'episode_reward_claim_prompt_threshold_gems')
             ORDER BY column_name
             """,
         )
@@ -41,6 +41,7 @@ def run() -> None:
             "gem_damping_tier5_threshold",
             "gem_damping_tier6_multiplier",
             "interstitial_rewarded_skip_threshold",
+            "episode_reward_claim_prompt_threshold_gems",
         }
 
     user_id = f"v163-runtime-br-{uuid.uuid4()}"
@@ -55,6 +56,7 @@ def run() -> None:
     assert snapshot["interstitial"]["mid_episode_trigger_seconds"] == 180
     assert snapshot["interstitial"]["mid_episode_repeat_seconds"] == 360
     assert snapshot["interstitial"]["cooldown_seconds"] == 60
+    assert snapshot["ring"]["claim_prompt_threshold_gems"] == 50_000
 
     updated = service.update_market_wallet_policy(
         "Bearer smoke-admin-token",
@@ -85,7 +87,7 @@ def run() -> None:
         assert data["interstitial"]["mid_episode_trigger_seconds"] == 180
         assert data["interstitial"]["mid_episode_repeat_seconds"] == 360
 
-    print("PostgreSQL v1.6.4.9 runtime-upgrade smoke test passed; six-tier damping, direct-cash migration and market-wallet admin update verified")
+    print("PostgreSQL v1.6.5.0 runtime-upgrade smoke test passed; six-tier damping, direct-cash migration, claim prompt threshold and market-wallet admin update verified")
 
 
 if __name__ == "__main__":

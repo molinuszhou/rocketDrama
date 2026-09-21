@@ -120,7 +120,8 @@ internal fun DramaAppActivity.applyRewardsSnapshot(snapshot: RewardsApiClient.Sn
             root.post { animateClaimedGems(previousGems, snapshot.wallet.coins) }
         }
         val pending = snapshot.ring.rewardCoins
-        if (startupContentInitializationStarted && snapshot.ring.claimable && pending >= 10_000 && pending > lastFloatingClaimPromptedGems && !fullscreenAdInProgress) {
+        val promptThreshold = snapshot.ring.claimPromptThresholdCoins.coerceAtLeast(0)
+        if (startupContentInitializationStarted && promptThreshold > 0 && snapshot.ring.claimable && pending >= promptThreshold && pending - lastFloatingClaimPromptedGems >= promptThreshold && !fullscreenAdInProgress) {
             lastFloatingClaimPromptedGems = pending
             root.post {
                 if (!isFinishing && !isDestroyed && !fullscreenAdInProgress) {

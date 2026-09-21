@@ -60,6 +60,7 @@ def run() -> None:
     assert initial["interstitial"]["seek_enabled"] is True
     assert initial["interstitial"]["speed_enabled"] is True
     assert initial["chest"]["available_count"] == 0
+    assert initial["ring"]["claim_prompt_threshold_gems"] == 50_000
     assert initial["chest"]["daily_available_count"] == 0
     assert [item["code"] for item in initial["crown_progress"]] == ["BRONZE", "SILVER", "GOLD", "DIAMOND", "CROWN"]
     assert initial["crown_progress"][0]["rounds"]["target"] == 30
@@ -265,7 +266,7 @@ def run() -> None:
         total_at(1_999_999)
         assert service._credit_gems(connection, damping_user, 100, policy, "WALLET_CASH_BOOST", "damping", event_id("tier6")) == 1  # noqa: SLF001
 
-    print("PostgreSQL v1.6.4.9 rewards smoke test passed; six-tier damping, direct-cash wallet, random task redpackets, cooldown ads and Crown Road growth verified")
+    print("PostgreSQL v1.6.5.0 rewards smoke test passed; six-tier damping, direct-cash wallet, random task redpackets, claim prompt threshold, cooldown ads and Crown Road growth verified")
 
 
 if __name__ == "__main__":
