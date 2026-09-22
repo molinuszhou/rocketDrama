@@ -68,11 +68,11 @@ import java.util.UUID
 import kotlin.random.Random
 
 internal fun DramaAppActivity.createFloatingRewardWheel(compact: Boolean = false): View {
-        val gemSize = if (compact) dp(72) else dp(82)
+        val gemSize = if (compact) dp(62) else dp(68)
         val gem = ImageView(this).apply {
             setImageResource(R.drawable.savings_jar)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            alpha = 0.94f
+            alpha = 0.84f
             contentDescription = t("claim_all")
             isClickable = true
             setOnClickListener {
@@ -85,9 +85,9 @@ internal fun DramaAppActivity.createFloatingRewardWheel(compact: Boolean = false
             duration = 1_700L; repeatCount = ObjectAnimator.INFINITE; interpolator = AccelerateDecelerateInterpolator(); start()
         }
         val label = TextView(this).apply {
-            gravity = Gravity.CENTER; textSize = if (compact) 13f else 14f; typeface = Typeface.DEFAULT_BOLD
-            setTextColor(0xFFFFF3BF.toInt()); setPadding(dp(13), dp(6), dp(13), dp(6)); background = gradientDrawable(intArrayOf(0xF36B8D30.toInt(), 0xEE244B1F.toInt()), 16)
-            alpha = 0.96f
+            gravity = Gravity.CENTER; textSize = if (compact) 10f else 11f; typeface = Typeface.DEFAULT_BOLD
+            setTextColor(0xFFFFF3BF.toInt()); setPadding(dp(10), dp(5), dp(10), dp(5)); background = gradientDrawable(intArrayOf(0xDB6B8D30.toInt(), 0xD0244B1F.toInt()), 14)
+            alpha = 0.84f
             isClickable = true; setOnClickListener { gem.performClick() }
         }
         floatingWheelLabels.add(label); updateFloatingRewardWheel(label)
@@ -97,7 +97,7 @@ internal fun DramaAppActivity.createFloatingRewardWheel(compact: Boolean = false
                 clipChildren = false; clipToPadding = false
                 addView(gem, FrameLayout.LayoutParams(gemSize, gemSize, Gravity.CENTER))
             }, LinearLayout.LayoutParams(gemSize, gemSize))
-            addView(label, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(31)).apply { topMargin = dp(3) })
+            addView(label, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(26)).apply { topMargin = dp(2) })
             if (playerShown && rewardsSnapshot?.unlock?.episodeRewardBoostEnabled == true) {
                 val boostButton = TextView(this@createFloatingRewardWheel).apply { textSize = 11f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setPadding(dp(10), dp(6), dp(10), dp(6)) }
                 floatingBoostButtons.add(boostButton); updateFloatingRewardBoostButton(boostButton)
@@ -113,8 +113,8 @@ internal fun DramaAppActivity.refreshFloatingRewardWheels() {
         crownSummaryChargeButtons.forEach { updateCrownSummaryChargeButton(it) }
         crownChargeCooldownBars.removeAll { !it.isAttachedToWindow }
         crownChargeCooldownBars.forEach { updateFloatingCrownChargeCooldownBar(it) }
-        walletChargeCooldownBars.removeAll { !it.isAttachedToWindow }
-        walletChargeCooldownBars.forEach { updateWalletChargeCooldownBar(it) }
+        walletChargeCooldownRings.removeAll { !it.isAttachedToWindow }
+        walletChargeCooldownRings.forEach { updateWalletChargeCooldownRing(it) }
         floatingBoostButtons.removeAll { !it.isAttachedToWindow }
         floatingBoostButtons.forEach { updateFloatingRewardBoostButton(it) }
         playerWalletBoostButtons.removeAll { !it.isAttachedToWindow }
@@ -158,12 +158,12 @@ internal fun DramaAppActivity.crownChargeCooldownRemainingSeconds(): Int =
 internal fun DramaAppActivity.walletChargeCooldownRemainingSeconds(): Int =
     ((walletChargeCooldownUntilElapsedMillis - android.os.SystemClock.elapsedRealtime() + 999L) / 1_000L).toInt().coerceAtLeast(0)
 
-internal fun DramaAppActivity.updateWalletChargeCooldownBar(bar: ProgressBar) {
+internal fun DramaAppActivity.updateWalletChargeCooldownRing(ring: ChargeCooldownRingView) {
         val release = rewardsSnapshot?.wallet?.release
         val cooldown = walletChargeCooldownRemainingSeconds()
         val duration = release?.chargeCooldownSeconds?.coerceAtLeast(1) ?: 30
-        bar.visibility = if (cooldown > 0) View.VISIBLE else View.GONE
-        bar.progress = ((duration - cooldown).coerceIn(0, duration) * 100 / duration).coerceIn(0, 100)
+        ring.visibility = if (cooldown > 0) View.VISIBLE else View.GONE
+        ring.chargeProgress = (duration - cooldown).coerceIn(0, duration).toFloat() / duration
     }
 
 internal fun DramaAppActivity.updatePlayerWalletBoostButton(button: TextView) {

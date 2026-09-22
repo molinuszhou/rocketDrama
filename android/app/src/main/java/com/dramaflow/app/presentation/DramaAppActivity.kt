@@ -188,7 +188,7 @@ class DramaAppActivity : FragmentActivity() {
     internal val walletChargeButtons = mutableSetOf<TextView>()
     internal val walletChargeQuotaLabels = mutableSetOf<TextView>()
     internal val crownChargeCooldownBars = mutableSetOf<ProgressBar>()
-    internal val walletChargeCooldownBars = mutableSetOf<ProgressBar>()
+    internal val walletChargeCooldownRings = mutableSetOf<ChargeCooldownRingView>()
     /** Server-backed cooldowns prevent back-to-back Crown and wallet rewarded placements. */
     internal var crownChargeCooldownUntilElapsedMillis = 0L
     internal var walletChargeCooldownUntilElapsedMillis = 0L
@@ -341,7 +341,7 @@ class DramaAppActivity : FragmentActivity() {
         }
         root.addView(createBottomNavigation(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(68), Gravity.BOTTOM))
         if (!BuildConfig.WHITE_PACK) {
-            root.addView(createFloatingRewardWheel(), FrameLayout.LayoutParams(dp(142), dp(126), Gravity.END or Gravity.BOTTOM).apply {
+            root.addView(createFloatingRewardWheel(), FrameLayout.LayoutParams(dp(130), dp(112), Gravity.END or Gravity.BOTTOM).apply {
                 marginEnd = 0
                 bottomMargin = dp(80)
             })

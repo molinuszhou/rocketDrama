@@ -136,17 +136,16 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
                     textSize = 12f; setTextColor(0xCCFFFFFF.toInt()); setPadding(0, dp(5), 0, dp(10))
                 })
                 val boostAction = TextView(this@createWithdrawalPage).apply {
-                    textSize = 14f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setPadding(dp(12), dp(10), dp(12), dp(10))
+                    textSize = 14f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setPadding(dp(12), dp(10), dp(38), dp(10))
                 }
                 walletChargeButtons.add(boostAction); updateWalletChargeButton(boostAction)
-                addView(boostAction, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-                val cooldown = ProgressBar(this@createWithdrawalPage, null, android.R.attr.progressBarStyleHorizontal).apply {
-                    max = 100; isIndeterminate = false
-                    progressTintList = ColorStateList.valueOf(COLOR_SUNSET)
-                    backgroundTintList = ColorStateList.valueOf(0x553C3C46)
+                val boostSlot = FrameLayout(this@createWithdrawalPage).apply {
+                    addView(boostAction, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46), Gravity.CENTER))
+                    val cooldown = ChargeCooldownRingView(this@createWithdrawalPage)
+                    walletChargeCooldownRings.add(cooldown); updateWalletChargeCooldownRing(cooldown)
+                    addView(cooldown, FrameLayout.LayoutParams(dp(32), dp(32), Gravity.END or Gravity.CENTER_VERTICAL).apply { marginEnd = dp(10) })
                 }
-                walletChargeCooldownBars.add(cooldown); updateWalletChargeCooldownBar(cooldown)
-                addView(cooldown, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(5)).apply { topMargin = dp(8) })
+                addView(boostSlot, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)))
             }, matchParams(top = 16, bottom = 18))
             val threshold = rewardsSnapshot?.withdrawal?.threshold?.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO
             val balance = wallet.cashWallet.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO
