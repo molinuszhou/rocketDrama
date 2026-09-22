@@ -16,5 +16,7 @@ services:
       - ./content:/app/content:ro
       - ./media:/app/media:ro
     ports:
-      - "8000:8000"
+      # Keep the container port unchanged; use a separate host port so the
+      # existing content service on host port 8000 can remain online.
+      - "8001:8000"
     restart: unless-stopped
