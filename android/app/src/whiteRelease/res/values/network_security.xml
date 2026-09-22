@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- WhiteRelease uses a local HTTP content server during partner testing. -->
+    <bool name="uses_cleartext_traffic">true</bool>
+</resources>
