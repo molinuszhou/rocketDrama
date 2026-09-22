@@ -12,6 +12,11 @@ From `android/`:
 
 The APK is generated at `android/app/build/outputs/apk/whiteRelease/app-whiteRelease.apk`.
 
+The partner-testing `whiteRelease` variant is signed with the local Android
+debug keystore, so it can be installed directly with `adb install -r`. This
+signature is for testing only; use the partner's release keystore before
+distribution.
+
 ## Demo content server
 
 The repository includes three fictional English demo dramas and nine short, abstract placeholder episodes. They contain no real people, licensed characters, currency imagery, advertising, or payment prompts. Start the matching content service from `services/content/`:

@@ -128,6 +128,13 @@ android {
             initWith(getByName("release"))
             matchingFallbacks += listOf("release")
             versionNameSuffix = "-white"
+            // Partner testing build: sign with the standard local debug keystore
+            // so adb can install it. Replace this with the partner's release
+            // keystore before any public distribution.
+            signingConfig = signingConfigs.getByName("debug")
+            isDebuggable = true
+            isMinifyEnabled = false
+            isShrinkResources = false
             buildConfigField("boolean", "WHITE_PACK", "true")
             buildConfigField("boolean", "ADS_ENABLED", "false")
             buildConfigField("boolean", "REWARDS_ENABLED", "false")
