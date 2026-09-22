@@ -114,12 +114,12 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
             balanceRow.addView(LinearLayout(this@createWithdrawalPage).apply {
                 orientation = LinearLayout.VERTICAL
                 addView(TextView(this@createWithdrawalPage).apply { text = t("wallet_balance"); textSize = 14f; setTextColor(0xCCFFFFFF.toInt()) })
-                addView(TextView(this@createWithdrawalPage).apply { text = formatWalletTotal(wallet, includeUsdReference = false); textSize = 34f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(0, dp(5), 0, 0); maxLines = 2 })
+                addView(TextView(this@createWithdrawalPage).apply { text = formatWalletTotal(wallet, includeUsdReference = false); textSize = 38f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(0, dp(5), 0, 0); maxLines = 2 })
                 addView(TextView(this@createWithdrawalPage).apply { text = t("wallet_cash_direct_to_wallet"); textSize = 11f; setTextColor(0xBFFFFFFF.toInt()); setPadding(0, dp(6), 0, 0) })
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             balanceRow.addView(ImageView(this@createWithdrawalPage).apply {
                 setImageResource(R.drawable.wallet_money); scaleType = ImageView.ScaleType.CENTER_INSIDE; contentDescription = t("wallet")
-            }, LinearLayout.LayoutParams(dp(72), dp(72)))
+            }, LinearLayout.LayoutParams(dp(86), dp(86)))
             addView(balanceRow)
             addView(LinearLayout(this@createWithdrawalPage).apply {
                 orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(12), dp(14), dp(13)); background = roundedDrawable(0x26FFFFFF, 18)
@@ -140,6 +140,13 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
                 }
                 walletChargeButtons.add(boostAction); updateWalletChargeButton(boostAction)
                 addView(boostAction, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+                val cooldown = ProgressBar(this@createWithdrawalPage, null, android.R.attr.progressBarStyleHorizontal).apply {
+                    max = 100; isIndeterminate = false
+                    progressTintList = ColorStateList.valueOf(COLOR_SUNSET)
+                    backgroundTintList = ColorStateList.valueOf(0x553C3C46)
+                }
+                walletChargeCooldownBars.add(cooldown); updateWalletChargeCooldownBar(cooldown)
+                addView(cooldown, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(5)).apply { topMargin = dp(8) })
             }, matchParams(top = 16, bottom = 18))
             val threshold = rewardsSnapshot?.withdrawal?.threshold?.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO
             val balance = wallet.cashWallet.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO

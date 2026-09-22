@@ -181,7 +181,6 @@ class DramaAppActivity : FragmentActivity() {
     internal val completedEpisodeKeys = mutableSetOf<String>()
     internal val rewardWatchRecordedEpisodeKeys = mutableSetOf<String>()
     internal val floatingWheelLabels = mutableSetOf<TextView>()
-    internal val floatingCrownChargeButtons = mutableSetOf<TextView>()
     internal val crownSummaryChargeButtons = mutableSetOf<TextView>()
     internal val floatingBoostButtons = mutableSetOf<TextView>()
     internal val playerWalletBoostButtons = mutableSetOf<TextView>()
@@ -189,6 +188,7 @@ class DramaAppActivity : FragmentActivity() {
     internal val walletChargeButtons = mutableSetOf<TextView>()
     internal val walletChargeQuotaLabels = mutableSetOf<TextView>()
     internal val crownChargeCooldownBars = mutableSetOf<ProgressBar>()
+    internal val walletChargeCooldownBars = mutableSetOf<ProgressBar>()
     /** Server-backed cooldowns prevent back-to-back Crown and wallet rewarded placements. */
     internal var crownChargeCooldownUntilElapsedMillis = 0L
     internal var walletChargeCooldownUntilElapsedMillis = 0L
@@ -341,7 +341,7 @@ class DramaAppActivity : FragmentActivity() {
         }
         root.addView(createBottomNavigation(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(68), Gravity.BOTTOM))
         if (!BuildConfig.WHITE_PACK) {
-            root.addView(createFloatingRewardWheel(), FrameLayout.LayoutParams(dp(130), dp(154), Gravity.END or Gravity.BOTTOM).apply {
+            root.addView(createFloatingRewardWheel(), FrameLayout.LayoutParams(dp(142), dp(126), Gravity.END or Gravity.BOTTOM).apply {
                 marginEnd = 0
                 bottomMargin = dp(80)
             })
@@ -456,10 +456,10 @@ class DramaAppActivity : FragmentActivity() {
             setPadding(dp(44), dp(28), dp(44), dp(28))
         }
         column.addView(ImageView(this).apply {
-            setImageResource(R.drawable.joyedrama_app_icon)
+            setImageResource(R.drawable.joyedrama_startup_icon)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             contentDescription = "JoyeDrama"
-        }, LinearLayout.LayoutParams(dp(108), dp(108)).apply { bottomMargin = dp(18) })
+        }, LinearLayout.LayoutParams(dp(132), dp(132)).apply { bottomMargin = dp(18) })
         startupProgressLabel = TextView(this).apply {
             text = t("startup_loading")
             textSize = 18f

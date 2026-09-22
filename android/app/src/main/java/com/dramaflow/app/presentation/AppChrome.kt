@@ -86,14 +86,24 @@ internal fun DramaAppActivity.createPersistentAssetHeader(): View {
             val wallet = rewardsSnapshot?.wallet
             val balanceBar = LinearLayout(this@createPersistentAssetHeader).apply {
                 gravity = Gravity.CENTER_VERTICAL; background = roundedDrawable(COLOR_CARD, 20); setPadding(dp(5), dp(4), dp(5), dp(4)); clipToOutline = true
-                addView(createAssetPill(icon = R.drawable.wallet_money, label = t("wallet_balance"), value = wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—", isGem = false) { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) }, LinearLayout.LayoutParams(0, dp(48), 1f))
+                addView(createAssetPill(icon = R.drawable.wallet_money, label = t("wallet_balance"), value = wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—", isGem = false) { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) }, LinearLayout.LayoutParams(0, dp(52), 1f))
                 val charge = TextView(this@createPersistentAssetHeader).apply {
                     textSize = 10f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; maxLines = 1
-                    setPadding(dp(7), dp(5), dp(7), dp(5)); contentDescription = t("extra_reward")
+                    setPadding(dp(7), dp(5), dp(29), dp(5)); contentDescription = t("extra_reward")
                 }
                 walletHeaderBoostButtons.add(charge)
                 updateWalletHeaderBoostButton(charge)
-                addView(charge, LinearLayout.LayoutParams(dp(96), dp(40)).apply { marginStart = dp(4) })
+                val chargeSlot = FrameLayout(this@createPersistentAssetHeader).apply {
+                    addView(charge, FrameLayout.LayoutParams(dp(116), dp(42), Gravity.CENTER))
+                    val cooldown = ProgressBar(this@createPersistentAssetHeader, null, android.R.attr.progressBarStyleLarge).apply {
+                        max = 100; isIndeterminate = false
+                        progressTintList = ColorStateList.valueOf(COLOR_SUNSET)
+                        backgroundTintList = ColorStateList.valueOf(0x66443A2C)
+                    }
+                    walletChargeCooldownBars.add(cooldown); updateWalletChargeCooldownBar(cooldown)
+                    addView(cooldown, FrameLayout.LayoutParams(dp(28), dp(28), Gravity.END or Gravity.CENTER_VERTICAL).apply { marginEnd = dp(5) })
+                }
+                addView(chargeSlot, LinearLayout.LayoutParams(dp(116), dp(44)).apply { marginStart = dp(4) })
             }
             addView(balanceBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)))
         }
@@ -111,17 +121,17 @@ internal fun DramaAppActivity.createPersistentAssetHeader(): View {
 
 internal fun DramaAppActivity.createAssetPill(icon: Int, label: String, value: String, isGem: Boolean, onClick: () -> Unit): View = LinearLayout(this).apply {
         gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(7), dp(4), dp(7), dp(4))
+        setPadding(dp(7), dp(2), dp(7), dp(2))
         elevation = 0f
         isClickable = true
         contentDescription = "$label $value"
         setOnClickListener { onClick() }
         val image = ImageView(this@createAssetPill).apply { setImageResource(icon); scaleType = ImageView.ScaleType.CENTER_INSIDE }
         if (isGem) gemBalanceAnchor = image else cashBalanceAnchor = image
-        addView(image, LinearLayout.LayoutParams(dp(40), dp(40)))
+        addView(image, LinearLayout.LayoutParams(dp(46), dp(46)))
         addView(LinearLayout(this@createAssetPill).apply {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(5), 0, 0, 0)
-            val valueView = TextView(this@createAssetPill).apply { text = value; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY); maxLines = 1; includeFontPadding = false; letterSpacing = -0.02f; setAutoSizeTextTypeUniformWithConfiguration(10, 15, 1, android.util.TypedValue.COMPLEX_UNIT_SP) }
+            val valueView = TextView(this@createAssetPill).apply { text = value; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY); maxLines = 1; includeFontPadding = false; letterSpacing = -0.02f; setAutoSizeTextTypeUniformWithConfiguration(12, 18, 1, android.util.TypedValue.COMPLEX_UNIT_SP) }
         if (isGem) gemBalanceLabel = valueView else cashBalanceLabel = valueView
             addView(valueView)
             addView(TextView(this@createAssetPill).apply { text = label; textSize = 9f; setTextColor(COLOR_TEXT_MUTED); maxLines = 1 })
@@ -269,27 +279,37 @@ internal fun DramaAppActivity.animateClaimedCash(previous: String, current: Stri
 }
 
 internal fun DramaAppActivity.createPlayerAssetStrip(): View = LinearLayout(this).apply {
-        gravity = Gravity.CENTER_VERTICAL; setPadding(dp(10), dp(6), dp(10), dp(6)); background = roundedDrawable(0xE8000000.toInt(), 22)
+        gravity = Gravity.CENTER_VERTICAL; setPadding(dp(11), dp(6), dp(11), dp(6)); background = roundedDrawable(0xE8000000.toInt(), 24)
         val wallet = rewardsSnapshot?.wallet
         val walletIcon = ImageView(this@createPlayerAssetStrip).apply { setImageResource(R.drawable.wallet_money); scaleType = ImageView.ScaleType.CENTER_INSIDE; isClickable = true; contentDescription = t("wallet"); setOnClickListener { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) } }
         cashBalanceAnchor = walletIcon
-        addView(walletIcon, LinearLayout.LayoutParams(dp(38), dp(38)))
-        val cash = TextView(this@createPlayerAssetStrip).apply { text = wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(dp(5), 0, 0, 0); isClickable = true; setOnClickListener { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) } }
+        addView(walletIcon, LinearLayout.LayoutParams(dp(46), dp(46)))
+        val cash = TextView(this@createPlayerAssetStrip).apply { text = wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—"; textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(dp(6), 0, 0, 0); isClickable = true; setOnClickListener { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) } }
         cashBalanceLabel = cash
         addView(cash)
         val extraReward = TextView(this@createPlayerAssetStrip).apply {
             textSize = 10f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; maxLines = 1
-            setPadding(dp(8), dp(5), dp(8), dp(5)); contentDescription = t("extra_reward")
+            setPadding(dp(8), dp(5), dp(29), dp(5)); contentDescription = t("extra_reward")
         }
         playerWalletBoostButtons.add(extraReward)
         updatePlayerWalletBoostButton(extraReward)
-        addView(extraReward, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34)).apply { marginStart = dp(8) })
+        val extraSlot = FrameLayout(this@createPlayerAssetStrip).apply {
+            addView(extraReward, FrameLayout.LayoutParams(dp(118), dp(38), Gravity.CENTER))
+            val cooldown = ProgressBar(this@createPlayerAssetStrip, null, android.R.attr.progressBarStyleLarge).apply {
+                max = 100; isIndeterminate = false
+                progressTintList = ColorStateList.valueOf(COLOR_SUNSET)
+                backgroundTintList = ColorStateList.valueOf(0x66443A2C)
+            }
+            walletChargeCooldownBars.add(cooldown); updateWalletChargeCooldownBar(cooldown)
+            addView(cooldown, FrameLayout.LayoutParams(dp(27), dp(27), Gravity.END or Gravity.CENTER_VERTICAL).apply { marginEnd = dp(5) })
+        }
+        addView(extraSlot, LinearLayout.LayoutParams(dp(118), dp(42)).apply { marginStart = dp(8) })
     }
 
 internal fun DramaAppActivity.createTopSafePlayerAssetStrip(): View {
         val shell = FrameLayout(this)
         val strip = createPlayerAssetStrip()
-        shell.addView(strip, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(26) })
+        shell.addView(strip, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(54), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(26) })
         ViewCompat.setOnApplyWindowInsetsListener(shell) { _, insets ->
             val safeTop = insets.getInsets(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()).top
             val params = strip.layoutParams as FrameLayout.LayoutParams

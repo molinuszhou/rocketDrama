@@ -68,11 +68,11 @@ import java.util.UUID
 import kotlin.random.Random
 
 internal fun DramaAppActivity.createFloatingRewardWheel(compact: Boolean = false): View {
-        val gemSize = if (compact) dp(62) else dp(68)
+        val gemSize = if (compact) dp(72) else dp(82)
         val gem = ImageView(this).apply {
             setImageResource(R.drawable.savings_jar)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            alpha = 0.84f
+            alpha = 0.94f
             contentDescription = t("claim_all")
             isClickable = true
             setOnClickListener {
@@ -85,9 +85,9 @@ internal fun DramaAppActivity.createFloatingRewardWheel(compact: Boolean = false
             duration = 1_700L; repeatCount = ObjectAnimator.INFINITE; interpolator = AccelerateDecelerateInterpolator(); start()
         }
         val label = TextView(this).apply {
-            gravity = Gravity.CENTER; textSize = if (compact) 10f else 11f; typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.WHITE); setPadding(dp(10), dp(5), dp(10), dp(5)); background = gradientDrawable(intArrayOf(0xEFFF9061.toInt(), 0xE8FF5B62.toInt()), 14)
-            alpha = 0.84f
+            gravity = Gravity.CENTER; textSize = if (compact) 13f else 14f; typeface = Typeface.DEFAULT_BOLD
+            setTextColor(0xFFFFF3BF.toInt()); setPadding(dp(13), dp(6), dp(13), dp(6)); background = gradientDrawable(intArrayOf(0xF36B8D30.toInt(), 0xEE244B1F.toInt()), 16)
+            alpha = 0.96f
             isClickable = true; setOnClickListener { gem.performClick() }
         }
         floatingWheelLabels.add(label); updateFloatingRewardWheel(label)
@@ -97,30 +97,7 @@ internal fun DramaAppActivity.createFloatingRewardWheel(compact: Boolean = false
                 clipChildren = false; clipToPadding = false
                 addView(gem, FrameLayout.LayoutParams(gemSize, gemSize, Gravity.CENTER))
             }, LinearLayout.LayoutParams(gemSize, gemSize))
-            addView(label, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(26)).apply { topMargin = dp(2) })
-            if (!compact) {
-                val crownCharge = TextView(this@createFloatingRewardWheel).apply {
-                    textSize = 10f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; maxLines = 1
-                    ellipsize = android.text.TextUtils.TruncateAt.END; setPadding(dp(7), dp(5), dp(7), dp(5))
-                }
-                floatingCrownChargeButtons.add(crownCharge); updateFloatingCrownChargeButton(crownCharge)
-                val crownChargeRow = LinearLayout(this@createFloatingRewardWheel).apply { gravity = Gravity.CENTER_VERTICAL }
-                crownChargeRow.addView(crownCharge, LinearLayout.LayoutParams(0, dp(30), 1f))
-                val crownCooldownRings = FrameLayout(this@createFloatingRewardWheel)
-                listOf(
-                    "crown-cooldown-first" to 0xFFFFC83D.toInt(),
-                    "crown-cooldown-second" to 0xFFFF8A3D.toInt(),
-                ).forEachIndexed { index, (tag, color) ->
-                    val ring = ProgressBar(this@createFloatingRewardWheel, null, android.R.attr.progressBarStyleLarge).apply {
-                        this.tag = tag; max = 100; isIndeterminate = false; progressTintList = ColorStateList.valueOf(color); backgroundTintList = ColorStateList.valueOf(0x55FFF6C9.toInt())
-                    }
-                    crownChargeCooldownBars.add(ring); updateFloatingCrownChargeCooldownBar(ring)
-                    val size = if (index == 0) dp(32) else dp(22)
-                    crownCooldownRings.addView(ring, FrameLayout.LayoutParams(size, size, Gravity.CENTER))
-                }
-                crownChargeRow.addView(crownCooldownRings, LinearLayout.LayoutParams(dp(32), dp(32)).apply { marginStart = dp(4) })
-                addView(crownChargeRow, LinearLayout.LayoutParams(dp(120), dp(34)).apply { topMargin = dp(1); bottomMargin = dp(3) })
-            }
+            addView(label, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(31)).apply { topMargin = dp(3) })
             if (playerShown && rewardsSnapshot?.unlock?.episodeRewardBoostEnabled == true) {
                 val boostButton = TextView(this@createFloatingRewardWheel).apply { textSize = 11f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setPadding(dp(10), dp(6), dp(10), dp(6)) }
                 floatingBoostButtons.add(boostButton); updateFloatingRewardBoostButton(boostButton)
@@ -132,12 +109,12 @@ internal fun DramaAppActivity.createFloatingRewardWheel(compact: Boolean = false
 internal fun DramaAppActivity.refreshFloatingRewardWheels() {
         floatingWheelLabels.removeAll { !it.isAttachedToWindow }
         floatingWheelLabels.forEach { updateFloatingRewardWheel(it) }
-        floatingCrownChargeButtons.removeAll { !it.isAttachedToWindow }
-        floatingCrownChargeButtons.forEach { updateFloatingCrownChargeButton(it) }
         crownSummaryChargeButtons.removeAll { !it.isAttachedToWindow }
         crownSummaryChargeButtons.forEach { updateCrownSummaryChargeButton(it) }
         crownChargeCooldownBars.removeAll { !it.isAttachedToWindow }
         crownChargeCooldownBars.forEach { updateFloatingCrownChargeCooldownBar(it) }
+        walletChargeCooldownBars.removeAll { !it.isAttachedToWindow }
+        walletChargeCooldownBars.forEach { updateWalletChargeCooldownBar(it) }
         floatingBoostButtons.removeAll { !it.isAttachedToWindow }
         floatingBoostButtons.forEach { updateFloatingRewardBoostButton(it) }
         playerWalletBoostButtons.removeAll { !it.isAttachedToWindow }
@@ -148,31 +125,6 @@ internal fun DramaAppActivity.refreshFloatingRewardWheels() {
         walletChargeQuotaLabels.forEach { updateWalletChargeQuotaLabel(it) }
         walletChargeButtons.removeAll { !it.isAttachedToWindow }
         walletChargeButtons.forEach { updateWalletChargeButton(it) }
-    }
-
-internal fun DramaAppActivity.updateFloatingCrownChargeButton(button: TextView) {
-        val crowns = rewardsSnapshot?.crownProgress?.sortedBy { it.levelRank }.orEmpty()
-        if (crowns.isEmpty()) {
-            button.visibility = View.GONE
-            button.isClickable = false
-            return
-        }
-        val current = crowns.filter { it.earned }.maxByOrNull { it.levelRank }
-        val next = crowns.firstOrNull { !it.earned }
-        val title = current?.let { t(crownTitleKey(it.code)) } ?: t("crown_newbie")
-        val multiplier = current?.episodeRewardMultiplier ?: 1f
-        val cooldown = crownChargeCooldownRemainingSeconds()
-        button.visibility = View.VISIBLE
-        button.text = when {
-            next == null -> t("crown_charge_complete", title, multiplier)
-            cooldown > 0 -> t("crown_charge", title, multiplier)
-            else -> t("crown_charge", title, multiplier)
-        }
-        button.setTextColor(if (next == null) COLOR_TEXT_MUTED else Color.WHITE)
-        button.background = if (next == null) roundedDrawable(COLOR_SURFACE, 14) else gradientDrawable(intArrayOf(COLOR_CORAL, COLOR_SUNSET), 14)
-        button.isClickable = next != null && cooldown <= 0
-        button.alpha = if (next == null || cooldown > 0) 0.72f else 1f
-        button.setOnClickListener { next?.let(::showCrownRewardedUpgradeDialog) }
     }
 
 internal fun DramaAppActivity.updateFloatingCrownChargeCooldownBar(bar: ProgressBar) {
@@ -206,12 +158,20 @@ internal fun DramaAppActivity.crownChargeCooldownRemainingSeconds(): Int =
 internal fun DramaAppActivity.walletChargeCooldownRemainingSeconds(): Int =
     ((walletChargeCooldownUntilElapsedMillis - android.os.SystemClock.elapsedRealtime() + 999L) / 1_000L).toInt().coerceAtLeast(0)
 
+internal fun DramaAppActivity.updateWalletChargeCooldownBar(bar: ProgressBar) {
+        val release = rewardsSnapshot?.wallet?.release
+        val cooldown = walletChargeCooldownRemainingSeconds()
+        val duration = release?.chargeCooldownSeconds?.coerceAtLeast(1) ?: 30
+        bar.visibility = if (cooldown > 0) View.VISIBLE else View.GONE
+        bar.progress = ((duration - cooldown).coerceIn(0, duration) * 100 / duration).coerceIn(0, 100)
+    }
+
 internal fun DramaAppActivity.updatePlayerWalletBoostButton(button: TextView) {
         val wallet = rewardsSnapshot?.wallet
         val cooldown = walletChargeCooldownRemainingSeconds()
         val available = wallet?.release?.boostAvailable == true && cooldown <= 0
         button.visibility = if (wallet == null) View.GONE else View.VISIBLE
-        button.text = if (cooldown > 0) t("cooling") else t("extra_reward")
+        button.text = if (cooldown > 0) t("charge_cooldown", cooldown) else t("extra_reward")
         button.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_charge_bolt, 0, 0, 0)
         button.compoundDrawablePadding = dp(3)
         button.setTextColor(if (available) Color.WHITE else 0xCCFFFFFF.toInt())
@@ -226,7 +186,7 @@ internal fun DramaAppActivity.updateWalletHeaderBoostButton(button: TextView) {
         val cooldown = walletChargeCooldownRemainingSeconds()
         val available = wallet?.release?.boostAvailable == true && cooldown <= 0
         button.visibility = if (wallet == null) View.GONE else View.VISIBLE
-        button.text = if (cooldown > 0) t("cooling") else t("extra_reward")
+        button.text = if (cooldown > 0) t("charge_cooldown", cooldown) else t("extra_reward")
         button.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_charge_bolt, 0, 0, 0)
         button.compoundDrawablePadding = dp(3)
         button.setTextColor(if (available) Color.WHITE else COLOR_TEXT_MUTED)
@@ -251,7 +211,7 @@ internal fun DramaAppActivity.updateWalletChargeButton(button: TextView) {
         val wallet = rewardsSnapshot?.wallet
         val cooldown = walletChargeCooldownRemainingSeconds()
         val available = wallet?.release?.boostAvailable == true && cooldown <= 0
-        button.text = if (cooldown > 0) t("cooling") else t("wallet_boost_action")
+        button.text = if (cooldown > 0) t("charge_cooldown", cooldown) else t("wallet_boost_action")
         button.setTextColor(if (available) Color.WHITE else COLOR_TEXT_MUTED)
         button.background = roundedDrawable(if (available) COLOR_ACCENT else COLOR_SURFACE, 15)
         button.alpha = if (available) 1f else 0.72f
