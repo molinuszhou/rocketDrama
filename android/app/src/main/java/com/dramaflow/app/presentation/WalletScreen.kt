@@ -72,7 +72,10 @@ internal fun DramaAppActivity.showWithdrawalPage(wallet: RewardsApiClient.Wallet
         if (playerShown) releasePlayer()
         playerShown = false
         window.statusBarColor = COLOR_BACKGROUND
-        WindowInsetsControllerCompat(window, root).isAppearanceLightStatusBars = true
+        WindowInsetsControllerCompat(window, root).apply {
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
+        }
         gemBalanceAnchor = null
         gemBalanceLabel = null
         cashBalanceLabel = null
@@ -92,7 +95,7 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
         addView(LinearLayout(this@createWithdrawalPage).apply {
             gravity = Gravity.CENTER_VERTICAL
             addView(ImageView(this@createWithdrawalPage).apply {
-                setImageResource(R.drawable.ic_arrow_back); scaleType = ImageView.ScaleType.CENTER_INSIDE
+                setImageResource(R.drawable.ic_arrow_back); imageTintList = ColorStateList.valueOf(COLOR_TEXT_PRIMARY); scaleType = ImageView.ScaleType.CENTER_INSIDE
                 setPadding(0, 0, dp(14), 0); isClickable = true; contentDescription = t("back")
                 setOnClickListener { onBackPressedDispatcher.onBackPressed() }
             }, LinearLayout.LayoutParams(dp(40), dp(40)))

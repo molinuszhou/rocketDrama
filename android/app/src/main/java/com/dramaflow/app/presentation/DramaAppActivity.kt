@@ -449,7 +449,7 @@ class DramaAppActivity : FragmentActivity() {
         playerShown = false
         configureCatalogWindow()
         root.removeAllViews()
-        root.setBackgroundColor(0xFFFFFCF4.toInt())
+        root.setBackgroundColor(COLOR_BACKGROUND)
         val column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
@@ -499,11 +499,11 @@ class DramaAppActivity : FragmentActivity() {
     /** One window policy for all catalogue surfaces; prevents a player/ad window state leaking into pages. */
     internal fun configureCatalogWindow() {
         topOnAds.setHostEdgeToEdge(this, false)
-        window.statusBarColor = if (activeTab == MainTab.TASKS) 0xFFFFCF9E.toInt() else COLOR_BACKGROUND
+        window.statusBarColor = COLOR_BACKGROUND
         window.navigationBarColor = COLOR_BACKGROUND
         WindowInsetsControllerCompat(window, root).apply {
-            isAppearanceLightStatusBars = true
-            isAppearanceLightNavigationBars = true
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
             show(WindowInsetsCompat.Type.systemBars())
         }
     }
@@ -686,7 +686,7 @@ class DramaAppActivity : FragmentActivity() {
 
     internal fun pageCanvasDrawable(): GradientDrawable = GradientDrawable(
         GradientDrawable.Orientation.TL_BR,
-        intArrayOf(COLOR_BACKGROUND, COLOR_MIST_BLUE, COLOR_BACKGROUND),
+        intArrayOf(COLOR_BACKGROUND, COLOR_BACKGROUND),
     )
 
     internal fun gradientDrawable(colors: IntArray, radiusDp: Int): GradientDrawable = GradientDrawable(

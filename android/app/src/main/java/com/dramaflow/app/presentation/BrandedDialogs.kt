@@ -11,7 +11,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 
 /**
- * 应用内轻量对话框系统。内容、按钮与圆角遵循 JoyeDrama 的暖白/珊瑚视觉体系，
+ * 应用内轻量对话框系统。内容、按钮与圆角遵循 JoyeDrama 的深色/珊瑚视觉体系，
  * 避免在页面中混入平台默认的灰色 AlertDialog 外观。
  */
 internal fun DramaAppActivity.showBrandedChoiceDialog(
@@ -27,7 +27,7 @@ internal fun DramaAppActivity.showBrandedChoiceDialog(
     val card = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         setPadding(dp(22), dp(22), dp(22), dp(18))
-        background = gradientDrawable(intArrayOf(0xFFFFF7F1.toInt(), Color.WHITE), 26)
+        background = gradientDrawable(intArrayOf(COLOR_CARD, COLOR_SURFACE), 26)
     }
     card.addView(TextView(this).apply {
         text = title
@@ -77,7 +77,7 @@ internal fun DramaAppActivity.showBrandedOptionsDialog(
     val card = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         setPadding(dp(22), dp(22), dp(22), dp(16))
-        background = gradientDrawable(intArrayOf(0xFFFFF7F1.toInt(), Color.WHITE), 26)
+        background = gradientDrawable(intArrayOf(COLOR_CARD, COLOR_SURFACE), 26)
     }
     card.addView(TextView(this).apply {
         text = title
@@ -92,7 +92,7 @@ internal fun DramaAppActivity.showBrandedOptionsDialog(
             textSize = 15f
             gravity = Gravity.CENTER_VERTICAL
             setTextColor(if (index == selectedIndex) Color.WHITE else COLOR_TEXT_PRIMARY)
-            background = roundedDrawable(if (index == selectedIndex) COLOR_CORAL else 0xFFFFF4EF.toInt(), 16)
+            background = roundedDrawable(if (index == selectedIndex) COLOR_CORAL else COLOR_SURFACE, 16)
             setPadding(dp(15), dp(12), dp(15), dp(12))
             isClickable = true
             setOnClickListener {
@@ -126,11 +126,13 @@ internal fun DramaAppActivity.showBrandedInputDialog(
     val card = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         setPadding(dp(22), dp(22), dp(22), dp(18))
-        background = gradientDrawable(intArrayOf(0xFFFFF7F1.toInt(), Color.WHITE), 26)
+        background = gradientDrawable(intArrayOf(COLOR_CARD, COLOR_SURFACE), 26)
     }
     card.addView(TextView(this).apply { text = title; textSize = 21f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
     if (message.isNotBlank()) card.addView(TextView(this).apply { text = message; textSize = 13f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(8), 0, dp(13)) })
-    input.background = roundedDrawable(0xFFF9F2EE.toInt(), 14)
+    input.background = roundedDrawable(COLOR_SURFACE, 14)
+    input.setTextColor(COLOR_TEXT_PRIMARY)
+    input.setHintTextColor(COLOR_TEXT_MUTED)
     input.setPadding(dp(14), dp(12), dp(14), dp(12))
     card.addView(input, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
     val actions = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(16), 0, 0) }
@@ -152,7 +154,7 @@ private fun DramaAppActivity.brandedDialogButton(label: String, emphasized: Bool
     typeface = Typeface.DEFAULT_BOLD
     gravity = Gravity.CENTER
     setTextColor(if (emphasized) Color.WHITE else COLOR_TEXT_PRIMARY)
-    background = roundedDrawable(if (emphasized) COLOR_CORAL else 0xFFFFEFE9.toInt(), 16)
+    background = roundedDrawable(if (emphasized) COLOR_CORAL else COLOR_SURFACE, 16)
     isClickable = true
     setOnClickListener { onClick() }
 }

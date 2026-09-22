@@ -193,7 +193,7 @@ internal fun DramaAppActivity.showWelcomeRewardDialog(snapshot: RewardsApiClient
         val dialog = android.app.Dialog(this)
         dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
         val page = FrameLayout(this).apply {
-            background = gradientDrawable(intArrayOf(0xFFFFE2D1.toInt(), 0xFFF5EDFF.toInt(), 0xFFDDF7F4.toInt()), 0)
+            background = gradientDrawable(intArrayOf(COLOR_BACKGROUND, COLOR_CARD, COLOR_BACKGROUND), 0)
         }
         addWelcomeConfetti(page)
         val content = LinearLayout(this).apply {
@@ -214,12 +214,12 @@ internal fun DramaAppActivity.showWelcomeRewardDialog(snapshot: RewardsApiClient
         })
         content.addView(TextView(this@showWelcomeRewardDialog).apply {
             text = formatWelcomeRewardCashValue(snapshot) ?: "—"; textSize = 34f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_CORAL)
-            background = roundedDrawable(0xB8FFFFFF.toInt(), 20); setPadding(dp(22), dp(14), dp(22), dp(14))
+            background = roundedDrawable(COLOR_SURFACE, 20); setPadding(dp(22), dp(14), dp(22), dp(14))
         })
         val cashValue = formatWelcomeRewardCashValue(snapshot)
         content.addView(TextView(this@showWelcomeRewardDialog).apply {
             text = cashValue?.let { t("welcome_cash_ready") } ?: t("welcome_cash_value_syncing")
-            textSize = 13f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_PURPLE); setPadding(0, dp(10), 0, 0)
+            textSize = 13f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_SUNSET); setPadding(0, dp(10), 0, 0)
         })
         content.addView(TextView(this@showWelcomeRewardDialog).apply {
             text = t("welcome_cash_claim_message"); textSize = 13f; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(12), dp(0), dp(16))
@@ -272,13 +272,13 @@ internal fun DramaAppActivity.addWelcomeConfetti(host: FrameLayout) {
         }
     }
 
-    /** 明亮奖励弹窗：七日格子和金额均以服务端快照为准；服务离线时仅展示同步状态，不发放奖励。 */
+    /** 深色奖励弹窗：七日格子和金额均以服务端快照为准；服务离线时仅展示同步状态，不发放奖励。 */
 internal fun DramaAppActivity.showCheckinRewardDialog(snapshot: RewardsApiClient.Snapshot?) {
         val dialog = AlertDialog.Builder(this).create()
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(22), dp(20), dp(18))
-            background = gradientDrawable(intArrayOf(0xFFFFF0E6.toInt(), COLOR_CARD), 26)
+            background = gradientDrawable(intArrayOf(COLOR_CARD, COLOR_SURFACE), 26)
         }
         content.addView(TextView(this).apply {
             text = t("checkin_rewards")

@@ -98,27 +98,29 @@ internal fun DramaAppActivity.createFloatingRewardWheel(compact: Boolean = false
                 addView(gem, FrameLayout.LayoutParams(gemSize, gemSize, Gravity.CENTER))
             }, LinearLayout.LayoutParams(gemSize, gemSize))
             addView(label, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(26)).apply { topMargin = dp(2) })
-            val crownCharge = TextView(this@createFloatingRewardWheel).apply {
-                textSize = if (compact) 9f else 10f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; maxLines = 1
-                ellipsize = android.text.TextUtils.TruncateAt.END; setPadding(dp(7), dp(5), dp(7), dp(5))
-            }
-            floatingCrownChargeButtons.add(crownCharge); updateFloatingCrownChargeButton(crownCharge)
-            val crownChargeRow = LinearLayout(this@createFloatingRewardWheel).apply { gravity = Gravity.CENTER_VERTICAL }
-            crownChargeRow.addView(crownCharge, LinearLayout.LayoutParams(0, dp(30), 1f))
-            val crownCooldownRings = FrameLayout(this@createFloatingRewardWheel)
-            listOf(
-                "crown-cooldown-first" to 0xFFFFC83D.toInt(),
-                "crown-cooldown-second" to 0xFFFF8A3D.toInt(),
-            ).forEachIndexed { index, (tag, color) ->
-                val ring = ProgressBar(this@createFloatingRewardWheel, null, android.R.attr.progressBarStyleLarge).apply {
-                    this.tag = tag; max = 100; isIndeterminate = false; progressTintList = ColorStateList.valueOf(color); backgroundTintList = ColorStateList.valueOf(0x55FFF6C9.toInt())
+            if (!compact) {
+                val crownCharge = TextView(this@createFloatingRewardWheel).apply {
+                    textSize = 10f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END; setPadding(dp(7), dp(5), dp(7), dp(5))
                 }
-                crownChargeCooldownBars.add(ring); updateFloatingCrownChargeCooldownBar(ring)
-                val size = if (index == 0) dp(32) else dp(22)
-                crownCooldownRings.addView(ring, FrameLayout.LayoutParams(size, size, Gravity.CENTER))
+                floatingCrownChargeButtons.add(crownCharge); updateFloatingCrownChargeButton(crownCharge)
+                val crownChargeRow = LinearLayout(this@createFloatingRewardWheel).apply { gravity = Gravity.CENTER_VERTICAL }
+                crownChargeRow.addView(crownCharge, LinearLayout.LayoutParams(0, dp(30), 1f))
+                val crownCooldownRings = FrameLayout(this@createFloatingRewardWheel)
+                listOf(
+                    "crown-cooldown-first" to 0xFFFFC83D.toInt(),
+                    "crown-cooldown-second" to 0xFFFF8A3D.toInt(),
+                ).forEachIndexed { index, (tag, color) ->
+                    val ring = ProgressBar(this@createFloatingRewardWheel, null, android.R.attr.progressBarStyleLarge).apply {
+                        this.tag = tag; max = 100; isIndeterminate = false; progressTintList = ColorStateList.valueOf(color); backgroundTintList = ColorStateList.valueOf(0x55FFF6C9.toInt())
+                    }
+                    crownChargeCooldownBars.add(ring); updateFloatingCrownChargeCooldownBar(ring)
+                    val size = if (index == 0) dp(32) else dp(22)
+                    crownCooldownRings.addView(ring, FrameLayout.LayoutParams(size, size, Gravity.CENTER))
+                }
+                crownChargeRow.addView(crownCooldownRings, LinearLayout.LayoutParams(dp(32), dp(32)).apply { marginStart = dp(4) })
+                addView(crownChargeRow, LinearLayout.LayoutParams(dp(120), dp(34)).apply { topMargin = dp(1); bottomMargin = dp(3) })
             }
-            crownChargeRow.addView(crownCooldownRings, LinearLayout.LayoutParams(dp(32), dp(32)).apply { marginStart = dp(4) })
-            addView(crownChargeRow, LinearLayout.LayoutParams(dp(120), dp(34)).apply { topMargin = dp(1); bottomMargin = dp(3) })
             if (playerShown && rewardsSnapshot?.unlock?.episodeRewardBoostEnabled == true) {
                 val boostButton = TextView(this@createFloatingRewardWheel).apply { textSize = 11f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setPadding(dp(10), dp(6), dp(10), dp(6)) }
                 floatingBoostButtons.add(boostButton); updateFloatingRewardBoostButton(boostButton)
@@ -166,8 +168,8 @@ internal fun DramaAppActivity.updateFloatingCrownChargeButton(button: TextView) 
             cooldown > 0 -> t("crown_charge", title, multiplier)
             else -> t("crown_charge", title, multiplier)
         }
-        button.setTextColor(if (next == null) COLOR_TEXT_PRIMARY else Color.WHITE)
-        button.background = if (next == null) roundedDrawable(0xFFFFE5A8.toInt(), 14) else gradientDrawable(intArrayOf(0xFFFF9A62.toInt(), 0xFFFF5C63.toInt()), 14)
+        button.setTextColor(if (next == null) COLOR_TEXT_MUTED else Color.WHITE)
+        button.background = if (next == null) roundedDrawable(COLOR_SURFACE, 14) else gradientDrawable(intArrayOf(COLOR_CORAL, COLOR_SUNSET), 14)
         button.isClickable = next != null && cooldown <= 0
         button.alpha = if (next == null || cooldown > 0) 0.72f else 1f
         button.setOnClickListener { next?.let(::showCrownRewardedUpgradeDialog) }
@@ -191,8 +193,8 @@ internal fun DramaAppActivity.updateCrownSummaryChargeButton(button: TextView) {
         val cooldown = crownChargeCooldownRemainingSeconds()
         val available = next != null && cooldown <= 0
         button.text = if (cooldown > 0) t("cooling") else t("crown_accelerate")
-        button.setTextColor(if (available) COLOR_TEXT_PRIMARY else 0xAAFFFFFF.toInt())
-        button.background = gradientDrawable(intArrayOf(0xFFFF5D69.toInt(), 0xFFC42048.toInt()), 13)
+        button.setTextColor(if (available) Color.WHITE else COLOR_TEXT_MUTED)
+        button.background = if (available) gradientDrawable(intArrayOf(COLOR_CORAL, 0xFFC42048.toInt()), 13) else roundedDrawable(COLOR_SURFACE, 13)
         button.alpha = if (available) 1f else 0.65f
         button.isClickable = available
         button.setOnClickListener { next?.takeIf { crownChargeCooldownRemainingSeconds() <= 0 }?.let(::showCrownRewardedUpgradeDialog) }
@@ -227,8 +229,8 @@ internal fun DramaAppActivity.updateWalletHeaderBoostButton(button: TextView) {
         button.text = if (cooldown > 0) t("cooling") else t("extra_reward")
         button.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_charge_bolt, 0, 0, 0)
         button.compoundDrawablePadding = dp(3)
-        button.setTextColor(if (available) COLOR_TEXT_PRIMARY else 0x991C1C1C.toInt())
-        button.background = roundedDrawable(if (available) 0xFFFFE2A7.toInt() else 0x33A85B00, 14)
+        button.setTextColor(if (available) Color.WHITE else COLOR_TEXT_MUTED)
+        button.background = roundedDrawable(if (available) 0xFF2A2116.toInt() else COLOR_SURFACE, 14)
         button.alpha = if (available) 1f else 0.72f
         button.isClickable = available
         button.setOnClickListener { if (available) showWalletReleaseBoostDialog() }
@@ -250,8 +252,8 @@ internal fun DramaAppActivity.updateWalletChargeButton(button: TextView) {
         val cooldown = walletChargeCooldownRemainingSeconds()
         val available = wallet?.release?.boostAvailable == true && cooldown <= 0
         button.text = if (cooldown > 0) t("cooling") else t("wallet_boost_action")
-        button.setTextColor(if (available) COLOR_TEXT_PRIMARY else 0xAAFFFFFF.toInt())
-        button.background = roundedDrawable(if (available) COLOR_ACCENT else 0x66FFFFFF, 15)
+        button.setTextColor(if (available) Color.WHITE else COLOR_TEXT_MUTED)
+        button.background = roundedDrawable(if (available) COLOR_ACCENT else COLOR_SURFACE, 15)
         button.alpha = if (available) 1f else 0.72f
         button.isClickable = available
         button.setOnClickListener { if (available) showWalletReleaseBoostDialog() }
@@ -273,7 +275,7 @@ internal fun DramaAppActivity.updateFloatingRewardBoostButton(button: TextView) 
         button.visibility = View.VISIBLE
         button.text = t("floating_boost_short")
         button.setTextColor(Color.WHITE)
-        button.background = gradientDrawable(intArrayOf(0xFFFF9A62.toInt(), 0xFFFF5C63.toInt()), 14)
+        button.background = gradientDrawable(intArrayOf(COLOR_CORAL, COLOR_SUNSET), 14)
         button.isClickable = episodeId != null
         button.alpha = 1f
         button.setOnClickListener { if (episodeId == null) toast(t("episode_not_loaded")) else requestEpisodeRewardBoost(episodeId) }
@@ -281,10 +283,11 @@ internal fun DramaAppActivity.updateFloatingRewardBoostButton(button: TextView) 
 
 internal fun DramaAppActivity.updateFloatingRewardWheel(label: TextView) {
         val ring = rewardsSnapshot?.ring
+        val wallet = rewardsSnapshot?.wallet
         label.text = when {
-            ring == null -> "…"
-            ring.claimable -> rewardsSnapshot?.wallet?.let { formatCurrencyAmount(it, ring.rewardCash, null, false) } ?: "…"
-            else -> "0"
+            ring == null || wallet == null -> "…"
+            ring.claimable -> formatCurrencyAmount(wallet, ring.rewardCash, null, false)
+            else -> formatCurrencyAmount(wallet, "0", null, false)
         }
     }
 
@@ -381,7 +384,7 @@ internal fun DramaAppActivity.createCheckinCard(): View {
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(16), dp(18), dp(16))
-            background = roundedDrawable(0xFFFFFFFF.toInt(), 18)
+            background = roundedDrawable(COLOR_CARD, 18)
             addView(TextView(this@createCheckinCard).apply { text = t("checkin_rewards"); textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
             addView(TextView(this@createCheckinCard).apply {
                 text = snapshot?.let {
@@ -412,16 +415,16 @@ internal fun DramaAppActivity.createCheckinCard(): View {
 internal fun DramaAppActivity.createWelcomeRewardCard(snapshot: RewardsApiClient.Snapshot): View = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         setPadding(dp(18), dp(16), dp(18), dp(16))
-        background = gradientDrawable(intArrayOf(0xFFFFA5B8.toInt(), 0xFFFFD8A7.toInt()), 20)
+        background = gradientDrawable(intArrayOf(COLOR_CARD, 0xFF2A2116.toInt()), 20)
         addView(TextView(this@createWelcomeRewardCard).apply { text = t("newcomer_reward"); textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
         addView(TextView(this@createWelcomeRewardCard).apply {
             text = "新人现金奖励 ${formatWelcomeRewardCashValue(snapshot) ?: "—"}"
-            textSize = 13f; setTextColor(0xECFFFFFF.toInt()); setPadding(0, dp(6), 0, dp(13))
+            textSize = 13f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(6), 0, dp(13))
         })
         addView(TextView(this@createWelcomeRewardCard).apply {
             text = t("watch_ad_claim")
-            textSize = 14f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(0xFF7A2440.toInt())
-            background = roundedDrawable(0xFFFFE7A0.toInt(), 14); setPadding(dp(14), dp(10), dp(14), dp(10)); isClickable = true
+            textSize = 14f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
+            background = roundedDrawable(COLOR_CORAL, 14); setPadding(dp(14), dp(10), dp(14), dp(10)); isClickable = true
             setOnClickListener { claimWelcomeBonus() }
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)))
     }
@@ -454,12 +457,12 @@ internal fun DramaAppActivity.createRewardsWalletSummary(): View {
         if (wallet == null) return createInlineNotice("正在同步奖励账本，连接成功后将展示现金钱包余额。")
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(18), dp(18), dp(16))
-            background = gradientDrawable(intArrayOf(0xFFFFF0E5.toInt(), 0xFFFFFFFF.toInt()), 22)
+            background = gradientDrawable(intArrayOf(COLOR_CARD, COLOR_SURFACE), 22)
             addView(TextView(this@createRewardsWalletSummary).apply { text = t("wallet"); textSize = 20f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
             val balances = LinearLayout(this@createRewardsWalletSummary).apply { orientation = LinearLayout.HORIZONTAL }
             listOf(t("wallet_balance") to formatWalletTotal(wallet, includeUsdReference = false)).forEachIndexed { index, item ->
                 balances.addView(LinearLayout(this@createRewardsWalletSummary).apply {
-                    orientation = LinearLayout.VERTICAL; setPadding(dp(12), dp(12), dp(10), dp(12)); background = roundedDrawable(0xCCFFFFFF.toInt(), 14)
+                    orientation = LinearLayout.VERTICAL; setPadding(dp(12), dp(12), dp(10), dp(12)); background = roundedDrawable(COLOR_SURFACE, 14)
                     addView(TextView(this@createRewardsWalletSummary).apply { text = item.first; textSize = 12f; setTextColor(COLOR_TEXT_MUTED) })
                     addView(TextView(this@createRewardsWalletSummary).apply { text = item.second; textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY); setPadding(0, dp(4), 0, 0); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; includeFontPadding = false; setAutoSizeTextTypeUniformWithConfiguration(12, 20, 1, android.util.TypedValue.COMPLEX_UNIT_SP) })
                 }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { if (index > 0) marginStart = dp(9) })
@@ -468,7 +471,7 @@ internal fun DramaAppActivity.createRewardsWalletSummary(): View {
             val actions = LinearLayout(this@createRewardsWalletSummary).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(14), 0, 0) }
             actions.addView(TextView(this@createRewardsWalletSummary).apply {
                 text = t("withdraw"); textSize = 14f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_PRIMARY)
-                background = roundedDrawable(0xCCFFFFFF.toInt(), 14); setOnClickListener { showWithdrawalPage(wallet) }; isClickable = true
+                background = roundedDrawable(COLOR_SURFACE, 14); setOnClickListener { showWithdrawalPage(wallet) }; isClickable = true
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)))
             addView(actions)
         }
@@ -609,7 +612,7 @@ internal fun DramaAppActivity.createAchievementSummary(snapshot: RewardsApiClien
                 "crown-cooldown-second" to 0xFFFF8A3D.toInt(),
             ).forEachIndexed { index, (tag, color) ->
                 val ring = ProgressBar(this@createAchievementSummary, null, android.R.attr.progressBarStyleLarge).apply {
-                    this.tag = tag; max = 100; isIndeterminate = false; progressTintList = ColorStateList.valueOf(color); backgroundTintList = ColorStateList.valueOf(0x33FFF6C9)
+                    this.tag = tag; max = 100; isIndeterminate = false; progressTintList = ColorStateList.valueOf(color); backgroundTintList = ColorStateList.valueOf(0x553C3C46)
                 }
                 crownChargeCooldownBars.add(ring); updateFloatingCrownChargeCooldownBar(ring)
                 val size = if (index == 0) dp(38) else dp(26)
@@ -646,7 +649,7 @@ internal fun DramaAppActivity.requestCrownRewardedUpgrade(title: String) {
 internal fun DramaAppActivity.createActivityRewardDemo(): View = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         setPadding(dp(16), dp(15), dp(16), dp(15))
-        background = gradientDrawable(intArrayOf(0xFFFFF1E6.toInt(), 0xFFFFFFFF.toInt()), 18)
+        background = gradientDrawable(intArrayOf(COLOR_CARD, COLOR_SURFACE), 18)
         addView(TextView(this@createActivityRewardDemo).apply {
             text = "新剧追更挑战"
             textSize = 16f

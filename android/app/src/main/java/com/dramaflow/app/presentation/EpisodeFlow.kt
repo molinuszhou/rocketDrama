@@ -414,7 +414,7 @@ internal fun DramaAppActivity.showRandomChestEarnedDialog(createdCount: Int, ava
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(dp(24), dp(24), dp(24), dp(20))
-            background = gradientDrawable(intArrayOf(0xFFFFF0E6.toInt(), 0xFFFFFFFF.toInt()), 28)
+            background = gradientDrawable(intArrayOf(COLOR_CARD, COLOR_SURFACE), 28)
         }
         val chestImage = ImageView(this).apply {
             setImageResource(com.dramaflow.app.R.drawable.wallet_money)
@@ -455,7 +455,7 @@ internal fun DramaAppActivity.showRandomChestEarnedDialog(createdCount: Int, ava
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
-            background = gradientDrawable(intArrayOf(0xFFFFB72F.toInt(), 0xFFE45330.toInt()), 16)
+            background = gradientDrawable(intArrayOf(COLOR_CORAL, COLOR_SUNSET), 16)
             isClickable = true
             setOnClickListener { dialog.dismiss(); requestRandomChestOpen(onFinished = onContinuePlayback) }
         }, LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginStart = dp(8) })

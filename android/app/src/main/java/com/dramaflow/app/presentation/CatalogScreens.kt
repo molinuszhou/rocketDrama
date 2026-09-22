@@ -240,15 +240,15 @@ internal fun DramaAppActivity.createHeroBanner(drama: LocalDrama): View = FrameL
         copy.addView(TextView(this@createHeroBanner).apply { text = t("episodes_count", drama.total.coerceAtLeast(1)); textSize = 13f; setTextColor(0xE6FFFFFF.toInt()) })
         addView(copy, FrameLayout.LayoutParams(dp(235), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.START).apply { leftMargin = dp(18); bottomMargin = dp(18) })
         val play = LinearLayout(this@createHeroBanner).apply {
-            gravity = Gravity.CENTER_VERTICAL; background = roundedDrawable(0xEBFFFFFF.toInt(), 24); setPadding(dp(4), dp(4), dp(12), dp(4))
+            gravity = Gravity.CENTER_VERTICAL; background = roundedDrawable(0xE81D1D22.toInt(), 24); setPadding(dp(4), dp(4), dp(12), dp(4))
             addView(ImageView(this@createHeroBanner).apply { setImageResource(R.drawable.ic_play_coral); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(42), dp(42)))
-            addView(TextView(this@createHeroBanner).apply { text = t("episodes_count", drama.total.coerceAtLeast(1)); textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY); setPadding(dp(5), 0, 0, 0) })
+            addView(TextView(this@createHeroBanner).apply { text = t("episodes_count", drama.total.coerceAtLeast(1)); textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(dp(5), 0, 0, 0) })
         }
         addView(play, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(50), Gravity.BOTTOM or Gravity.END).apply { rightMargin = dp(14); bottomMargin = dp(14) })
     }
 
 internal fun DramaAppActivity.createSearchPrompt(): View = LinearLayout(this).apply {
-        gravity = Gravity.CENTER_VERTICAL; setPadding(dp(15), dp(12), dp(15), dp(12)); background = roundedDrawable(0xFAFFFFFF.toInt(), 19); elevation = dp(2).toFloat(); isClickable = true
+        gravity = Gravity.CENTER_VERTICAL; setPadding(dp(15), dp(12), dp(15), dp(12)); background = roundedDrawable(COLOR_CARD, 19); elevation = dp(2).toFloat(); isClickable = true
         setOnClickListener { showSearchPage() }
         addView(ImageView(this@createSearchPrompt).apply { setImageResource(R.drawable.ic_search); imageTintList = ColorStateList.valueOf(COLOR_TEXT_MUTED); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(23), dp(23)))
         addView(TextView(this@createSearchPrompt).apply { text = t("search_hint"); textSize = 14f; setTextColor(COLOR_TEXT_MUTED); setPadding(dp(10), 0, 0, 0) })
@@ -267,7 +267,7 @@ internal fun DramaAppActivity.showSearchPage() {
         val input = EditText(this).apply {
             hint = t("search_hint"); textSize = 15f; setSingleLine(true); setTextColor(COLOR_TEXT_PRIMARY); setHintTextColor(COLOR_TEXT_MUTED)
             setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_search, 0, 0, 0); compoundDrawablePadding = dp(10)
-            background = roundedDrawable(0xF7FFFFFF.toInt(), 19); setPadding(dp(15), dp(7), dp(15), dp(7))
+            background = roundedDrawable(COLOR_CARD, 19); setPadding(dp(15), dp(7), dp(15), dp(7))
         }
         fun renderResults(query: String) {
             results.removeAllViews()

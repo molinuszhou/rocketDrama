@@ -85,7 +85,7 @@ internal fun DramaAppActivity.createPersistentAssetHeader(): View {
             setPadding(dp(16), 0, dp(16), 0)
             val wallet = rewardsSnapshot?.wallet
             val balanceBar = LinearLayout(this@createPersistentAssetHeader).apply {
-                gravity = Gravity.CENTER_VERTICAL; background = roundedDrawable(0xF2FFFFFF.toInt(), 20); setPadding(dp(5), dp(4), dp(5), dp(4)); clipToOutline = true
+                gravity = Gravity.CENTER_VERTICAL; background = roundedDrawable(COLOR_CARD, 20); setPadding(dp(5), dp(4), dp(5), dp(4)); clipToOutline = true
                 addView(createAssetPill(icon = R.drawable.wallet_money, label = t("wallet_balance"), value = wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—", isGem = false) { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) }, LinearLayout.LayoutParams(0, dp(48), 1f))
                 val charge = TextView(this@createPersistentAssetHeader).apply {
                     textSize = 10f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; maxLines = 1
@@ -143,7 +143,7 @@ internal fun DramaAppActivity.createCashoutSummary(wallet: RewardsApiClient.Wall
                 addView(TextView(this@createCashoutSummary).apply { text = item.second; textSize = 10f; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_MUTED); maxLines = 2; setPadding(0, dp(4), 0, dp(2)) })
                 addView(TextView(this@createCashoutSummary).apply { text = item.third; textSize = 16f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_PRIMARY) })
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            if (index < items.lastIndex) addView(View(this@createCashoutSummary).apply { setBackgroundColor(0x151C1C1C) }, LinearLayout.LayoutParams(dp(1), dp(55)))
+            if (index < items.lastIndex) addView(View(this@createCashoutSummary).apply { setBackgroundColor(0x553C3C46) }, LinearLayout.LayoutParams(dp(1), dp(55)))
         }
     }
 
@@ -224,17 +224,41 @@ internal fun DramaAppActivity.animateClaimedCash(previous: String, current: Stri
         cashBalanceLabel?.text = wallet?.let { formatCurrencyAmount(it, previous, null, includeUsdReference = false) } ?: previous
         val rootLocation = IntArray(2); val targetLocation = IntArray(2)
         root.getLocationOnScreen(rootLocation); target.getLocationOnScreen(targetLocation)
+        val cashDelta = (current.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO).subtract(previous.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO).max(java.math.BigDecimal.ZERO)
+        val rewardText = wallet?.let { "+${formatCurrencyAmount(it, cashDelta.toPlainString(), null, includeUsdReference = false)}" } ?: "+$current"
         val fly = ImageView(this).apply { setImageResource(R.drawable.wallet_money); scaleType = ImageView.ScaleType.CENTER_INSIDE; alpha = 0f }
-        val size = dp(58); val startX = root.width / 2f - size / 2f; val startY = root.height * 0.59f - size / 2f
+        val size = dp(68); val startX = root.width / 2f - size / 2f; val startY = root.height * 0.64f - size / 2f
+        val rewardBadge = TextView(this).apply {
+            text = rewardText; textSize = 18f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
+            background = gradientDrawable(intArrayOf(COLOR_CORAL, COLOR_SUNSET), 22); alpha = 0f; setPadding(dp(14), dp(8), dp(14), dp(8))
+        }
+        val halo = View(this).apply {
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0x22FFB34D); setStroke(dp(2), 0xFFFFB84D.toInt()) }; alpha = 0f
+        }
         root.addView(fly, FrameLayout.LayoutParams(size, size).apply { leftMargin = startX.toInt(); topMargin = startY.toInt() })
+        root.addView(rewardBadge, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { leftMargin = (startX - dp(28)).toInt(); topMargin = (startY - dp(46)).toInt() })
+        root.addView(halo, FrameLayout.LayoutParams(dp(84), dp(84)).apply { leftMargin = (targetLocation[0] - rootLocation[0] + target.width / 2 - dp(42)); topMargin = (targetLocation[1] - rootLocation[1] + target.height / 2 - dp(42)) })
         val endX = targetLocation[0] - rootLocation[0] + target.width / 2f - startX - size / 2f
         val endY = targetLocation[1] - rootLocation[1] + target.height / 2f - startY - size / 2f
         AnimatorSet().apply {
-            playTogether(ObjectAnimator.ofFloat(fly, View.ALPHA, 0f, 1f, 1f, 0f), ObjectAnimator.ofFloat(fly, View.TRANSLATION_X, 0f, endX), ObjectAnimator.ofFloat(fly, View.TRANSLATION_Y, 0f, -dp(56).toFloat(), endY), ObjectAnimator.ofFloat(fly, View.SCALE_X, 1.48f, .62f), ObjectAnimator.ofFloat(fly, View.SCALE_Y, 1.48f, .62f))
-            duration = 820L; interpolator = AccelerateDecelerateInterpolator()
+            playTogether(
+                ObjectAnimator.ofFloat(fly, View.ALPHA, 0f, 1f, 1f, 0f),
+                ObjectAnimator.ofFloat(fly, View.TRANSLATION_X, 0f, endX),
+                ObjectAnimator.ofFloat(fly, View.TRANSLATION_Y, 0f, -dp(92).toFloat(), endY),
+                ObjectAnimator.ofFloat(fly, View.SCALE_X, .34f, 1.32f, .46f),
+                ObjectAnimator.ofFloat(fly, View.SCALE_Y, .34f, 1.32f, .46f),
+                ObjectAnimator.ofFloat(fly, View.ROTATION, -14f, 12f, 0f),
+                ObjectAnimator.ofFloat(rewardBadge, View.ALPHA, 0f, 1f, 1f, 0f),
+                ObjectAnimator.ofFloat(rewardBadge, View.TRANSLATION_Y, 0f, -dp(56).toFloat(), -dp(94).toFloat()),
+            )
+            duration = 980L; interpolator = AccelerateDecelerateInterpolator()
             addListener(object : android.animation.AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: android.animation.Animator) {
                     (fly.parent as? ViewGroup)?.removeView(fly)
+                    (rewardBadge.parent as? ViewGroup)?.removeView(rewardBadge)
+                    halo.animate().alpha(.9f).scaleX(.35f).scaleY(.35f).setDuration(1).withEndAction {
+                        halo.animate().alpha(0f).scaleX(1.65f).scaleY(1.65f).setDuration(340).withEndAction { (halo.parent as? ViewGroup)?.removeView(halo) }.start()
+                    }.start()
                     cashBalanceLabel?.text = wallet?.let { formatCurrencyAmount(it, current, null, includeUsdReference = false) } ?: current
                     target.animate().scaleX(1.20f).scaleY(1.20f).setDuration(130L).withEndAction { target.animate().scaleX(1f).scaleY(1f).setDuration(180L).start() }.start()
                     gemFlightInProgress = false
@@ -280,7 +304,7 @@ internal fun DramaAppActivity.createTopSafePlayerAssetStrip(): View {
 internal fun DramaAppActivity.formatGems(value: Long): String = String.format(Locale.US, "%,d", value)
 
 internal fun DramaAppActivity.createBottomNavigation(): View = LinearLayout(this).apply {
-        gravity = Gravity.CENTER; setPadding(dp(14), dp(9), dp(14), dp(10)); background = topRoundedDrawable(0xFCFFFFFF.toInt(), 26); elevation = dp(10).toFloat()
+        gravity = Gravity.CENTER; setPadding(dp(14), dp(9), dp(14), dp(10)); background = topRoundedDrawable(COLOR_CARD, 26); elevation = dp(10).toFloat()
         MainTab.entries.filterNot { BuildConfig.WHITE_PACK && it == MainTab.TASKS }.forEach { tab ->
             val active = activeTab == tab
             addView(LinearLayout(this@createBottomNavigation).apply {
