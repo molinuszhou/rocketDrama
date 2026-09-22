@@ -53,7 +53,8 @@ def run() -> None:
     assert "welcome" in snapshot, initial
     assert snapshot["welcome"]["available"] is True
     assert snapshot["wallet"]["cash_mode"] is True
-    assert snapshot["welcome"]["cash"] == "10.00"
+    assert snapshot["welcome"]["cash"] == "20.00"
+    assert snapshot["review"]["available"] is False
     assert snapshot["episode_unlock"]["free_episodes_count"] == 3
     assert snapshot["episode_unlock"]["next_episode_rewarded_enabled"] is True
     assert snapshot["episode_unlock"]["episodes_per_rewarded_unlock"] == 2
@@ -66,7 +67,7 @@ def run() -> None:
     assert snapshot["interstitial"]["cooldown_seconds"] == 60
     assert snapshot["interstitial"]["rewarded_skip_threshold"] == 3
     assert snapshot["wallet"]["release"]["boost_cap"] == 10
-    assert snapshot["wallet"]["release"]["charge_cooldown_seconds"] == 30
+    assert snapshot["wallet"]["release"]["charge_cooldown_seconds"] == 60
     assert snapshot["crown_progress"][0]["episode_progress_points"] == 2
     assert snapshot["crown_progress"][0]["rewarded_ad_progress_points"] == 1
     assert snapshot["ring"]["claim_prompt_threshold_gems"] == 50_000
@@ -74,7 +75,7 @@ def run() -> None:
     # 欢迎奖励和签到均通过激励广告落账，不能直接绕过。
     _, welcome, _ = rewarded("rv_welcome_bonus")
     assert welcome["data"]["result"]["action"] == "WELCOME_BONUS"
-    assert welcome["data"]["result"]["cash_added"] == "10.00"
+    assert welcome["data"]["result"]["cash_added"] == "20.00"
     _, signed, _ = rewarded("rv_checkin_complete")
     assert signed["data"]["result"]["action"] == "SIGN_IN"
 
@@ -177,7 +178,7 @@ def run() -> None:
         _, crown = request("PUT", "/v2/admin/crown-multiplier", {"code": "BRONZE", "episode_reward_multiplier": 1.20}, admin=True)
         assert crown["data"]["crown_multipliers"][0]["episode_reward_multiplier"] == 1.2
 
-    print("HTTP API v1.6.5.2 smoke test passed; six-tier damping, direct cash, daily task redpackets, charge cooldowns, Crown points and operating policy verified")
+    print("HTTP API v1.6.5.6 smoke test passed; direct cash, consolidated newcomer reward, cooldowns and operating policy verified")
 
 
 if __name__ == "__main__":

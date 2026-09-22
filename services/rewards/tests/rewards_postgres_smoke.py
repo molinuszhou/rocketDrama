@@ -50,7 +50,8 @@ def run() -> None:
     assert initial["wallet"]["cash_mode"] is True
     assert initial["wallet"]["gems_balance"] == 0
     assert initial["wallet"]["cash_wallet"] == "0.00"
-    assert initial["welcome"]["cash"] == "10.00"
+    assert initial["welcome"]["cash"] == "20.00"
+    assert initial["review"]["available"] is False
     assert initial["checkin"]["signed_today"] is False
     assert initial["episode_unlock"]["free_episodes_count"] == 3
     assert initial["episode_unlock"]["next_episode_rewarded_enabled"] is True
@@ -66,8 +67,8 @@ def run() -> None:
     assert initial["crown_progress"][0]["rounds"]["target"] == 30
     assert initial["crown_progress"][0]["episode_progress_points"] == 2
     assert initial["crown_progress"][0]["rewarded_ad_progress_points"] == 1
-    assert initial["crown_progress"][0]["charge_cooldown_seconds"] == 30
-    assert initial["wallet"]["release"]["charge_cooldown_seconds"] == 30
+    assert initial["crown_progress"][0]["charge_cooldown_seconds"] == 60
+    assert initial["wallet"]["release"]["charge_cooldown_seconds"] == 60
     assert initial["interstitial"]["mid_episode_trigger_seconds"] == 180
     assert initial["interstitial"]["mid_episode_repeat_seconds"] == 360
     assert initial["interstitial"]["cooldown_seconds"] == 60
@@ -94,7 +95,7 @@ def run() -> None:
     welcome, _ = rewarded(service, user_id, "rv_welcome_bonus")
     assert welcome["result"]["action"] == "WELCOME_BONUS"
     assert welcome["result"]["gems_added"] == initial["welcome"]["gems"]
-    assert welcome["result"]["cash_added"] == "10.00"
+    assert welcome["result"]["cash_added"] == "20.00"
     signed, _ = rewarded(service, user_id, "rv_checkin_complete")
     assert signed["result"]["action"] == "SIGN_IN"
     assert signed["snapshot"]["checkin"]["signed_today"] is True
@@ -116,6 +117,29 @@ def run() -> None:
         service._execute(connection, "UPDATE daily_counters SET last_interstitial_at = NOW() - INTERVAL '61 seconds' WHERE user_id = %s AND business_date = %s", (user_id, service._business_date()))  # noqa: SLF001
     fallback = service.record_interstitial(user_id, event_id("int_rewarded_fallback"), "int_rewarded_fallback")
     assert fallback["snapshot"]["interstitial"]["rewarded_skip_count"] == 3
+
+    # A real fallback interstitial may settle the original rewarded action exactly once.
+    fallback_user = f"v1656-fallback-{uuid.uuid4()}"
+    fallback_initial = service.bootstrap(fallback_user)
+    fallback_interstitial_id = event_id("int-rewarded-fallback-grant")
+    service.record_interstitial(fallback_user, fallback_interstitial_id, "int_rewarded_fallback")
+    fallback_grant = service.settle_rewarded_fallback(
+        user_id=fallback_user,
+        interstitial_event_id=fallback_interstitial_id,
+        original_placement_id="rv_welcome_bonus",
+        target_id=None,
+        episode_index=None,
+    )
+    assert fallback_grant["result"]["action"] == "WELCOME_BONUS"
+    assert fallback_grant["result"]["cash_added"] == fallback_initial["welcome"]["cash"]
+    assert fallback_grant["snapshot"]["welcome"]["claimed"] is True
+    assert service.settle_rewarded_fallback(
+        user_id=fallback_user,
+        interstitial_event_id=fallback_interstitial_id,
+        original_placement_id="rv_welcome_bonus",
+        target_id=None,
+        episode_index=None,
+    )["idempotent"] is True
 
     # 单条激励广告连续解锁一个两集集包；低频模式关闭单集广告翻倍。
     episode_pass, _ = rewarded(service, user_id, "rv_episode_pass", "owned:smoke:ep:4", 4)
@@ -265,23 +289,23 @@ def run() -> None:
     assert br_initial["wallet"]["currency"]["code"] == "BRL"
     assert br_initial["wallet"]["currency"]["symbol"] == "R$"
     br_welcome, _ = rewarded(service, br_user, "rv_welcome_bonus")
-    assert br_welcome["result"]["cash_added"] == "30.00"
-    assert br_welcome["result"]["cash_added_usd_reference"] == "10.00"
+    assert br_welcome["result"]["cash_added"] == "60.00"
+    assert br_welcome["result"]["cash_added_usd_reference"] == "20.00"
 
     id_user = f"v163-id-{uuid.uuid4()}"
     id_initial = service.bootstrap(id_user, "ID")
     assert id_initial["wallet"]["currency"]["code"] == "IDR"
     assert id_initial["wallet"]["currency"]["fraction_digits"] == 0
     id_welcome, _ = rewarded(service, id_user, "rv_welcome_bonus")
-    assert id_welcome["result"]["cash_added"] == "100000"
-    assert id_welcome["result"]["cash_added_usd_reference"] == "10.00"
+    assert id_welcome["result"]["cash_added"] == "200000"
+    assert id_welcome["result"]["cash_added_usd_reference"] == "20.00"
 
     hk_user = f"v164-hk-{uuid.uuid4()}"
     hk_initial = service.bootstrap(hk_user, "HK")
     assert hk_initial["wallet"]["currency"]["code"] == "USD"
     hk_welcome, _ = rewarded(service, hk_user, "rv_welcome_bonus")
-    assert hk_welcome["result"]["cash_added"] == "10.00"
-    assert hk_welcome["result"]["cash_added_usd_reference"] == "10.00"
+    assert hk_welcome["result"]["cash_added"] == "20.00"
+    assert hk_welcome["result"]["cash_added_usd_reference"] == "20.00"
 
     # 通用区域钱包管理：新增 MX，停用后新用户回退 DEFAULT；历史用户仍可读取原策略。
     admin_auth = "Bearer smoke-admin-token"
@@ -327,7 +351,7 @@ def run() -> None:
         total_at(1_999_999)
         assert service._credit_gems(connection, damping_user, 100, policy, "WALLET_CASH_BOOST", "damping", event_id("tier6")) == 1  # noqa: SLF001
 
-    print("PostgreSQL v1.6.5.2 rewards smoke test passed; six-tier damping, direct-cash wallet, daily task redpackets, charge cooldowns and Crown points verified")
+    print("PostgreSQL v1.6.5.6 rewards smoke test passed; welcome consolidation, verified fallback settlement, direct cash, cooldowns and Crown points verified")
 
 
 if __name__ == "__main__":

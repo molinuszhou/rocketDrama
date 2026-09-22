@@ -124,20 +124,20 @@ internal fun DramaAppActivity.requestRewardedAction(
                 is TopOnAdsManager.RewardedResult.Unavailable -> {
                     fullscreenAdInProgress = false
                     val message = t("ad_loading_failed") + " ${result.reason}"
-                    if (fallbackToInterstitialWhenUnavailable) showRewardedFallbackInterstitial(wasPlayingBeforeRewarded, message)
+                    if (fallbackToInterstitialWhenUnavailable) showRewardedFallbackInterstitial(wasPlayingBeforeRewarded, message, placementId, targetId, episodeIndex, onSettled)
                     else showRewardedUnavailableNotice(wasPlayingBeforeRewarded, message)
                 }
                 is TopOnAdsManager.RewardedResult.Failed -> {
                     fullscreenAdInProgress = false
                     val message = t("ad_loading_failed") + " (${result.code})"
-                    if (fallbackToInterstitialWhenUnavailable) showRewardedFallbackInterstitial(wasPlayingBeforeRewarded, message)
+                    if (fallbackToInterstitialWhenUnavailable) showRewardedFallbackInterstitial(wasPlayingBeforeRewarded, message, placementId, targetId, episodeIndex, onSettled)
                     else showRewardedUnavailableNotice(wasPlayingBeforeRewarded, message)
                 }
             }
         } }
     }
 
-/** A fallback interstitial is eligible only after the configured number of user-cancelled rewarded ads. */
+/** A user-cancelled rewarded placement may fall back after the configured skip threshold. */
 internal fun DramaAppActivity.recordRewardedSkipThenMaybeShowInterstitial(shouldResume: Boolean, context: String = "rewarded_cancelled") {
         if (!rewardsApi.isConfigured) { showRewardedUnavailableNotice(shouldResume, "广告未完整观看，未获得奖励或解锁权益"); return }
         rewardsApi.recordRewardedSkipped(anonymousInstallationId(), context, { snapshot -> runOnUiThread {
@@ -151,7 +151,7 @@ internal fun DramaAppActivity.recordRewardedSkipThenMaybeShowInterstitial(should
         } }, { _ -> runOnUiThread { showRewardedUnavailableNotice(shouldResume, "广告未完整观看，未获得奖励或解锁权益") } })
 }
 
-    /** 无激励广告资源时恢复内容并说明不会发放原激励权益。 */
+    /** Handles unavailable rewarded inventory when no fallback interstitial can be presented. */
 internal fun DramaAppActivity.showRewardedUnavailableNotice(shouldResume: Boolean, message: String) {
         fullscreenAdInProgress = false
         fullscreenAdRequestInFlight = false
@@ -161,23 +161,52 @@ internal fun DramaAppActivity.showRewardedUnavailableNotice(shouldResume: Boolea
         showBrandedChoiceDialog(t("ad_unavailable_title"), "$message\n\n${t("ad_unavailable_message")}", t("done"))
     }
 
-    /** 激励中途退出或加载失败时，只在后台开关允许时回退一次插屏；不会授予原激励权益。 */
-internal fun DramaAppActivity.showRewardedFallbackInterstitial(shouldResume: Boolean, message: String) {
+    /** A failed or skipped rewarded placement may attempt one verified fallback interstitial. */
+internal fun DramaAppActivity.showRewardedFallbackInterstitial(
+        shouldResume: Boolean,
+        message: String,
+        originalPlacementId: String? = null,
+        targetId: String? = null,
+        episodeIndex: Int? = null,
+        onOriginalSettled: ((RewardsApiClient.RewardAction) -> Unit)? = null,
+    ) {
         fullscreenAdInProgress = false
         fullscreenAdRequestInFlight = false
         episodeTransitionInProgress = false
         if (rewardsSnapshot?.interstitial?.rewardedFallbackEnabled != true) {
             resumeAfterFullscreenAd = shouldResume; resumeAfterFullscreenAdIfNeeded(); toast(message); return
         }
-        // 失败回退是一条独立的例外插屏：展示一次，但绝不替代原激励奖励或解锁权益。
+        // 失败回退是一条独立的例外插屏。只有该插屏实际展示并记录成功后，
+        // 服务端才会按一次性账本结算原激励权益；加载失败绝不授予权益。
         resumeAfterFullscreenAd = shouldResume
         showPlaybackActionInterstitial(
             placementId = "int_rewarded_fallback", episodeId = selectedEpisode()?.id,
             countTowardEpisodeLimit = false,
             bypassSharedFrequencyCaps = true,
             resumePlaybackAfter = shouldResume,
-            onShown = { toast(message) },
+            onShown = {},
             onUnavailable = { reason -> logStatus("激励回退插屏未展示：$reason"); toast(message) },
+            onRecorded = { interstitialEventId ->
+                if (originalPlacementId == null) {
+                    toast(message)
+                    return@showPlaybackActionInterstitial
+                }
+                rewardsApi.settleRewardedFallback(
+                    userId = anonymousInstallationId(),
+                    interstitialEventId = interstitialEventId,
+                    originalPlacementId = originalPlacementId,
+                    targetId = targetId,
+                    episodeIndex = episodeIndex,
+                    onSuccess = { action -> runOnUiThread {
+                        applyRewardsSnapshot(action.snapshot)
+                        onOriginalSettled?.invoke(action) ?: resumeAfterFullscreenAdIfNeeded()
+                    } },
+                    onFailure = { reason -> runOnUiThread {
+                        logStatus("回退插屏奖励结算失败：$reason")
+                        toast(message)
+                    } },
+                )
+            },
         )
     }
 
@@ -248,6 +277,7 @@ internal fun DramaAppActivity.showPlaybackActionInterstitial(
         resumePlaybackAfter: Boolean? = null,
         onShown: () -> Unit,
         onUnavailable: (String) -> Unit,
+        onRecorded: ((String) -> Unit)? = null,
     ) {
         val policy = rewardsSnapshot?.interstitial
         val episodeKey = episodeId?.let { "${selectedDrama?.id}:$it" }
@@ -290,9 +320,11 @@ internal fun DramaAppActivity.showPlaybackActionInterstitial(
                         onShown()
                     }
                     if (rewardsApi.isConfigured) {
+                        val eventId = "int-${UUID.randomUUID()}"
                         rewardsApi.recordInterstitial(anonymousInstallationId(), placementId, episodeId,
-                            onSuccess = { snapshot -> runOnUiThread { applyRewardsSnapshot(snapshot); settled() } },
+                            onSuccess = { snapshot -> runOnUiThread { applyRewardsSnapshot(snapshot); settled(); onRecorded?.invoke(eventId) } },
                             onFailure = { message -> runOnUiThread { logStatus("插屏展示记录未同步：$message"); settled() } },
+                            eventId = eventId,
                         )
                     } else settled()
                 }

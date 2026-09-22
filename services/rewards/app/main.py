@@ -21,9 +21,9 @@ from app.schemas import (
     MarketWalletPolicyUpdateRequest,
     InterstitialShownRequest,
     RewardedCompleteRequest,
+    RewardedFallbackSettlementRequest,
     RewardPolicyUpdateRequest,
     RewardedSkippedRequest,
-    ReviewRewardClaimRequest,
     TenRoundClaimRequest,
     WelcomeBonusRequest,
     WatchEventRequest,
@@ -80,6 +80,20 @@ def complete_rewarded_ad(payload: RewardedCompleteRequest) -> dict:
     }
 
 
+@app.post("/v2/ads/rewarded/fallback-settlement", response_model=ApiEnvelope)
+def settle_rewarded_fallback(payload: RewardedFallbackSettlementRequest) -> dict:
+    return {
+        "code": 0,
+        "data": service.settle_rewarded_fallback(
+            user_id=payload.user_id,
+            interstitial_event_id=payload.interstitial_event_id,
+            original_placement_id=payload.original_placement_id,
+            target_id=payload.target_id,
+            episode_index=payload.episode_index,
+        ),
+    }
+
+
 @app.post("/v2/watch-events", response_model=ApiEnvelope)
 def watch_event(payload: WatchEventRequest) -> dict:
     return {
@@ -119,11 +133,6 @@ def checkin(payload: CheckinRequest) -> dict:
 @app.post("/v2/welcome/claim", response_model=ApiEnvelope)
 def claim_welcome_bonus(payload: WelcomeBonusRequest) -> dict:
     return {"code": 0, "data": service.claim_welcome_bonus(payload.user_id)}
-
-
-@app.post("/v2/reviews/claim", response_model=ApiEnvelope)
-def claim_review_reward(payload: ReviewRewardClaimRequest) -> dict:
-    return {"code": 0, "data": service.claim_review_reward(payload.user_id, payload.reference_id)}
 
 
 @app.post("/v2/episode-rewards/claim", response_model=ApiEnvelope)

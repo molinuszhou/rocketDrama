@@ -53,6 +53,14 @@ class RewardedCompleteRequest(BaseModel):
     proof: str | None = Field(default=None, max_length=2048)
 
 
+class RewardedFallbackSettlementRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=128)
+    interstitial_event_id: str = Field(min_length=8, max_length=160)
+    original_placement_id: RewardedPlacement
+    target_id: str | None = Field(default=None, max_length=256)
+    episode_index: int | None = Field(default=None, ge=1, le=10000)
+
+
 class WatchEventRequest(BaseModel):
     user_id: str = Field(min_length=1, max_length=128)
     event_id: str = Field(min_length=8, max_length=160)
@@ -78,11 +86,6 @@ class CheckinRequest(BaseModel):
 
 class WelcomeBonusRequest(BaseModel):
     user_id: str = Field(min_length=1, max_length=128)
-
-
-class ReviewRewardClaimRequest(BaseModel):
-    user_id: str = Field(min_length=1, max_length=128)
-    reference_id: str = Field(min_length=8, max_length=160)
 
 
 class EpisodeRewardClaimRequest(BaseModel):
@@ -135,7 +138,6 @@ class RewardPolicyUpdateRequest(BaseModel):
     speed_interstitial_enabled: bool | None = None
     speed_interstitial_hourly_limit: int | None = Field(default=None, ge=0, le=240)
     action_interstitial_reward_threshold_gems: int | None = Field(default=None, ge=0, le=1_000_000_000)
-    review_reward_gems: int | None = Field(default=None, ge=0, le=10_000_000_000)
     crown_rewarded_ads_per_episode: int | None = Field(default=None, ge=1, le=10)
     crown_rewarded_daily_limit: int | None = Field(default=None, ge=0, le=100)
     crown_episode_progress_points: int | None = Field(default=None, ge=1, le=100)

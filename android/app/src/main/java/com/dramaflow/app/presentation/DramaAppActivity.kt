@@ -203,8 +203,6 @@ class DramaAppActivity : FragmentActivity() {
     internal var gemFlightInProgress = false
     /** Avoid repeatedly interrupting the viewer with the same accumulated-gem prompt. */
     internal var lastFloatingClaimPromptedGems = 0
-    /** Store review confirmation is deferred until the user returns from the external store surface. */
-    internal var pendingReviewRewardConfirmation = false
     /** Rewards page exposes this only after the hero scrolls away. */
     internal var rewardsStickyAssetHeader: View? = null
     internal var ignoreVideoTapsUntilMillis = 0L
@@ -252,10 +250,6 @@ class DramaAppActivity : FragmentActivity() {
     override fun onPostResume() {
         super.onPostResume()
         if (!startupContentInitializationStarted) maybeShowAppOpenAd()
-        if (pendingReviewRewardConfirmation && !fullscreenAdInProgress) {
-            pendingReviewRewardConfirmation = false
-            root.post { if (!isFinishing && !isDestroyed) showReviewRewardConfirmation() }
-        }
         if (resumePlaybackWhenForeground && playerShown && !fullscreenAdInProgress && !pauseNativeAdInProgress) {
             exoPlayer?.play()
             playerIsPaused = false

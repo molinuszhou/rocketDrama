@@ -103,6 +103,7 @@ internal fun DramaAppActivity.showPlayer(drama: LocalDrama, startIndex: Int, res
         lastMidrollSamplePositionSeconds = -1
         playerShown = true
         root.removeAllViews()
+        root.setBackgroundColor(Color.BLACK)
 
         val player = ExoPlayer.Builder(this).build().also { exoPlayer = it }
         playerView = PlayerView(this).apply {
@@ -239,6 +240,17 @@ internal fun DramaAppActivity.createPlayerChrome(): View {
         controls.addView(createPlayerProgressControls())
         controls.addView(createPlayerActionRow(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)).apply { topMargin = dp(4) })
         chrome.addView(controls, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
+        ViewCompat.setOnApplyWindowInsetsListener(chrome) { _, insets ->
+            val safeBottom = insets.getInsets(WindowInsetsCompat.Type.navigationBars() or WindowInsetsCompat.Type.displayCutout()).bottom
+            (controls.layoutParams as? FrameLayout.LayoutParams)?.let { params ->
+                if (params.bottomMargin != safeBottom) {
+                    params.bottomMargin = safeBottom
+                    controls.layoutParams = params
+                }
+            }
+            insets
+        }
+        ViewCompat.requestApplyInsets(chrome)
 
         playerControlsRevealButton = transparentPlayerTextButton(t("show_controls"), t("show_controls")) { setPlayerControlsVisible(true) }.also { it.visibility = View.GONE }
         chrome.addView(playerControlsRevealButton, FrameLayout.LayoutParams(dp(74), dp(38), Gravity.BOTTOM or Gravity.END).apply {
@@ -266,7 +278,7 @@ internal fun DramaAppActivity.createPlayerTopBar(): View {
         // offset that could overlap a notch/status region on first opening the player.
         shell.addView(back, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.TOP or Gravity.START).apply { topMargin = dp(8); marginStart = dp(8) })
         assets?.let { assetView ->
-            shell.addView(assetView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(8) })
+            shell.addView(assetView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(50), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(8) })
         }
         ViewCompat.setOnApplyWindowInsetsListener(shell) { _, insets ->
             val safeTop = insets.getInsets(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()).top

@@ -398,6 +398,32 @@ class RewardsApiClient(
         }, onFailure)
     }
 
+    fun settleRewardedFallback(
+        userId: String,
+        interstitialEventId: String,
+        originalPlacementId: String,
+        targetId: String? = null,
+        episodeIndex: Int? = null,
+        onSuccess: (RewardAction) -> Unit,
+        onFailure: (String) -> Unit,
+    ) {
+        val payload = JSONObject()
+            .put("user_id", userId)
+            .put("interstitial_event_id", interstitialEventId)
+            .put("original_placement_id", originalPlacementId)
+        if (!targetId.isNullOrBlank()) payload.put("target_id", targetId)
+        if (episodeIndex != null) payload.put("episode_index", episodeIndex)
+        post("/v2/ads/rewarded/fallback-settlement", payload, { data ->
+            val result = data.optJSONObject("result") ?: JSONObject()
+            onSuccess(RewardAction(
+                data.optBoolean("idempotent"), result.optString("action"), result.optLong("gems_added"),
+                parseSnapshot(data.getJSONObject("snapshot")), result.optString("cash_added", "0.00"),
+                result.optString("cash_added_usd_reference", "0.00"), interstitialEventId,
+                result.optLong("released_micros"), result.optInt("unlock_episode_count", 1).coerceAtLeast(1),
+            ))
+        }, onFailure)
+    }
+
     fun checkin(userId: String, onSuccess: (RewardAction) -> Unit, onFailure: (String) -> Unit) = post(
         "/v2/checkins", JSONObject().put("user_id", userId), { data ->
             val result = data.optJSONObject("result") ?: JSONObject()
@@ -412,22 +438,15 @@ class RewardsApiClient(
         }, onFailure,
     )
 
-    fun claimReviewReward(userId: String, onSuccess: (RewardAction) -> Unit, onFailure: (String) -> Unit) = post(
-        "/v2/reviews/claim", JSONObject().put("user_id", userId).put("reference_id", "review-${UUID.randomUUID()}"), { data ->
-            val result = data.optJSONObject("result") ?: JSONObject()
-            onSuccess(RewardAction(data.optBoolean("idempotent"), result.optString("action", "APP_REVIEW"), result.optLong("gems_added"), parseSnapshot(data.getJSONObject("snapshot")), result.optString("cash_added", "0.00"), result.optString("cash_added_usd_reference", "0.00")))
-        }, onFailure,
-    )
-
     fun exchangeGems(userId: String, gems: Long, onSuccess: (Snapshot) -> Unit, onFailure: (String) -> Unit) = post(
         "/v2/wallet/exchange",
         JSONObject().put("user_id", userId).put("gems", gems).put("reference_id", "exchange-${UUID.randomUUID()}"),
         { data -> onSuccess(parseSnapshot(data.getJSONObject("snapshot"))) }, onFailure,
     )
 
-    fun recordInterstitial(userId: String, placementId: String, episodeId: String? = null, onSuccess: (Snapshot) -> Unit, onFailure: (String) -> Unit) = post(
+    fun recordInterstitial(userId: String, placementId: String, episodeId: String? = null, onSuccess: (Snapshot) -> Unit, onFailure: (String) -> Unit, eventId: String = "int-${UUID.randomUUID()}") = post(
         "/v2/interstitials/shown",
-        JSONObject().put("user_id", userId).put("event_id", "int-${UUID.randomUUID()}").put("placement_id", placementId).also { payload ->
+        JSONObject().put("user_id", userId).put("event_id", eventId).put("placement_id", placementId).also { payload ->
             if (!episodeId.isNullOrBlank()) payload.put("episode_id", episodeId)
         },
         { data -> onSuccess(parseSnapshot(data.getJSONObject("snapshot"))) }, onFailure,

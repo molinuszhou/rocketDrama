@@ -23,7 +23,7 @@ def run() -> None:
     with service._transaction() as connection:  # noqa: SLF001 - upgrade verification needs direct migration marker access
         marker = service._one(  # noqa: SLF001
             connection,
-            "SELECT version FROM schema_migrations WHERE version = '025_v1652_charge_cooldowns_and_crown_points'",
+            "SELECT version FROM schema_migrations WHERE version = '026_v1656_player_reward_fallback_and_cooldowns'",
         )
         assert marker is not None
         columns = service._all(  # noqa: SLF001
@@ -55,7 +55,8 @@ def run() -> None:
     assert snapshot["user"]["market_code"] == "BR"
     assert snapshot["wallet"]["currency"]["code"] == "BRL"
     assert snapshot["wallet"]["cash_mode"] is True
-    assert snapshot["welcome"]["cash"] == "30.00"
+    assert snapshot["welcome"]["cash"] == "60.00"
+    assert snapshot["review"]["available"] is False
     assert snapshot["gem_damping"]["scope"] == "ALL_GEM_SOURCES"
     assert snapshot["gem_damping"]["tier5_threshold"] == 1_995_000
     assert snapshot["gem_damping"]["tier6_multiplier"] == 0.01
@@ -67,7 +68,7 @@ def run() -> None:
     assert snapshot["interstitial"]["speed_enabled"] is False
     assert snapshot["crown_progress"][0]["episode_progress_points"] == 2
     assert snapshot["crown_progress"][0]["rewarded_ad_progress_points"] == 1
-    assert snapshot["wallet"]["release"]["charge_cooldown_seconds"] == 30
+    assert snapshot["wallet"]["release"]["charge_cooldown_seconds"] == 60
     assert snapshot["pending_claims"][-1]["target"] == 90
     assert snapshot["pending_claims"][0]["reward_min_gems"] == 800
 
@@ -100,7 +101,7 @@ def run() -> None:
         assert data["interstitial"]["mid_episode_trigger_seconds"] == 180
         assert data["interstitial"]["mid_episode_repeat_seconds"] == 360
 
-    print("PostgreSQL v1.6.5.2 runtime-upgrade smoke test passed; six-tier damping, direct-cash migration, charge cooldowns, Crown points and market-wallet admin update verified")
+    print("PostgreSQL v1.6.5.6 runtime-upgrade smoke test passed; welcome consolidation, fallback settlement and 60-second charge cooldowns verified")
 
 
 if __name__ == "__main__":

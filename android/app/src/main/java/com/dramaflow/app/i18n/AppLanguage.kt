@@ -134,6 +134,7 @@ object AppLanguage {
         "wallet_boost_already_settled" to all("Today's cash reward has already been settled.", "A recompensa em dinheiro de hoje já foi processada.", "La recompensa en efectivo de hoy ya se procesó.", "La récompense en espèces du jour a déjà été traitée.", "Hadiah uang hari ini sudah diproses.", "今日该次现金奖励已经结算。", "今日該次現金獎勵已經結算。"),
         "wallet_charge" to all("Remaining %1\$d/%2\$d", "Restante %1\$d/%2\$d", "Restante %1\$d/%2\$d", "Restant %1\$d/%2\$d", "Sisa %1\$d/%2\$d", "剩余 %1\$d/%2\$d", "剩餘 %1\$d/%2\$d"),
         "extra_reward" to all("Extra reward", "Recompensa extra", "Recompensa extra", "Récompense bonus", "Hadiah ekstra", "额外奖励", "額外獎勵"),
+        "cooling" to all("Cooling", "Em recarga", "En enfriamiento", "En recharge", "Mendingin", "冷却中", "冷卻中"),
         "charge_cooldown" to all("Cooldown · %1\$d s", "Recarga · %1\$d s", "Enfriamiento · %1\$d s", "Recharge · %1\$d s", "Pendinginan · %1\$d dtk", "冷却中 · %1\$d 秒", "冷卻中 · %1\$d 秒"),
         "random_cash_reward" to all("Random cash reward", "Recompensa aleatória em dinheiro", "Recompensa aleatoria en efectivo", "Récompense d'argent aléatoire", "Hadiah uang acak", "随机现金奖励", "隨機現金獎勵"),
         "cashout_progress" to all("Reach %1\$s to withdraw · %2\$s remaining", "Alcance %1\$s para sacar · faltam %2\$s", "Alcanza %1\$s para retirar · faltan %2\$s", "Atteignez %1\$s pour retirer · reste %2\$s", "Capai %1\$s untuk tarik · kurang %2\$s", "达到 %1\$s 即可提现 · 还差 %2\$s", "達到 %1\$s 即可提現 · 還差 %2\$s"),

@@ -215,7 +215,7 @@ internal fun DramaAppActivity.animateClaimedGems(previous: Long, current: Long) 
         animation.start()
 }
 
-/** The v1.6.4 direct-cash wallet uses the same restrained confirmation motion without a Gem balance. */
+/** Cash rewards take a clearly visible, but short, ascent toward the active wallet balance. */
 internal fun DramaAppActivity.animateClaimedCash(previous: String, current: String) {
         val target = cashBalanceAnchor ?: return
         if (!target.isAttachedToWindow || gemFlightInProgress) return
@@ -225,18 +225,18 @@ internal fun DramaAppActivity.animateClaimedCash(previous: String, current: Stri
         val rootLocation = IntArray(2); val targetLocation = IntArray(2)
         root.getLocationOnScreen(rootLocation); target.getLocationOnScreen(targetLocation)
         val fly = ImageView(this).apply { setImageResource(R.drawable.wallet_money); scaleType = ImageView.ScaleType.CENTER_INSIDE; alpha = 0f }
-        val size = dp(42); val startX = root.width / 2f - size / 2f; val startY = root.height * 0.53f - size / 2f
+        val size = dp(58); val startX = root.width / 2f - size / 2f; val startY = root.height * 0.59f - size / 2f
         root.addView(fly, FrameLayout.LayoutParams(size, size).apply { leftMargin = startX.toInt(); topMargin = startY.toInt() })
         val endX = targetLocation[0] - rootLocation[0] + target.width / 2f - startX - size / 2f
         val endY = targetLocation[1] - rootLocation[1] + target.height / 2f - startY - size / 2f
         AnimatorSet().apply {
-            playTogether(ObjectAnimator.ofFloat(fly, View.ALPHA, 0f, 1f, 1f, 0f), ObjectAnimator.ofFloat(fly, View.TRANSLATION_X, 0f, endX), ObjectAnimator.ofFloat(fly, View.TRANSLATION_Y, 0f, endY), ObjectAnimator.ofFloat(fly, View.SCALE_X, 1.25f, .55f), ObjectAnimator.ofFloat(fly, View.SCALE_Y, 1.25f, .55f))
-            duration = 680L; interpolator = AccelerateDecelerateInterpolator()
+            playTogether(ObjectAnimator.ofFloat(fly, View.ALPHA, 0f, 1f, 1f, 0f), ObjectAnimator.ofFloat(fly, View.TRANSLATION_X, 0f, endX), ObjectAnimator.ofFloat(fly, View.TRANSLATION_Y, 0f, -dp(56).toFloat(), endY), ObjectAnimator.ofFloat(fly, View.SCALE_X, 1.48f, .62f), ObjectAnimator.ofFloat(fly, View.SCALE_Y, 1.48f, .62f))
+            duration = 820L; interpolator = AccelerateDecelerateInterpolator()
             addListener(object : android.animation.AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: android.animation.Animator) {
                     (fly.parent as? ViewGroup)?.removeView(fly)
                     cashBalanceLabel?.text = wallet?.let { formatCurrencyAmount(it, current, null, includeUsdReference = false) } ?: current
-                    target.animate().scaleX(1.12f).scaleY(1.12f).setDuration(110L).withEndAction { target.animate().scaleX(1f).scaleY(1f).setDuration(140L).start() }.start()
+                    target.animate().scaleX(1.20f).scaleY(1.20f).setDuration(130L).withEndAction { target.animate().scaleX(1f).scaleY(1f).setDuration(180L).start() }.start()
                     gemFlightInProgress = false
                 }
             })
@@ -245,12 +245,12 @@ internal fun DramaAppActivity.animateClaimedCash(previous: String, current: Stri
 }
 
 internal fun DramaAppActivity.createPlayerAssetStrip(): View = LinearLayout(this).apply {
-        gravity = Gravity.CENTER_VERTICAL; setPadding(dp(8), dp(5), dp(9), dp(5)); background = roundedDrawable(0xD9141720.toInt(), 18)
+        gravity = Gravity.CENTER_VERTICAL; setPadding(dp(10), dp(6), dp(10), dp(6)); background = roundedDrawable(0xE8000000.toInt(), 22)
         val wallet = rewardsSnapshot?.wallet
         val walletIcon = ImageView(this@createPlayerAssetStrip).apply { setImageResource(R.drawable.wallet_money); scaleType = ImageView.ScaleType.CENTER_INSIDE; isClickable = true; contentDescription = t("wallet"); setOnClickListener { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) } }
         cashBalanceAnchor = walletIcon
-        addView(walletIcon, LinearLayout.LayoutParams(dp(30), dp(30)))
-        val cash = TextView(this@createPlayerAssetStrip).apply { text = wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—"; textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(dp(3), 0, 0, 0); isClickable = true; setOnClickListener { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) } }
+        addView(walletIcon, LinearLayout.LayoutParams(dp(38), dp(38)))
+        val cash = TextView(this@createPlayerAssetStrip).apply { text = wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(dp(5), 0, 0, 0); isClickable = true; setOnClickListener { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) } }
         cashBalanceLabel = cash
         addView(cash)
         val extraReward = TextView(this@createPlayerAssetStrip).apply {
@@ -259,7 +259,7 @@ internal fun DramaAppActivity.createPlayerAssetStrip(): View = LinearLayout(this
         }
         playerWalletBoostButtons.add(extraReward)
         updatePlayerWalletBoostButton(extraReward)
-        addView(extraReward, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(30)).apply { marginStart = dp(7) })
+        addView(extraReward, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34)).apply { marginStart = dp(8) })
     }
 
 internal fun DramaAppActivity.createTopSafePlayerAssetStrip(): View {

@@ -44,11 +44,12 @@ def run() -> None:
     assert snapshot["wallet"]["available_balance"] == "20.00"
     assert snapshot["wallet"]["total_gems_earned"] == 150000
     assert snapshot["welcome"]["available"] is True
-    assert snapshot["welcome"]["cash"] == "30.00"
+    assert snapshot["welcome"]["cash"] == "60.00"
+    assert snapshot["review"]["available"] is False
     assert snapshot["wallet"]["currency"]["code"] == "BRL"
     assert snapshot["interstitial"]["cooldown_seconds"] == 60
     assert snapshot["wallet"]["release"]["boost_cap"] == 10
-    assert snapshot["wallet"]["release"]["charge_cooldown_seconds"] == 30
+    assert snapshot["wallet"]["release"]["charge_cooldown_seconds"] == 60
     assert snapshot["crown_progress"][0]["episode_progress_points"] == 2
     assert snapshot["crown_progress"][0]["rewarded_ad_progress_points"] == 1
     assert snapshot["interstitial"]["seek_enabled"] is False
@@ -61,7 +62,7 @@ def run() -> None:
     after_repeat = service.bootstrap(user_id, "BR")
     assert after_repeat["wallet"]["cash_wallet"] == "20.00"
 
-    print("PostgreSQL v1.6.5.2 direct-cash runtime upgrade smoke test passed; legacy Gem and split-wallet assets migrated exactly once")
+    print("PostgreSQL v1.6.5.6 direct-cash runtime upgrade smoke test passed; legacy assets, newcomer consolidation and cooldown migration verified")
 
 
 if __name__ == "__main__":

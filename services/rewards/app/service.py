@@ -308,29 +308,6 @@ class RewardsService:
         # v7 起欢迎奖励必须由 rv_welcome_bonus 广告事件结算；保留方法仅防止旧客户端绕过广告。
         raise ServiceError(1601, "欢迎奖励需要完整观看激励广告，请升级客户端后重试", 409)
 
-    def claim_review_reward(self, user_id: str, reference_id: str) -> dict[str, Any]:
-        """Grant the server-configured, once-only review reward after an explicit client confirmation.
-
-        Android store surfaces do not provide a verifiable star-rating callback. The UI therefore opens the
-        store first and requires a second explicit confirmation; the ledger enforces one grant per user.
-        """
-        with self._transaction() as connection:
-            self._ensure_user(connection, user_id)
-            existing = self._one(connection, "SELECT gems FROM app_review_rewards WHERE user_id = %s FOR UPDATE", (user_id,))
-            if existing:
-                return {"idempotent": True, "result": {"action": "APP_REVIEW", "gems_added": 0}, "snapshot": self._snapshot(connection, user_id)}
-            policy = self._policy(connection)
-            configured_gems = int(policy["review_reward_gems"])
-            self._execute(
-                connection,
-                "INSERT INTO app_review_rewards (user_id, gems, reference_id) VALUES (%s, %s, %s)",
-                (user_id, configured_gems, reference_id),
-            )
-            credited = self._credit_gems(connection, user_id, configured_gems, policy, "APP_REVIEW", "app_review", reference_id)
-            wallet_policy = self._wallet_policy(connection, user_id)
-            credited_micros = self._reward_units_to_micros(credited, wallet_policy)
-            return {"idempotent": False, "result": {"action": "APP_REVIEW", "gems_added": credited, "cash_added": self._money(credited_micros, wallet_policy), "cash_added_usd_reference": self._usd_reference_money(credited_micros, wallet_policy)}, "snapshot": self._snapshot(connection, user_id)}
-
     def _legacy_claim_welcome_bonus(self, user_id: str) -> dict[str, Any]:
         with self._transaction() as connection:
             self._ensure_user(connection, user_id)
@@ -514,7 +491,7 @@ class RewardsService:
             "reward_claim_interstitial_enabled", "mid_episode_interstitial_enabled", "mid_episode_interstitial_trigger_seconds", "mid_episode_interstitial_repeat_seconds",
             "mid_episode_interstitial_hourly_limit", "seek_interstitial_enabled", "seek_interstitial_hourly_limit",
             "next_episode_interstitial_enabled", "speed_interstitial_enabled", "speed_interstitial_hourly_limit",
-            "action_interstitial_reward_threshold_gems", "review_reward_gems", "rv_daily_limit", "episode_interstitial_limit",
+            "action_interstitial_reward_threshold_gems", "rv_daily_limit", "episode_interstitial_limit",
             "drama_switch_interstitial_enabled", "drama_switch_interstitial_every_count", "drama_switch_interstitial_hourly_limit",
             "rewarded_fallback_interstitial_enabled", "gems_earned_cap", "gem_damping_tier1_threshold",
             "gem_damping_tier2_threshold", "gem_damping_tier3_threshold", "gem_damping_tier4_threshold", "gem_damping_tier5_threshold", "gem_damping_tier1_multiplier",
@@ -731,7 +708,7 @@ class RewardsService:
                     (user_id, placement),
                 )["count"])
 
-            if episode_id and placement_id in {"int_episode_midroll", "int_seek", "int_speed", "int_rewarded_fallback"}:
+            if episode_id and placement_id in {"int_episode_midroll", "int_seek", "int_speed"}:
                 episode_limit = int(policy["episode_interstitial_limit"])
                 shown_in_episode = int(self._one(
                     connection,
@@ -782,9 +759,6 @@ class RewardsService:
             elif placement_id == "int_rewarded_fallback":
                 if not bool(policy["rewarded_fallback_interstitial_enabled"]):
                     raise ServiceError(2020, "激励回退插屏当前未启用", 409)
-                threshold = int(policy.get("interstitial_rewarded_skip_threshold", 0))
-                if threshold > 0 and int(counters.get("rewarded_decline_count", 0)) < threshold:
-                    raise ServiceError(2022, "尚未达到激励广告跳过触发阈值", 409)
             else:
                 # 兼容旧版 int_timer / int_pause 事件。
                 if placement_count(placement_id) >= int(policy["interstitial_hourly_limit"]):
@@ -808,6 +782,101 @@ class RewardsService:
                     (user_id, business_date),
                 )
             return {"idempotent": False, "snapshot": self._snapshot(connection, user_id)}
+
+    def settle_rewarded_fallback(
+        self,
+        *,
+        user_id: str,
+        interstitial_event_id: str,
+        original_placement_id: str,
+        target_id: str | None,
+        episode_index: int | None,
+    ) -> dict[str, Any]:
+        """Settle the original rewarded action only after an actual fallback interstitial.
+
+        A fallback creative is not itself an equivalent rewarded ad. This path is
+        intentionally separate from ``complete_rewarded_ad``: it requires a
+        recorded ``int_rewarded_fallback`` event and preserves an auditable,
+        idempotent link between that verified display and the original action.
+        """
+        with self._transaction() as connection:
+            self._ensure_user(connection, user_id)
+            existing = self._one(
+                connection,
+                "SELECT result_payload FROM rewarded_fallback_grants WHERE interstitial_event_id = %s",
+                (interstitial_event_id,),
+            )
+            if existing:
+                return {"idempotent": True, "result": existing["result_payload"], "snapshot": self._snapshot(connection, user_id)}
+
+            interstitial = self._one(
+                connection,
+                """SELECT placement_id FROM interstitial_events
+                   WHERE event_id = %s AND user_id = %s FOR UPDATE""",
+                (interstitial_event_id, user_id),
+            )
+            if not interstitial or interstitial["placement_id"] != "int_rewarded_fallback":
+                raise ServiceError(2023, "未找到可结算的激励回退插屏", 409)
+
+            business_date = self._business_date()
+            policy = self._policy(connection)
+            result = self._rewarded_action(
+                connection=connection,
+                user_id=user_id,
+                business_date=business_date,
+                placement_id=original_placement_id,
+                target_id=target_id,
+                episode_index=episode_index,
+                policy=policy,
+            )
+            fallback_ad_event_id = f"fallback-{interstitial_event_id}"
+            self._execute(
+                connection,
+                """INSERT INTO rewarded_ad_events
+                   (ad_event_id, user_id, business_date, placement_id, target_id, ad_timestamp, verification_method, result_payload)
+                   VALUES (%s, %s, %s, %s, %s, NOW(), 'interstitial_fallback', %s::jsonb)""",
+                (fallback_ad_event_id, user_id, business_date, original_placement_id, target_id, self._json(result)),
+            )
+            credited_units = self._settle_rewarded_payload(
+                connection=connection,
+                user_id=user_id,
+                business_date=business_date,
+                placement_id=original_placement_id,
+                target_id=target_id,
+                ad_event_id=fallback_ad_event_id,
+                payload=result,
+            )
+            if credited_units is not None:
+                wallet_policy = self._wallet_policy(connection, user_id)
+                result["gems_added"] = credited_units
+                result["cash_added"] = self._money(self._reward_units_to_micros(credited_units, wallet_policy), wallet_policy)
+                result["cash_added_usd_reference"] = self._usd_reference_money(self._reward_units_to_micros(credited_units, wallet_policy), wallet_policy)
+            result["fallback_interstitial_settled"] = True
+            self._execute(
+                connection,
+                "UPDATE rewarded_ad_events SET result_payload = %s::jsonb WHERE ad_event_id = %s",
+                (self._json(result), fallback_ad_event_id),
+            )
+            self._execute(
+                connection,
+                """UPDATE daily_counters
+                   SET rv_count = rv_count + 1,
+                       last_rv_at = NOW(),
+                       rewarded_decline_count = 0,
+                       last_rewarded_declined_at = NULL
+                   WHERE user_id = %s AND business_date = %s""",
+                (user_id, business_date),
+            )
+            self._execute(
+                connection,
+                """INSERT INTO rewarded_fallback_grants
+                   (interstitial_event_id, user_id, original_placement_id, target_id, episode_index, result_payload)
+                   VALUES (%s, %s, %s, %s, %s, %s::jsonb)""",
+                (interstitial_event_id, user_id, original_placement_id, target_id, episode_index, self._json(result)),
+            )
+            achievements = self._award_achievements_if_due(connection, user_id, policy)
+            result["achievements_awarded"] = achievements
+            return {"idempotent": False, "result": result, "snapshot": self._snapshot(connection, user_id)}
 
     def withdrawal_preflight(self, user_id: str) -> dict[str, Any]:
         with self._transaction() as connection:
@@ -1088,9 +1157,29 @@ class RewardsService:
         target_id: str | None,
         ad_event_id: str,
     ) -> int | None:
-        policy = self._policy(connection)
         event = self._one(connection, "SELECT result_payload FROM rewarded_ad_events WHERE ad_event_id = %s", (ad_event_id,))
-        payload = event["result_payload"]
+        return self._settle_rewarded_payload(
+            connection=connection,
+            user_id=user_id,
+            business_date=business_date,
+            placement_id=placement_id,
+            target_id=target_id,
+            ad_event_id=ad_event_id,
+            payload=event["result_payload"],
+        )
+
+    def _settle_rewarded_payload(
+        self,
+        *,
+        connection: psycopg.Connection[Any],
+        user_id: str,
+        business_date: date,
+        placement_id: str,
+        target_id: str | None,
+        ad_event_id: str,
+        payload: dict[str, Any],
+    ) -> int | None:
+        policy = self._policy(connection)
         action = payload["action"]
         if action == "EPISODE_PASS":
             # 广告只授予本集的内容通行权益；观看完成后才会形成独立的待领取宝石。
@@ -1521,7 +1610,6 @@ class RewardsService:
         )
         achievements = self._all(connection, "SELECT code, gems, virtual_entitlement, earned_at FROM user_achievements WHERE user_id = %s ORDER BY earned_at", (user_id,))
         welcome = self._one(connection, "SELECT gems, state FROM welcome_rewards WHERE user_id = %s", (user_id,))
-        review = self._one(connection, "SELECT gems, claimed_at FROM app_review_rewards WHERE user_id = %s", (user_id,))
         recent_ledger = self._all(
             connection,
             """
@@ -1628,10 +1716,10 @@ class RewardsService:
                 "cash_usd_reference": self._usd_reference_money(self._reward_units_to_micros(int(welcome["gems"]) if welcome else 0, wallet_policy), wallet_policy),
             },
             "review": {
-                "available": review is None,
-                "claimed": review is not None,
-                "gems": int(review["gems"]) if review else int(policy["review_reward_gems"]),
-                "cash": self._money(self._reward_units_to_micros(int(review["gems"]) if review else int(policy["review_reward_gems"]), wallet_policy), wallet_policy),
+                "available": False,
+                "claimed": False,
+                "gems": 0,
+                "cash": self._money(0, wallet_policy),
             },
             "ring": {
                 "enabled": True,
@@ -2133,7 +2221,6 @@ class RewardsService:
             "speed_interstitial_enabled": bool(policy["speed_interstitial_enabled"]),
             "speed_interstitial_hourly_limit": int(policy["speed_interstitial_hourly_limit"]),
             "action_interstitial_reward_threshold_gems": int(policy["action_interstitial_reward_threshold_gems"]),
-            "review_reward_gems": int(policy["review_reward_gems"]),
             "crown_rewarded_ads_per_episode": int(policy["crown_rewarded_ads_per_episode"]),
             "crown_rewarded_daily_limit": int(policy.get("crown_rewarded_daily_limit", 0)),
             "crown_episode_progress_points": int(policy.get("crown_episode_progress_points", 2)),

@@ -103,12 +103,22 @@ internal fun DramaAppActivity.createFloatingRewardWheel(compact: Boolean = false
                 ellipsize = android.text.TextUtils.TruncateAt.END; setPadding(dp(7), dp(5), dp(7), dp(5))
             }
             floatingCrownChargeButtons.add(crownCharge); updateFloatingCrownChargeButton(crownCharge)
-            addView(crownCharge, LinearLayout.LayoutParams(dp(120), dp(30)))
-            val crownCooldownBar = ProgressBar(this@createFloatingRewardWheel, null, android.R.attr.progressBarStyleHorizontal).apply {
-                max = 100; progressTintList = ColorStateList.valueOf(0xFFFFC83D.toInt()); backgroundTintList = ColorStateList.valueOf(0x55FFF6C9.toInt())
+            val crownChargeRow = LinearLayout(this@createFloatingRewardWheel).apply { gravity = Gravity.CENTER_VERTICAL }
+            crownChargeRow.addView(crownCharge, LinearLayout.LayoutParams(0, dp(30), 1f))
+            val crownCooldownRings = FrameLayout(this@createFloatingRewardWheel)
+            listOf(
+                "crown-cooldown-first" to 0xFFFFC83D.toInt(),
+                "crown-cooldown-second" to 0xFFFF8A3D.toInt(),
+            ).forEachIndexed { index, (tag, color) ->
+                val ring = ProgressBar(this@createFloatingRewardWheel, null, android.R.attr.progressBarStyleLarge).apply {
+                    this.tag = tag; max = 100; isIndeterminate = false; progressTintList = ColorStateList.valueOf(color); backgroundTintList = ColorStateList.valueOf(0x55FFF6C9.toInt())
+                }
+                crownChargeCooldownBars.add(ring); updateFloatingCrownChargeCooldownBar(ring)
+                val size = if (index == 0) dp(32) else dp(22)
+                crownCooldownRings.addView(ring, FrameLayout.LayoutParams(size, size, Gravity.CENTER))
             }
-            crownChargeCooldownBars.add(crownCooldownBar); updateFloatingCrownChargeCooldownBar(crownCooldownBar)
-            addView(crownCooldownBar, LinearLayout.LayoutParams(dp(106), dp(4)).apply { topMargin = dp(2); bottomMargin = dp(3) })
+            crownChargeRow.addView(crownCooldownRings, LinearLayout.LayoutParams(dp(32), dp(32)).apply { marginStart = dp(4) })
+            addView(crownChargeRow, LinearLayout.LayoutParams(dp(120), dp(34)).apply { topMargin = dp(1); bottomMargin = dp(3) })
             if (playerShown && rewardsSnapshot?.unlock?.episodeRewardBoostEnabled == true) {
                 val boostButton = TextView(this@createFloatingRewardWheel).apply { textSize = 11f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setPadding(dp(10), dp(6), dp(10), dp(6)) }
                 floatingBoostButtons.add(boostButton); updateFloatingRewardBoostButton(boostButton)
@@ -153,7 +163,7 @@ internal fun DramaAppActivity.updateFloatingCrownChargeButton(button: TextView) 
         button.visibility = View.VISIBLE
         button.text = when {
             next == null -> t("crown_charge_complete", title, multiplier)
-            cooldown > 0 -> "${t("crown_charge", title, multiplier)} · ${t("charge_cooldown", cooldown)}"
+            cooldown > 0 -> t("crown_charge", title, multiplier)
             else -> t("crown_charge", title, multiplier)
         }
         button.setTextColor(if (next == null) COLOR_TEXT_PRIMARY else Color.WHITE)
@@ -167,15 +177,20 @@ internal fun DramaAppActivity.updateFloatingCrownChargeCooldownBar(bar: Progress
         val crowns = rewardsSnapshot?.crownProgress.orEmpty()
         val cooldown = crownChargeCooldownRemainingSeconds()
         val duration = crowns.maxOfOrNull { it.chargeCooldownSeconds }?.coerceAtLeast(1) ?: 1
+        val elapsedRatio = ((duration - cooldown).coerceIn(0, duration).toFloat() / duration)
         bar.visibility = if (cooldown > 0) View.VISIBLE else View.GONE
-        bar.progress = (((duration - cooldown).coerceIn(0, duration) * 100f) / duration).toInt().coerceIn(0, 100)
+        bar.progress = when (bar.tag) {
+            "crown-cooldown-first" -> (elapsedRatio.coerceIn(0f, 0.5f) * 200f).toInt()
+            "crown-cooldown-second" -> ((elapsedRatio - 0.5f).coerceIn(0f, 0.5f) * 200f).toInt()
+            else -> (elapsedRatio * 100f).toInt()
+        }.coerceIn(0, 100)
     }
 
 internal fun DramaAppActivity.updateCrownSummaryChargeButton(button: TextView) {
         val next = rewardsSnapshot?.crownProgress?.sortedBy { it.levelRank }?.firstOrNull { !it.earned }
         val cooldown = crownChargeCooldownRemainingSeconds()
         val available = next != null && cooldown <= 0
-        button.text = if (cooldown > 0) t("charge_cooldown", cooldown) else t("crown_accelerate")
+        button.text = if (cooldown > 0) t("cooling") else t("crown_accelerate")
         button.setTextColor(if (available) COLOR_TEXT_PRIMARY else 0xAAFFFFFF.toInt())
         button.background = gradientDrawable(intArrayOf(0xFFFF5D69.toInt(), 0xFFC42048.toInt()), 13)
         button.alpha = if (available) 1f else 0.65f
@@ -194,7 +209,7 @@ internal fun DramaAppActivity.updatePlayerWalletBoostButton(button: TextView) {
         val cooldown = walletChargeCooldownRemainingSeconds()
         val available = wallet?.release?.boostAvailable == true && cooldown <= 0
         button.visibility = if (wallet == null) View.GONE else View.VISIBLE
-        button.text = if (cooldown > 0) t("charge_cooldown", cooldown) else t("extra_reward")
+        button.text = if (cooldown > 0) t("cooling") else t("extra_reward")
         button.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_charge_bolt, 0, 0, 0)
         button.compoundDrawablePadding = dp(3)
         button.setTextColor(if (available) Color.WHITE else 0xCCFFFFFF.toInt())
@@ -209,7 +224,7 @@ internal fun DramaAppActivity.updateWalletHeaderBoostButton(button: TextView) {
         val cooldown = walletChargeCooldownRemainingSeconds()
         val available = wallet?.release?.boostAvailable == true && cooldown <= 0
         button.visibility = if (wallet == null) View.GONE else View.VISIBLE
-        button.text = if (cooldown > 0) t("charge_cooldown", cooldown) else t("extra_reward")
+        button.text = if (cooldown > 0) t("cooling") else t("extra_reward")
         button.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_charge_bolt, 0, 0, 0)
         button.compoundDrawablePadding = dp(3)
         button.setTextColor(if (available) COLOR_TEXT_PRIMARY else 0x991C1C1C.toInt())
@@ -234,7 +249,7 @@ internal fun DramaAppActivity.updateWalletChargeButton(button: TextView) {
         val wallet = rewardsSnapshot?.wallet
         val cooldown = walletChargeCooldownRemainingSeconds()
         val available = wallet?.release?.boostAvailable == true && cooldown <= 0
-        button.text = if (cooldown > 0) t("charge_cooldown", cooldown) else t("wallet_boost_action")
+        button.text = if (cooldown > 0) t("cooling") else t("wallet_boost_action")
         button.setTextColor(if (available) COLOR_TEXT_PRIMARY else 0xAAFFFFFF.toInt())
         button.background = roundedDrawable(if (available) COLOR_ACCENT else 0x66FFFFFF, 15)
         button.alpha = if (available) 1f else 0.72f
@@ -586,12 +601,22 @@ internal fun DramaAppActivity.createAchievementSummary(snapshot: RewardsApiClien
                 textSize = 13f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setPadding(dp(12), dp(9), dp(12), dp(9))
             }
             crownSummaryChargeButtons.add(crownAction); updateCrownSummaryChargeButton(crownAction)
-            addView(crownAction, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)))
-            val crownCooldownBar = ProgressBar(this@createAchievementSummary, null, android.R.attr.progressBarStyleHorizontal).apply {
-                max = 100; progressTintList = ColorStateList.valueOf(0xFFFFC83D.toInt()); backgroundTintList = ColorStateList.valueOf(0x33FFF6C9)
+            val crownActionRow = LinearLayout(this@createAchievementSummary).apply { gravity = Gravity.CENTER_VERTICAL }
+            crownActionRow.addView(crownAction, LinearLayout.LayoutParams(0, dp(42), 1f))
+            val crownCooldownRings = FrameLayout(this@createAchievementSummary)
+            listOf(
+                "crown-cooldown-first" to 0xFFFFC83D.toInt(),
+                "crown-cooldown-second" to 0xFFFF8A3D.toInt(),
+            ).forEachIndexed { index, (tag, color) ->
+                val ring = ProgressBar(this@createAchievementSummary, null, android.R.attr.progressBarStyleLarge).apply {
+                    this.tag = tag; max = 100; isIndeterminate = false; progressTintList = ColorStateList.valueOf(color); backgroundTintList = ColorStateList.valueOf(0x33FFF6C9)
+                }
+                crownChargeCooldownBars.add(ring); updateFloatingCrownChargeCooldownBar(ring)
+                val size = if (index == 0) dp(38) else dp(26)
+                crownCooldownRings.addView(ring, FrameLayout.LayoutParams(size, size, Gravity.CENTER))
             }
-            crownChargeCooldownBars.add(crownCooldownBar); updateFloatingCrownChargeCooldownBar(crownCooldownBar)
-            addView(crownCooldownBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(5)).apply { topMargin = dp(7) })
+            crownActionRow.addView(crownCooldownRings, LinearLayout.LayoutParams(dp(38), dp(38)).apply { marginStart = dp(10) })
+            addView(crownActionRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)).apply { topMargin = dp(4) })
         }
     }
 

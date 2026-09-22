@@ -371,9 +371,8 @@ internal fun DramaAppActivity.recordCompletedEpisodeForRewards(index: Int, onCon
             validWatchSeconds = rewardsSnapshot?.unlock?.validWatchSeconds ?: 60,
             onSuccess = { reward -> runOnUiThread {
                 applyRewardsSnapshot(reward.snapshot)
-                if (reward.episodeRewardCoins > 0) {
-                    toast(t("episode_reward_pending", reward.episodeRewardCoins))
-                }
+                // The compact savings-jar amount now reflects a newly claimable
+                // cash reward. Avoid repeating an in-player instruction banner.
                 // v1.6.4.7: random chests are replaced by the ad-gated watch-task redpacket line.
                 onContinuePlayback()
             } },

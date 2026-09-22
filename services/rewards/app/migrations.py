@@ -39,6 +39,7 @@ def apply_runtime_migrations(settings: Settings) -> None:
         ("023_v1650_episode_reward_claim_prompt_threshold", sql_directory / "023_v1650_episode_reward_claim_prompt_threshold.sql"),
         ("024_v1651_daily_task_tiers", sql_directory / "024_v1651_daily_task_tiers.sql"),
         ("025_v1652_charge_cooldowns_and_crown_points", sql_directory / "025_v1652_charge_cooldowns_and_crown_points.sql"),
+        ("026_v1656_player_reward_fallback_and_cooldowns", sql_directory / "026_v1656_player_reward_fallback_and_cooldowns.sql"),
     )
     with psycopg.connect(settings.database_url, autocommit=True) as connection:
         with connection.cursor() as cursor:
