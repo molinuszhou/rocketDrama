@@ -162,10 +162,12 @@ internal fun DramaAppActivity.showPlayer(drama: LocalDrama, startIndex: Int, res
         })
         root.addView(playerView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         root.addView(createPlayerChrome(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        root.addView(createFloatingRewardWheel(compact = true), FrameLayout.LayoutParams(dp(130), dp(190), Gravity.END or Gravity.CENTER_VERTICAL).apply {
-            marginEnd = -dp(2)
-            topMargin = dp(42)
-        })
+        if (!BuildConfig.WHITE_PACK) {
+            root.addView(createFloatingRewardWheel(compact = true), FrameLayout.LayoutParams(dp(130), dp(190), Gravity.END or Gravity.CENTER_VERTICAL).apply {
+                marginEnd = -dp(2)
+                topMargin = dp(42)
+            })
+        }
         selectEpisode(currentEpisodeIndex)
         progressHandler.removeCallbacks(progressTicker)
         progressHandler.post(progressTicker)
@@ -259,16 +261,20 @@ internal fun DramaAppActivity.createPlayerTopBar(): View {
             isClickable = true
             setOnClickListener { showCatalog() }
         }
-        val assets = createPlayerAssetStrip()
+        val assets = if (!BuildConfig.WHITE_PACK) createPlayerAssetStrip() else null
         // Both controls share the true system safe inset. This avoids the fixed 14dp
         // offset that could overlap a notch/status region on first opening the player.
         shell.addView(back, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.TOP or Gravity.START).apply { topMargin = dp(8); marginStart = dp(8) })
-        shell.addView(assets, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(8) })
+        assets?.let { assetView ->
+            shell.addView(assetView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(8) })
+        }
         ViewCompat.setOnApplyWindowInsetsListener(shell) { _, insets ->
             val safeTop = insets.getInsets(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()).top
             val margin = safeTop + dp(8)
             (back.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = margin; back.layoutParams = params }
-            (assets.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = margin; assets.layoutParams = params }
+            assets?.let { assetView ->
+                (assetView.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = margin; assetView.layoutParams = params }
+            }
             insets
         }
         ViewCompat.requestApplyInsets(shell)

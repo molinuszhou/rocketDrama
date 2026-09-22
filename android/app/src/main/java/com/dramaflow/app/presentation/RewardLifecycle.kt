@@ -163,6 +163,7 @@ internal fun DramaAppActivity.startChargeCooldownTicker() {
     }
 
 internal fun DramaAppActivity.showStartupCheckinWhenReady() {
+        if (BuildConfig.WHITE_PACK) return
         if (!startupCheckinPromptRequested || startupCheckinPromptShown || isFinishing || isDestroyed) return
         val snapshot = rewardsSnapshot
         if (snapshot == null && rewardsLoading) return

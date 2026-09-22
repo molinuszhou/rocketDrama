@@ -333,7 +333,9 @@ class DramaAppActivity : FragmentActivity() {
         root.addView(page, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         // 常规页始终显示资产栏；奖励中心仅在 hero 已离开视口时淡入同款吸顶栏。
         rewardsStickyAssetHeader = null
-        if (activeTab != MainTab.TASKS) {
+        if (BuildConfig.WHITE_PACK) {
+            // White builds are content-only: no wallet, reward balance or sticky reward header.
+        } else if (activeTab != MainTab.TASKS) {
             root.addView(createPersistentAssetHeader(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(120), Gravity.TOP))
         } else {
             createPersistentAssetHeader().also { header ->
@@ -344,10 +346,12 @@ class DramaAppActivity : FragmentActivity() {
             }
         }
         root.addView(createBottomNavigation(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(68), Gravity.BOTTOM))
-        root.addView(createFloatingRewardWheel(), FrameLayout.LayoutParams(dp(130), dp(154), Gravity.END or Gravity.BOTTOM).apply {
-            marginEnd = 0
-            bottomMargin = dp(80)
-        })
+        if (!BuildConfig.WHITE_PACK) {
+            root.addView(createFloatingRewardWheel(), FrameLayout.LayoutParams(dp(130), dp(154), Gravity.END or Gravity.BOTTOM).apply {
+                marginEnd = 0
+                bottomMargin = dp(80)
+            })
+        }
     }
 
     internal fun showLocalServerSettings() {

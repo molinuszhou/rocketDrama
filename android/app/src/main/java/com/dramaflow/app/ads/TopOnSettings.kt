@@ -19,16 +19,16 @@ data class TopOnSettings(
     val enableNetworkDebug: Boolean,
 ) {
     val isConfigured: Boolean
-        get() = appId.isNotBlank() && appKey.isNotBlank()
+        get() = BuildConfig.ADS_ENABLED && appId.isNotBlank() && appKey.isNotBlank()
 
     val canShowRewarded: Boolean
-        get() = isConfigured && rewardedPlacementId.isNotBlank()
+        get() = BuildConfig.ADS_ENABLED && isConfigured && rewardedPlacementId.isNotBlank()
 
     val canShowInterstitial: Boolean
-        get() = isConfigured && interstitialPlacementId.isNotBlank()
+        get() = BuildConfig.ADS_ENABLED && isConfigured && interstitialPlacementId.isNotBlank()
 
     val canShowSplash: Boolean
-        get() = isConfigured && splashPlacementId.isNotBlank()
+        get() = BuildConfig.ADS_ENABLED && isConfigured && splashPlacementId.isNotBlank()
 
     companion object {
         fun fromBuildConfig(): TopOnSettings = TopOnSettings(

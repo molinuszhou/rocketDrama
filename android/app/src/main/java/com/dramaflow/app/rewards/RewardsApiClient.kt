@@ -1,5 +1,6 @@
 package com.dramaflow.app.rewards
 
+import com.dramaflow.app.BuildConfig
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
@@ -298,7 +299,7 @@ class RewardsApiClient(
     )
 
     val isConfigured: Boolean
-        get() = normalisedBaseUrl()?.let { it.startsWith("http://") || it.startsWith("https://") } == true
+        get() = BuildConfig.REWARDS_ENABLED && normalisedBaseUrl()?.let { it.startsWith("http://") || it.startsWith("https://") } == true
 
     fun bootstrap(userId: String, region: String, onSuccess: (Snapshot) -> Unit, onFailure: (String) -> Unit) {
         post("/v2/bootstrap", JSONObject().put("user_id", userId).put("region", region), { onSuccess(parseSnapshot(it)) }, onFailure)

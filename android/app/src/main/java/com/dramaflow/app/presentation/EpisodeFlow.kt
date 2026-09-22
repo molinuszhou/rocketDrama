@@ -518,6 +518,7 @@ internal fun DramaAppActivity.requestPauseInterstitialIfEligible() {
     }
 
 internal fun DramaAppActivity.needsUnlock(index: Int): Boolean {
+        if (!BuildConfig.CONTENT_UNLOCK_ENABLED) return false
         val drama = selectedDrama
         val episode = drama?.episodes?.getOrNull(index)
         val contentRequiresUnlock = if (episode != null) {

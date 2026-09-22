@@ -1,0 +1,20 @@
+services:
+  content-api:
+    build:
+      context: .
+    environment:
+      ENVIRONMENT: development
+      CORS_ORIGINS: "*"
+      PANGLE_CONTENT_ENABLED: "false"
+      FREE_DRAMA_DATABASE_URL: ""
+      FREE_DRAMA_CDN_BASE_URL: ""
+      PLAYBACK_SIGNING_KEY: "white-release-local-key-change-before-sharing"
+      OWNED_CATALOG_PATH: /app/content/owned_catalog.white-release.json
+      LOCAL_MEDIA_ENABLED: "true"
+      LOCAL_MEDIA_ROOT: /app/media
+    volumes:
+      - ./content:/app/content:ro
+      - ./media:/app/media:ro
+    ports:
+      - "8000:8000"
+    restart: unless-stopped

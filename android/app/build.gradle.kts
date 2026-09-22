@@ -95,6 +95,10 @@ android {
         buildConfigField("String", "SHORT_DRAMA_SECURITY_KEY", "\"${escapeBuildConfig(shortDramaSecurityKey)}\"")
         buildConfigField("boolean", "ANALYTICS_DEBUG", analyticsDebug.toString())
         buildConfigField("boolean", "EXTERNAL_REPORTING_ENABLED", externalReportingEnabled.toString())
+        buildConfigField("boolean", "WHITE_PACK", "false")
+        buildConfigField("boolean", "ADS_ENABLED", "true")
+        buildConfigField("boolean", "REWARDS_ENABLED", "true")
+        buildConfigField("boolean", "CONTENT_UNLOCK_ENABLED", "true")
         resValue("string", "app_name", whiteLabelAppName)
         buildConfigField("String", "LOCAL_CONTENT_API_BASE_URL", "\"${escapeBuildConfig(localContentApiBaseUrl)}\"")
         buildConfigField("String", "REWARDS_API_BASE_URL", "\"${escapeBuildConfig(rewardsApiBaseUrl)}\"")
@@ -117,6 +121,18 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+        }
+        // Partner white-label build: content browsing/playback remains available,
+        // while ads, rewards, wallet and episode locks are disabled at build time.
+        create("whiteRelease") {
+            initWith(getByName("release"))
+            matchingFallbacks += listOf("release")
+            versionNameSuffix = "-white"
+            buildConfigField("boolean", "WHITE_PACK", "true")
+            buildConfigField("boolean", "ADS_ENABLED", "false")
+            buildConfigField("boolean", "REWARDS_ENABLED", "false")
+            buildConfigField("boolean", "CONTENT_UNLOCK_ENABLED", "false")
+            resValue("string", "app_name", "JoyeDrama White")
         }
     }
 
