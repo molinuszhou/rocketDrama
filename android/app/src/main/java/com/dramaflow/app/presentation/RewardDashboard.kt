@@ -72,21 +72,27 @@ internal fun DramaAppActivity.createTasksPage(): View {
     val scroll = scrollPage { content ->
         content.setPadding(0, 0, 0, dp(86))
         val snapshot = rewardsSnapshot
-        content.addView(createRewardsHeroHeader(snapshot), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(286)))
-        if (snapshot == null) content.addView(createInlineNotice(t("ledger_note")), matchParams(top = 12, bottom = 14))
+        content.addView(createRewardsHeroHeader(snapshot), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(244)))
+        if (snapshot == null) content.addView(createInlineNotice(t("ledger_note")), matchParams(top = 10, bottom = 10))
         else {
-            content.addView(createDailyBenefitsPanel(snapshot), matchParams(top = 12, bottom = 12))
-            content.addView(createEpisodeTaskLine(snapshot), matchParams(bottom = 12))
+            content.addView(createDailyBenefitsPanel(snapshot), matchParams(top = 10, bottom = 10))
+            content.addView(createEpisodeTaskLine(snapshot), matchParams(bottom = 10))
         }
-        content.addView(createCrownRoadPanel(snapshot), matchParams(bottom = 14))
+        content.addView(createCrownRoadPanel(snapshot), matchParams(bottom = 10))
     }
-    scroll.setOnScrollChangeListener { _, _, scrollY, _, _ -> updateRewardsStickyAssetHeader(scrollY >= dp(148)) }
+    scroll.setOnScrollChangeListener { _, _, scrollY, _, _ ->
+        rewardsTasksScrollY = scrollY
+        updateRewardsStickyAssetHeader(scrollY >= dp(148))
+    }
+    if (rewardsTasksScrollY > 0) {
+        scroll.post { scroll.scrollTo(0, rewardsTasksScrollY) }
+    }
     return scroll
 }
 
 /** A compact, inset-aware hero: headline sits below the status bar and the image has no empty lower band. */
 internal fun DramaAppActivity.createRewardsHeroHeader(snapshot: RewardsApiClient.Snapshot?): View = FrameLayout(this).apply {
-    minimumHeight = dp(250)
+    minimumHeight = dp(244)
     clipToOutline = true
     background = gradientDrawable(intArrayOf(COLOR_BACKGROUND, COLOR_CARD, COLOR_BACKGROUND), 0)
     val foreground = LinearLayout(this@createRewardsHeroHeader).apply {
@@ -100,13 +106,13 @@ internal fun DramaAppActivity.createRewardsHeroHeader(snapshot: RewardsApiClient
         })
         val wallet = snapshot?.wallet
         val balanceBar = FrameLayout(this@createRewardsHeroHeader).apply {
-            background = gradientDrawable(intArrayOf(0xFF292027.toInt(), COLOR_SURFACE), 24); clipToOutline = true
+            background = gradientDrawable(intArrayOf(0xFF292027.toInt(), COLOR_SURFACE), 26); clipToOutline = true
             addView(ImageView(this@createRewardsHeroHeader).apply {
                 setImageResource(R.drawable.wallet_money); scaleType = ImageView.ScaleType.CENTER_INSIDE; alpha = 0.10f; rotation = -16f
-            }, FrameLayout.LayoutParams(dp(116), dp(116), Gravity.END or Gravity.CENTER_VERTICAL).apply { marginEnd = -dp(8) })
-            addView(createRewardBalance(t("wallet_balance"), wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—", isGem = false) { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(94)))
+            }, FrameLayout.LayoutParams(dp(150), dp(150), Gravity.END or Gravity.CENTER_VERTICAL).apply { marginEnd = -dp(8) })
+            addView(createRewardBalance(t("wallet_balance"), wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—", isGem = false) { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(128)))
         }
-        addView(balanceBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(94)))
+        addView(balanceBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(128)))
     }
     addView(foreground, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP))
     ViewCompat.setOnApplyWindowInsetsListener(this) { _, insets ->
@@ -118,19 +124,19 @@ internal fun DramaAppActivity.createRewardsHeroHeader(snapshot: RewardsApiClient
 }
 
 internal fun DramaAppActivity.createRewardBalance(label: String, value: String, isGem: Boolean, onClick: () -> Unit): View = LinearLayout(this).apply {
-    gravity = Gravity.CENTER_VERTICAL; setPadding(dp(7), dp(6), dp(7), dp(6)); isClickable = true; contentDescription = "$label $value"; setOnClickListener { onClick() }
+    gravity = Gravity.CENTER_VERTICAL; setPadding(dp(12), dp(8), dp(10), dp(8)); isClickable = true; contentDescription = "$label $value"; setOnClickListener { onClick() }
     val icon = ImageView(this@createRewardBalance).apply { setImageResource(R.drawable.wallet_money); scaleType = ImageView.ScaleType.CENTER_INSIDE }
     if (isGem) gemBalanceAnchor = icon else cashBalanceAnchor = icon
-    addView(icon, LinearLayout.LayoutParams(dp(66), dp(66)))
+    addView(icon, LinearLayout.LayoutParams(dp(100), dp(100)))
     addView(LinearLayout(this@createRewardBalance).apply {
-        orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(5), 0, 0, 0)
+        orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(8), 0, 0, 0)
         val valueView = TextView(this@createRewardBalance).apply {
             text = value; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY); maxLines = 1; includeFontPadding = false; ellipsize = android.text.TextUtils.TruncateAt.END; letterSpacing = -0.02f
-            setAutoSizeTextTypeUniformWithConfiguration(16, 30, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
+            setAutoSizeTextTypeUniformWithConfiguration(22, 44, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
         }
         if (isGem) gemBalanceLabel = valueView else cashBalanceLabel = valueView
         addView(valueView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        addView(TextView(this@createRewardBalance).apply { text = label; textSize = 13f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(2), 0, 0); maxLines = 1 })
+        addView(TextView(this@createRewardBalance).apply { text = label; textSize = 14f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(4), 0, 0); maxLines = 1 })
     }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
 }
 
@@ -198,8 +204,7 @@ internal fun DramaAppActivity.claimEpisodeTaskCash(milestone: Int) {
         placementId = "rv_episode_task_claim",
         targetId = milestone.toString(),
         onSettled = { action ->
-            val value = formatCurrencyAmount(action.snapshot.wallet, action.cashAdded, action.cashAddedUsdReference, includeUsdReference = false)
-            toast(if (action.idempotent) t("task_already_claimed") else t("task_cash_claimed", value))
+            if (action.idempotent) toast(t("task_already_claimed"))
         },
     )
 }

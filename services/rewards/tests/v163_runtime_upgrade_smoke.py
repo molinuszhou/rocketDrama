@@ -101,7 +101,7 @@ def run() -> None:
         assert data["interstitial"]["mid_episode_trigger_seconds"] == 180
         assert data["interstitial"]["mid_episode_repeat_seconds"] == 360
 
-    print("PostgreSQL v1.6.5.6 runtime-upgrade smoke test passed; welcome consolidation, fallback settlement and 60-second charge cooldowns verified")
+    print("PostgreSQL v1.6.6.2 runtime-upgrade smoke test passed; welcome consolidation, fallback settlement and 60-second charge cooldowns verified")
 
 
 if __name__ == "__main__":

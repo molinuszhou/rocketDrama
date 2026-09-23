@@ -178,7 +178,7 @@ def run() -> None:
         _, crown = request("PUT", "/v2/admin/crown-multiplier", {"code": "BRONZE", "episode_reward_multiplier": 1.20}, admin=True)
         assert crown["data"]["crown_multipliers"][0]["episode_reward_multiplier"] == 1.2
 
-    print("HTTP API v1.6.5.6 smoke test passed; direct cash, consolidated newcomer reward, cooldowns and operating policy verified")
+    print("HTTP API v1.6.6.2 smoke test passed; direct cash, consolidated newcomer reward, cooldowns and operating policy verified")
 
 
 if __name__ == "__main__":

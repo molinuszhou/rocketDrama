@@ -141,18 +141,22 @@ internal fun DramaAppActivity.applyRewardsSnapshot(snapshot: RewardsApiClient.Sn
             lastFloatingClaimPromptedGems = pending
             root.post {
                 if (!isFinishing && !isDestroyed && !fullscreenAdInProgress) {
-                    showBrandedChoiceDialog("现金奖励待领取", "完成一段广告后，可将 ${formatCurrencyAmount(snapshot.wallet, snapshot.ring.rewardCash, snapshot.ring.rewardCashUsdReference, true)} 存入钱包。", t("claim_all"), { requestRewardedClaimAllEpisodeRewards() }, t("later"))
+                    showBrandedChoiceDialog(t("claim_episode_rewards"), t("claim_episode_rewards_message"), t("claim_all"), { requestRewardedClaimAllEpisodeRewards() }, t("later"))
                 }
             }
         } else if (!snapshot.ring.claimable) {
             lastFloatingClaimPromptedGems = 0
         }
         if (startupContentInitializationStarted) {
+            val taskPromptDelay = maxOf(
+                700L,
+                taskRewardPromptEarliestAtElapsedMillis - android.os.SystemClock.elapsedRealtime(),
+            )
             root.postDelayed({
                 if (isFinishing || isDestroyed || fullscreenAdInProgress || fullscreenAdRequestInFlight) return@postDelayed
                 if (maybeShowCrownLevelReached(previousCrowns, snapshot)) return@postDelayed
                 maybeShowEpisodeTaskClaimPrompt(snapshot)
-            }, 700L)
+            }, taskPromptDelay)
         }
     }
 
@@ -330,7 +334,7 @@ internal fun DramaAppActivity.showCheckinRewardDialog(snapshot: RewardsApiClient
         val dialog = AlertDialog.Builder(this).create()
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(22), dp(20), dp(18))
+            setPadding(dp(12), dp(22), dp(12), dp(18))
             background = gradientDrawable(intArrayOf(COLOR_CARD, COLOR_SURFACE), 26)
         }
         content.addView(TextView(this).apply {
@@ -402,7 +406,7 @@ internal fun DramaAppActivity.showCheckinRewardDialog(snapshot: RewardsApiClient
         dialog.show()
         dialog.window?.apply {
             setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
-            setLayout((resources.displayMetrics.widthPixels * 0.92f).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
+            setLayout((resources.displayMetrics.widthPixels * 0.98f).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
         }
     }
 
@@ -425,7 +429,7 @@ internal fun DramaAppActivity.createCheckinTierStrip(snapshot: RewardsApiClient.
                 addView(LinearLayout(this@createCheckinTierStrip).apply {
                     orientation = LinearLayout.VERTICAL
                     gravity = Gravity.CENTER
-                    setPadding(dp(3), dp(8), dp(3), dp(8))
+                    setPadding(dp(2), dp(9), dp(2), dp(9))
                     background = roundedDrawable(
                         when {
                             isToday -> COLOR_ACCENT
@@ -438,6 +442,8 @@ internal fun DramaAppActivity.createCheckinTierStrip(snapshot: RewardsApiClient.
                         text = if (isToday && !signedToday) t("today") else t("day_number", index + 1)
                         textSize = 10f
                         gravity = Gravity.CENTER
+                        maxLines = 1
+                        ellipsize = android.text.TextUtils.TruncateAt.END
                         setTextColor(if (isToday || isDone) Color.WHITE else COLOR_TEXT_MUTED)
                     })
                     addView(TextView(this@createCheckinTierStrip).apply {
@@ -452,10 +458,12 @@ internal fun DramaAppActivity.createCheckinTierStrip(snapshot: RewardsApiClient.
                         textSize = if (isToday) 13f else 10f
                         typeface = if (isToday) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
                         gravity = Gravity.CENTER
+                        maxLines = 1
+                        ellipsize = android.text.TextUtils.TruncateAt.END
                         setTextColor(if (isToday || isDone) Color.WHITE else COLOR_TEXT_MUTED)
                     })
-                }, LinearLayout.LayoutParams(0, dp(92), 1f).apply {
-                    if (index > 0) marginStart = dp(4)
+                }, LinearLayout.LayoutParams(0, dp(98), 1f).apply {
+                    if (index > 0) marginStart = dp(3)
                 })
             }
         }
@@ -463,13 +471,11 @@ internal fun DramaAppActivity.createCheckinTierStrip(snapshot: RewardsApiClient.
 
 internal fun DramaAppActivity.completeDailyCheckin() {
         requestRewardedAction("rv_checkin_complete", onSettled = { action ->
-            applyRewardsSnapshot(action.snapshot)
             resumeAfterFullscreenAdIfNeeded()
             if (action.idempotent) {
                 toast(t("checkin_completed_today"))
                 if (action.snapshot.chest.availableCount > 0) showRandomChestEarnedDialog(0, action.snapshot.chest.availableCount) {}
             } else {
-                toast(t("checkin_cash_success"))
                 showCheckinCalendarReminderPrompt {
                     if (action.snapshot.chest.availableCount > 0) showRandomChestEarnedDialog(0, action.snapshot.chest.availableCount) {}
                 }

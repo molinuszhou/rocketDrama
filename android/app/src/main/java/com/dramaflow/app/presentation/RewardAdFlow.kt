@@ -75,11 +75,11 @@ internal fun DramaAppActivity.requestRewardedAction(
         onSettled: ((RewardsApiClient.RewardAction) -> Unit)? = null,
         onSettlementUnavailable: ((String) -> Unit)? = null,
         fallbackToInterstitialWhenUnavailable: Boolean = true,
-        deferCashAnimation: Boolean = false,
+        deferCashAnimation: Boolean = true,
     ) {
         if (fullscreenAdInProgress || fullscreenAdRequestInFlight) { toast(t("ad_loading")); return }
-        if (consentStore.read() != AdConsent.GRANTED) { toast("请先在广告与隐私中启用广告"); return }
-        if (!rewardsApi.isConfigured) { toast("独立积分服务尚未配置，广告奖励无法结算"); return }
+        if (consentStore.read() != AdConsent.GRANTED) { toast(t("enable_ads_to_continue")); return }
+        if (!rewardsApi.isConfigured) { toast(t("rewards_service_not_configured")); return }
         fullscreenAdRequestInFlight = true
         showFullscreenAdLoadingOverlay()
         pauseForFullscreenAd()
@@ -105,18 +105,16 @@ internal fun DramaAppActivity.requestRewardedAction(
                         episodeIndex = episodeIndex, proof = testRewardProof(),
                         onSuccess = { action -> runOnUiThread {
                             fullscreenAdInProgress = false
-                            if (deferCashAnimation) deferNextCashFlight = true
-                            applyRewardsSnapshot(action.snapshot)
                             playbackInterstitialShownAtElapsedMillis.clear()
                             playbackInterstitialShownAtElapsedMillis.add(SystemClock.elapsedRealtime())
-                            if (onSettled != null) onSettled.invoke(action) else { resumeAfterFullscreenAdIfNeeded(); toast("现金奖励已结算") }
+                            handleSettledRewardAction(action, onSettled, deferCashAnimation)
                         } },
                         onFailure = { message -> runOnUiThread {
                             if (deferCashAnimation) deferNextCashFlight = false
                             fullscreenAdInProgress = false
                             if (onSettlementUnavailable != null) onSettlementUnavailable.invoke(message) else {
                                 episodeTransitionInProgress = false; resumeAfterFullscreenAdIfNeeded()
-                                toast("广告已完整观看，奖励状态暂未同步；请稍后在奖励中心查看。"); logStatus("广告奖励同步失败：$message")
+                                toast(t("reward_settlement_pending")); logStatus("广告奖励同步失败：$message")
                             }
                         } },
                     )
@@ -144,6 +142,36 @@ internal fun DramaAppActivity.requestRewardedAction(
         } }
     }
 
+/** Applies every server-confirmed cash grant with the same receipt then wallet-flight sequence. */
+internal fun DramaAppActivity.handleSettledRewardAction(
+    action: RewardsApiClient.RewardAction,
+    onSettled: ((RewardsApiClient.RewardAction) -> Unit)?,
+    deferCashAnimation: Boolean = true,
+) {
+    val added = action.cashAdded.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO
+    val shouldCelebrate = !action.idempotent && added.signum() > 0
+    if (shouldCelebrate && deferCashAnimation) deferNextCashFlight = true
+    applyRewardsSnapshot(action.snapshot)
+    val complete = {
+        if (onSettled != null) onSettled.invoke(action)
+        else {
+            resumeAfterFullscreenAdIfNeeded()
+            toast(t("cash_reward_added"))
+        }
+    }
+    if (shouldCelebrate) {
+        val amount = formatCurrencyAmount(
+            action.snapshot.wallet,
+            action.cashAdded,
+            action.cashAddedUsdReference,
+            includeUsdReference = false,
+        )
+        showCashRewardReceipt(amount, complete)
+    } else {
+        complete()
+    }
+}
+
 /** A user-cancelled rewarded placement may fall back after the configured skip threshold. */
 internal fun DramaAppActivity.recordRewardedSkipThenMaybeShowInterstitial(shouldResume: Boolean, context: String = "rewarded_cancelled") {
         if (!rewardsApi.isConfigured) { showRewardedUnavailableNotice(shouldResume, "广告未完整观看，未获得奖励或解锁权益"); return }
@@ -153,7 +181,7 @@ internal fun DramaAppActivity.recordRewardedSkipThenMaybeShowInterstitial(should
             if (policy.rewardedFallbackEnabled && (policy.rewardedSkipThreshold <= 0 || policy.rewardedSkipCount >= policy.rewardedSkipThreshold)) {
                 showRewardedFallbackInterstitial(shouldResume, "广告未完整观看，未获得奖励或解锁权益")
             } else {
-                resumeAfterFullscreenAd = shouldResume; resumeAfterFullscreenAdIfNeeded(); toast("广告未完整观看，未获得奖励。")
+                resumeAfterFullscreenAd = shouldResume; resumeAfterFullscreenAdIfNeeded(); toast(t("rewarded_not_completed"))
             }
         } }, { _ -> runOnUiThread { showRewardedUnavailableNotice(shouldResume, "广告未完整观看，未获得奖励或解锁权益") } })
 }
@@ -176,7 +204,7 @@ internal fun DramaAppActivity.showRewardedFallbackInterstitial(
         targetId: String? = null,
         episodeIndex: Int? = null,
         onOriginalSettled: ((RewardsApiClient.RewardAction) -> Unit)? = null,
-        deferCashAnimation: Boolean = false,
+        deferCashAnimation: Boolean = true,
     ) {
         fullscreenAdInProgress = false
         fullscreenAdRequestInFlight = false
@@ -206,9 +234,7 @@ internal fun DramaAppActivity.showRewardedFallbackInterstitial(
                     targetId = targetId,
                     episodeIndex = episodeIndex,
                     onSuccess = { action -> runOnUiThread {
-                        if (deferCashAnimation) deferNextCashFlight = true
-                        applyRewardsSnapshot(action.snapshot)
-                        onOriginalSettled?.invoke(action) ?: resumeAfterFullscreenAdIfNeeded()
+                        handleSettledRewardAction(action, onOriginalSettled, deferCashAnimation)
                     } },
                     onFailure = { reason -> runOnUiThread {
                         logStatus("回退插屏奖励结算失败：$reason")
@@ -323,17 +349,20 @@ internal fun DramaAppActivity.showPlaybackActionInterstitial(
             when (result) {
                 TopOnAdsManager.FullscreenResult.Shown -> {
                     resumeAfterFullscreenAdIfNeeded()
+                    val interstitialEventId = "int-${UUID.randomUUID()}"
                     val settled = {
                         playbackInterstitialShownAtElapsedMillis.add(SystemClock.elapsedRealtime())
                         if (countTowardEpisodeLimit && episodeKey != null) interstitialCountByEpisodeKey[episodeKey] = (interstitialCountByEpisodeKey[episodeKey] ?: 0) + 1
                         onShown()
                     }
                     if (rewardsApi.isConfigured) {
-                        val eventId = "int-${UUID.randomUUID()}"
                         rewardsApi.recordInterstitial(anonymousInstallationId(), placementId, episodeId,
-                            onSuccess = { snapshot -> runOnUiThread { applyRewardsSnapshot(snapshot); settled(); onRecorded?.invoke(eventId) } },
-                            onFailure = { message -> runOnUiThread { logStatus("插屏展示记录未同步：$message"); settled() } },
-                            eventId = eventId,
+                            onSuccess = { snapshot -> runOnUiThread { applyRewardsSnapshot(snapshot); settled(); onRecorded?.invoke(interstitialEventId) } },
+                            // A fallback creative has already been shown. Continue with the same
+                            // event ID so the server can persist a recovery audit record while
+                            // granting the original reward rather than silently losing it.
+                            onFailure = { message -> runOnUiThread { logStatus("插屏展示记录未同步：$message"); settled(); onRecorded?.invoke(interstitialEventId) } },
+                            eventId = interstitialEventId,
                         )
                     } else settled()
                 }

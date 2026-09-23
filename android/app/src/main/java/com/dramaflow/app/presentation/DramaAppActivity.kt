@@ -207,8 +207,12 @@ class DramaAppActivity : FragmentActivity() {
     internal var deferredCashFlight: Pair<String, String>? = null
     /** Avoid repeatedly interrupting the viewer with the same accumulated-gem prompt. */
     internal var lastFloatingClaimPromptedGems = 0
+    /** A newly completed watch task waits briefly so it never collides with episode-unlock UI. */
+    internal var taskRewardPromptEarliestAtElapsedMillis = 0L
     /** Rewards page exposes this only after the hero scrolls away. */
     internal var rewardsStickyAssetHeader: View? = null
+    /** Re-rendering a live reward snapshot must retain the reader at Crown Road or the active task. */
+    internal var rewardsTasksScrollY = 0
     internal var ignoreVideoTapsUntilMillis = 0L
     internal val favorites by lazy { getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE) }
     internal val playbackHistory by lazy { getSharedPreferences(PLAYBACK_HISTORY_PREFERENCES, Context.MODE_PRIVATE) }

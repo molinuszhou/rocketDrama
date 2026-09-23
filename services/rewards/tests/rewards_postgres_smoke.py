@@ -141,6 +141,21 @@ def run() -> None:
         episode_index=None,
     )["idempotent"] is True
 
+    # A completed fallback creative must still grant its original benefit when
+    # the best-effort preceding display telemetry request was lost in transit.
+    missing_record_user = f"v1662-fallback-missing-record-{uuid.uuid4()}"
+    missing_record_initial = service.bootstrap(missing_record_user)
+    missing_record_grant = service.settle_rewarded_fallback(
+        user_id=missing_record_user,
+        interstitial_event_id=event_id("int-fallback-telemetry-lost"),
+        original_placement_id="rv_welcome_bonus",
+        target_id=None,
+        episode_index=None,
+    )
+    assert missing_record_grant["result"]["action"] == "WELCOME_BONUS"
+    assert missing_record_grant["result"]["cash_added"] == missing_record_initial["welcome"]["cash"]
+    assert missing_record_grant["snapshot"]["welcome"]["claimed"] is True
+
     # 单条激励广告连续解锁一个两集集包；低频模式关闭单集广告翻倍。
     episode_pass, _ = rewarded(service, user_id, "rv_episode_pass", "owned:smoke:ep:4", 4)
     assert episode_pass["result"]["unlock_episode_count"] == 2
@@ -351,7 +366,7 @@ def run() -> None:
         total_at(1_999_999)
         assert service._credit_gems(connection, damping_user, 100, policy, "WALLET_CASH_BOOST", "damping", event_id("tier6")) == 1  # noqa: SLF001
 
-    print("PostgreSQL v1.6.5.6 rewards smoke test passed; welcome consolidation, verified fallback settlement, direct cash, cooldowns and Crown points verified")
+    print("PostgreSQL v1.6.6.2 rewards smoke test passed; welcome consolidation, verified fallback settlement, direct cash, cooldowns and Crown points verified")
 
 
 if __name__ == "__main__":

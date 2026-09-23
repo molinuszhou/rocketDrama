@@ -233,7 +233,9 @@ internal fun DramaAppActivity.animateClaimedCash(previous: String, current: Stri
         val rewardText = wallet?.let { "+${formatCurrencyAmount(it, cashDelta.toPlainString(), null, includeUsdReference = false)}" } ?: "+$current"
         val celebration = FrameLayout(this).apply {
             alpha = 0f
-            background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(0xB8000000.toInt(), 0x30000000, Color.TRANSPARENT))
+            // Keep the animation layer fully transparent: the coins and amount should sit
+            // above the current screen without introducing a grey dimming scrim.
+            background = android.graphics.drawable.ColorDrawable(Color.TRANSPARENT)
         }
         val size = dp(112)
         val fly = ImageView(this).apply { setImageResource(R.drawable.wallet_money); scaleType = ImageView.ScaleType.CENTER_INSIDE; alpha = 0f }

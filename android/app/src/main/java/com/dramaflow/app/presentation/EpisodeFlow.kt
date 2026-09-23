@@ -217,7 +217,7 @@ internal fun DramaAppActivity.startNextEpisodeAutomatically(completedIndex: Int,
         val drama = selectedDrama ?: return
         val nextIndex = completedIndex + 1
         if (nextIndex >= drama.total.coerceAtLeast(1)) {
-            if (userInitiated) switchDramaBySwipe(forward = true) else toast("本剧已播放完成")
+            if (userInitiated) switchDramaBySwipe(forward = true) else toast(t("drama_completed"))
             return
         }
         if (needsUnlock(nextIndex)) {
@@ -264,7 +264,7 @@ internal fun DramaAppActivity.startEpisodeUnlockAfterConfirmation(index: Int, on
         }
         if (rewardsSnapshot != null && !rewardsSnapshot!!.unlock.nextEpisodeRewardedEnabled) {
             episodeTransitionInProgress = false
-            toast("下一集激励广告解锁当前未启用")
+            toast(t("unlock_rewarded_disabled"))
             return
         }
         episodeTransitionInProgress = true
@@ -273,7 +273,6 @@ internal fun DramaAppActivity.startEpisodeUnlockAfterConfirmation(index: Int, on
             targetId = episode.id,
             episodeIndex = index + 1,
             onSettled = { action ->
-                applyRewardsSnapshot(action.snapshot)
                 settleEpisodeUnlockAfterAd(index, unlockMethod = "AD_REWARDED", unlockCount = action.unlockEpisodeCount) {
                     selectEpisode(index)
                     onUnlocked()
@@ -282,7 +281,7 @@ internal fun DramaAppActivity.startEpisodeUnlockAfterConfirmation(index: Int, on
             onSettlementUnavailable = { message ->
                 episodeTransitionInProgress = false
                 resumeAfterFullscreenAdIfNeeded()
-                toast("广告已完整观看，但解锁结算暂未同步：$message")
+                toast(t("unlock_settlement_pending", message))
             },
         )
     }
@@ -370,6 +369,9 @@ internal fun DramaAppActivity.recordCompletedEpisodeForRewards(index: Int, onCon
             episodeId = episode.id,
             validWatchSeconds = rewardsSnapshot?.unlock?.validWatchSeconds ?: 60,
             onSuccess = { reward -> runOnUiThread {
+                // A completed watch task can coincide with the next-episode unlock. Let the
+                // latter finish first, then invite the user to collect after 30 seconds.
+                taskRewardPromptEarliestAtElapsedMillis = android.os.SystemClock.elapsedRealtime() + 30_000L
                 applyRewardsSnapshot(reward.snapshot)
                 // The compact savings-jar amount now reflects a newly claimable
                 // cash reward. Avoid repeating an in-player instruction banner.

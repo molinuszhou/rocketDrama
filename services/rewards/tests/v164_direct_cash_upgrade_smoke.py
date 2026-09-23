@@ -62,7 +62,7 @@ def run() -> None:
     after_repeat = service.bootstrap(user_id, "BR")
     assert after_repeat["wallet"]["cash_wallet"] == "20.00"
 
-    print("PostgreSQL v1.6.5.6 direct-cash runtime upgrade smoke test passed; legacy assets, newcomer consolidation and cooldown migration verified")
+    print("PostgreSQL v1.6.6.2 direct-cash runtime upgrade smoke test passed; legacy assets, newcomer consolidation and cooldown migration verified")
 
 
 if __name__ == "__main__":

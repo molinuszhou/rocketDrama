@@ -801,6 +801,7 @@ class RewardsService:
         """
         with self._transaction() as connection:
             self._ensure_user(connection, user_id)
+            business_date = self._business_date()
             existing = self._one(
                 connection,
                 "SELECT result_payload FROM rewarded_fallback_grants WHERE interstitial_event_id = %s",
@@ -815,11 +816,31 @@ class RewardsService:
                    WHERE event_id = %s AND user_id = %s FOR UPDATE""",
                 (interstitial_event_id, user_id),
             )
-            if not interstitial or interstitial["placement_id"] != "int_rewarded_fallback":
+            if interstitial and interstitial["placement_id"] != "int_rewarded_fallback":
                 raise ServiceError(2023, "未找到可结算的激励回退插屏", 409)
-
-            business_date = self._business_date()
             policy = self._policy(connection)
+            if not bool(policy["rewarded_fallback_interstitial_enabled"]):
+                raise ServiceError(2020, "激励回退插屏当前未启用", 409)
+            if not interstitial:
+                # The client only reaches this path from a completed fallback creative.
+                # Network loss can prevent the preceding telemetry request from arriving,
+                # so persist the same auditable display record here before granting the
+                # original entitlement. This keeps a shown fallback from losing its reward.
+                self._daily_counter(connection, user_id, business_date, lock=True)
+                self._execute(
+                    connection,
+                    """INSERT INTO interstitial_events (event_id, user_id, business_date, placement_id)
+                       VALUES (%s, %s, %s, 'int_rewarded_fallback')
+                       ON CONFLICT (event_id) DO NOTHING""",
+                    (interstitial_event_id, user_id, business_date),
+                )
+                self._execute(
+                    connection,
+                    """UPDATE daily_counters
+                       SET interstitial_count = interstitial_count + 1, last_interstitial_at = NOW()
+                       WHERE user_id = %s AND business_date = %s""",
+                    (user_id, business_date),
+                )
             result = self._rewarded_action(
                 connection=connection,
                 user_id=user_id,

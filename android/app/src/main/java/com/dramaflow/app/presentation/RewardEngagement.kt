@@ -311,10 +311,10 @@ internal fun DramaAppActivity.isEpisodeRewardBoosted(episodeId: String): Boolean
 internal fun DramaAppActivity.showEpisodeRewardClaimDialog() {
         val snapshot = rewardsSnapshot ?: return
         val ring = snapshot.ring
-        if (!ring.claimable || ring.rewardCoins <= 0) { toast("暂无待领取的现金奖励"); return }
+        if (!ring.claimable || ring.rewardCoins <= 0) { toast(t("no_pending_cash_reward")); return }
         showBrandedChoiceDialog(
             title = t("claim_episode_rewards"),
-            message = "完整观看广告后，可将 ${formatCurrencyAmount(snapshot.wallet, ring.rewardCash, ring.rewardCashUsdReference, true)} 现金奖励存入钱包。",
+            message = t("claim_episode_rewards_message"),
             primaryLabel = t("watch_ad_claim"),
             onPrimary = { requestRewardedClaimAllEpisodeRewards() },
             secondaryLabel = t("later"),
@@ -324,7 +324,6 @@ internal fun DramaAppActivity.showEpisodeRewardClaimDialog() {
 /** Tapping the boost starts the rewarded request immediately; successful settlement removes the control. */
 internal fun DramaAppActivity.requestEpisodeRewardBoost(episodeId: String) {
         requestRewardedAction("rv_episode_reward_boost", targetId = episodeId, onSettled = { action ->
-            applyRewardsSnapshot(action.snapshot)
             resumeAfterFullscreenAdIfNeeded()
             toast(t("reward_double_activated"))
         })
@@ -339,9 +338,10 @@ internal fun DramaAppActivity.requestRewardedClaimAllEpisodeRewards() {
                 return@requestRewardedAction
             }
             rewardsApi.claimAllEpisodeRewards(anonymousInstallationId(), adEventId, { action -> runOnUiThread {
-                applyRewardsSnapshot(action.snapshot)
-                resumeAfterFullscreenAdIfNeeded()
-                toast(if (action.idempotent) "暂无待领取的现金奖励" else "现金奖励已存入钱包")
+                handleSettledRewardAction(action, {
+                    resumeAfterFullscreenAdIfNeeded()
+                    if (it.idempotent) toast(t("no_pending_gems"))
+                })
             } }, { message -> runOnUiThread {
                 resumeAfterFullscreenAdIfNeeded()
                 toast(t("claim_failed", message))
@@ -401,7 +401,6 @@ internal fun DramaAppActivity.createWelcomeRewardCard(snapshot: RewardsApiClient
 
 internal fun DramaAppActivity.claimWelcomeBonus(onCompleted: (() -> Unit)? = null) {
         requestRewardedAction("rv_welcome_bonus", onSettled = { action ->
-            applyRewardsSnapshot(action.snapshot)
             resumeAfterFullscreenAdIfNeeded()
             if (action.idempotent) {
                 toast(t("welcome_claimed"))
@@ -468,21 +467,17 @@ internal fun DramaAppActivity.showWalletReleaseBoostDialog() {
 }
 
 internal fun DramaAppActivity.requestWalletReleaseBoost() {
-        requestRewardedAction("rv_release_boost", deferCashAnimation = true, onSettled = { action ->
+        requestRewardedAction("rv_release_boost", onSettled = { action ->
             resumeAfterFullscreenAdIfNeeded()
-            val wallet = action.snapshot.wallet
-            val received = formatCurrencyAmount(wallet, action.cashAdded, action.cashAddedUsdReference, includeUsdReference = false)
             if (action.idempotent) {
                 deferredCashFlight = null
                 toast(t("wallet_boost_already_settled"))
-            } else {
-                showWalletCashRewardReceipt(received)
             }
         })
     }
 
 /** Acknowledge the earned amount first; the wallet flight begins only after this confirmation. */
-internal fun DramaAppActivity.showWalletCashRewardReceipt(amount: String) {
+internal fun DramaAppActivity.showCashRewardReceipt(amount: String, onConfirmed: () -> Unit = {}) {
     val dialog = AlertDialog.Builder(this).create()
     val card = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
@@ -491,7 +486,7 @@ internal fun DramaAppActivity.showWalletCashRewardReceipt(amount: String) {
         background = gradientDrawable(intArrayOf(COLOR_CARD, 0xFF2A2116.toInt()), 28)
     }
     card.addView(TextView(this).apply {
-        text = t("wallet_boost_received_title")
+        text = t("cash_reward_received_title")
         textSize = 21f
         typeface = Typeface.DEFAULT_BOLD
         gravity = Gravity.CENTER
@@ -537,6 +532,7 @@ internal fun DramaAppActivity.showWalletCashRewardReceipt(amount: String) {
                 deferredCashFlight = null
                 root.post { animateClaimedCash(previous, current) }
             }
+            onConfirmed()
         }
     }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)))
     dialog.setView(card)
@@ -573,17 +569,17 @@ internal fun DramaAppActivity.createChestCard(snapshot: RewardsApiClient.Snapsho
         orientation = LinearLayout.VERTICAL
         setPadding(dp(18), dp(16), dp(18), dp(16))
         background = roundedDrawable(COLOR_CARD, 18)
-        addView(TextView(this@createChestCard).apply { text = "随机宝箱"; textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
+        addView(TextView(this@createChestCard).apply { text = t("chest_title"); textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
         addView(TextView(this@createChestCard).apply {
             text = when {
-                snapshot.chest.availableCount > 0 -> "当前有 ${snapshot.chest.availableCount} 个可开启现金宝箱。每次完整观看广告可获得 ${formatCurrencyAmount(snapshot.wallet, snapshot.chest.minCash, null, false)} 现金奖励。"
-                snapshot.chest.episodesToNextChest > 0 -> "暂时没有可开启宝箱。每累计 ${snapshot.chest.episodesPerChest} 集有效观看可获得 1 个；再看 ${snapshot.chest.episodesToNextChest} 集即可获得下一只。"
-                else -> "暂时没有可开启宝箱；每日会自动获得宝箱，每累计 ${snapshot.chest.episodesPerChest} 集有效观看也会获得 1 个。"
+                snapshot.chest.availableCount > 0 -> t("chest_available_detail", snapshot.chest.availableCount, formatCurrencyAmount(snapshot.wallet, snapshot.chest.minCash, null, false))
+                snapshot.chest.episodesToNextChest > 0 -> t("chest_progress_detail", snapshot.chest.episodesPerChest, snapshot.chest.episodesToNextChest)
+                else -> t("chest_empty_detail", snapshot.chest.episodesPerChest)
             }
             textSize = 13f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(6), 0, dp(12))
         })
         addView(TextView(this@createChestCard).apply {
-            text = if (snapshot.chest.availableCount > 0) "观看广告开启 1 个" else "继续追剧获得宝箱"
+            text = if (snapshot.chest.availableCount > 0) t("chest_open_one") else t("chest_empty_short")
             textSize = 14f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_PRIMARY)
             background = roundedDrawable(if (snapshot.chest.availableCount > 0) COLOR_ACCENT else COLOR_SURFACE, 14)
             setPadding(dp(14), dp(10), dp(14), dp(10)); isClickable = true
@@ -600,15 +596,13 @@ internal fun DramaAppActivity.requestRandomChestOpen(onFinished: () -> Unit = {}
         requestRewardedAction(
             placementId = "rv_random_chest_open",
             onSettled = { action ->
-                applyRewardsSnapshot(action.snapshot)
                 resumeAfterFullscreenAdIfNeeded()
-                toast("随机宝箱开启，现金奖励已存入钱包")
                 onFinished()
             },
             onSettlementUnavailable = { message ->
                 resumeAfterFullscreenAdIfNeeded()
                 val noChest = message.contains("没有可开启") || message.contains("没有可用")
-                toast(if (noChest) "广告已完整观看，但当前没有可开启的宝箱" else "宝箱结算失败：$message")
+                toast(if (noChest) t("chest_settlement_missing") else t("chest_settlement_failed", message))
                 onFinished()
             },
         )
@@ -622,15 +616,21 @@ internal fun DramaAppActivity.createAchievementSummary(snapshot: RewardsApiClien
         val current = crowns.filter { it.earned }.maxByOrNull { it.levelRank }
         val next = crowns.firstOrNull { !it.earned }
         if (next == null) {
-            addView(TextView(this@createAchievementSummary).apply { text = "皇冠成长 · 已达成"; textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(0xFFFFDB6A.toInt()) })
-            addView(TextView(this@createAchievementSummary).apply { text = "皇冠头像已解锁，追剧现金奖励已提升至最高档。"; textSize = 13f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(7), 0, 0) })
+            addView(TextView(this@createAchievementSummary).apply { text = t("crown_complete_title"); textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(0xFFFFDB6A.toInt()) })
+            addView(TextView(this@createAchievementSummary).apply { text = t("crown_complete_detail"); textSize = 13f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(7), 0, 0) })
         } else {
             addView(TextView(this@createAchievementSummary).apply {
-                text = "皇冠成长 · ${current?.title ?: "新手"}"
+                text = t("crown_summary_title", current?.let { t(crownTitleKey(it.code)) } ?: t("crown_new"))
                 textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY)
             })
             addView(TextView(this@createAchievementSummary).apply {
-                text = "当前 ${String.format(Locale.US, "%.2f", current?.episodeRewardMultiplier ?: 1f)} 倍 · 下一档 ${next.title} 为 ${String.format(Locale.US, "%.2f", next.episodeRewardMultiplier)} 倍，皇冠最高可达 2.50 倍"
+                text = t(
+                    "crown_summary_detail",
+                    String.format(Locale.US, "%.2f", current?.episodeRewardMultiplier ?: 1f),
+                    t(crownTitleKey(next.code)),
+                    String.format(Locale.US, "%.2f", next.episodeRewardMultiplier),
+                    "2.50",
+                )
                 textSize = 13f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(6), 0, dp(10))
             })
             addView(ProgressBar(this@createAchievementSummary, null, android.R.attr.progressBarStyleHorizontal).apply {
@@ -673,17 +673,16 @@ internal fun DramaAppActivity.showCrownRewardedUpgradeDialog(crown: RewardsApiCl
         }
         val remainingToday = if (crown.rewardedAdsDailyLimit > 0) crown.rewardedAdsDailyLimit - crown.rewardedAdsToday else crown.adsPerEpisode
         if (remainingToday <= 0) {
-            toast("今日皇冠成长广告已完成，明天继续加速")
+            toast(t("crown_daily_limit_reached"))
             return
         }
-        showBrandedChoiceDialog(t("crown_accelerate"), t("crown_accelerate_message", crown.rewardedAdProgressPoints), t("watch_ad_claim"), { requestCrownRewardedUpgrade(crown.title) }, t("not_now"))
+        showBrandedChoiceDialog(t("crown_accelerate"), t("crown_accelerate_message", crown.rewardedAdProgressPoints), t("watch_ad_claim"), { requestCrownRewardedUpgrade(crown.code) }, t("not_now"))
 }
 
-internal fun DramaAppActivity.requestCrownRewardedUpgrade(title: String) {
+internal fun DramaAppActivity.requestCrownRewardedUpgrade(code: String) {
         requestRewardedAction("rv_crown_upgrade", onSettled = { action ->
-            applyRewardsSnapshot(action.snapshot)
             resumeAfterFullscreenAdIfNeeded()
-            toast("${title}进度已增加")
+            toast(t("crown_progress_increased", t(crownTitleKey(code))))
         })
     }
 
