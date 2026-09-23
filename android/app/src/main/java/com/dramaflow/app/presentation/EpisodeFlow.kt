@@ -53,10 +53,6 @@ import com.dramaflow.app.BuildConfig
 import com.dramaflow.app.R
 import com.dramaflow.app.presentation.DramaAppActivity.MainTab
 import com.dramaflow.app.i18n.AppLanguage
-import com.dramaflow.app.ads.AdConsent
-import com.dramaflow.app.ads.AdConsentStore
-import com.dramaflow.app.ads.TopOnAdsManager
-import com.dramaflow.app.ads.TopOnSettings
 import com.dramaflow.app.content.ShortDramaSdkManager
 import com.dramaflow.app.local.LocalDrama
 import com.dramaflow.app.local.LocalDramaApiClient
@@ -478,51 +474,6 @@ internal fun DramaAppActivity.showRandomChestEarnedDialog(createdCount: Int, ava
         chestImage.animate().alpha(1f).scaleX(1.10f).scaleY(1.10f).setDuration(260L).withEndAction {
             chestImage.animate().scaleX(1f).scaleY(1f).setDuration(180L).start()
         }.start()
-    }
-
-    /**
-     * 暂停时仅在锁集阶段、达到最低有效播放时长且服务端允许时请求 Native 暂停广告。
-     * 该卡片由应用提供“返回播放”按钮，因此用户可随时关闭，并从暂停前位置继续。
-     */
-internal fun DramaAppActivity.requestPauseInterstitialIfEligible() {
-        val snapshot = rewardsSnapshot ?: return
-        val policy = snapshot.interstitial
-        if (!playerShown || fullscreenAdInProgress || pauseNativeAdInProgress) return
-        if (currentEpisodeIndex + 1 <= snapshot.unlock.freeEpisodesDefault) return
-        if (!policy.pauseAdEnabled || playerProgressSeconds < policy.pauseAdMinPlaySeconds) return
-        if (consentStore.read() != AdConsent.GRANTED) return
-
-        pauseNativeAdInProgress = true
-        topOnAds.showPauseNativeAd(
-            activity = this,
-            overlayHost = root,
-            onShown = {
-                if (rewardsApi.isConfigured) {
-                    rewardsApi.recordInterstitial(
-                        anonymousInstallationId(),
-                        "int_pause_native",
-                        onSuccess = { updated -> runOnUiThread { applyRewardsSnapshot(updated) } },
-                        onFailure = { message -> logStatus("暂停广告展示记录未写入：$message") },
-                    )
-                }
-            },
-            onClosed = {
-                runOnUiThread {
-                    pauseNativeAdInProgress = false
-                    if (!isFinishing && !isDestroyed) {
-                        playerIsPaused = true
-                        updatePauseOverlayVisibility(true)
-                    }
-                }
-            },
-            onUnavailable = { message ->
-                runOnUiThread {
-                    pauseNativeAdInProgress = false
-                    logStatus("暂停广告未展示：$message")
-                    // 无填充或未配置 Native 广告位时，仍保持用户主动暂停状态，不强制恢复播放。
-                }
-            },
-        )
     }
 
 internal fun DramaAppActivity.needsUnlock(index: Int): Boolean {

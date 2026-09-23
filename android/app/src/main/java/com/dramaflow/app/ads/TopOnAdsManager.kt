@@ -337,20 +337,6 @@ class TopOnAdsManager(
         }
     }
 
-    /**
-     * 当前合作方测试参数只包含开屏、激励和插屏广告位，未提供 TopOn 原生暂停广告位。
-     * 保持播放器暂停状态并回调不可用，不将全屏插屏伪装为可随时关闭的暂停原生广告。
-     */
-    fun showPauseNativeAd(
-        activity: Activity,
-        overlayHost: ViewGroup,
-        onShown: () -> Unit,
-        onClosed: () -> Unit,
-        onUnavailable: (String) -> Unit,
-    ) {
-        onUnavailable("TopOn 暂停原生广告位尚未配置")
-    }
-
     private fun showInterstitial(
         activity: Activity,
         policy: FullscreenAdPolicy,

@@ -115,7 +115,7 @@ internal fun DramaAppActivity.showPlayer(drama: LocalDrama, startIndex: Int, res
         player.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 playerIsPaused = !isPlaying && player.playbackState == Player.STATE_READY
-                updatePauseOverlayVisibility(playerIsPaused && !fullscreenAdInProgress && !pauseNativeAdInProgress)
+                updatePauseOverlayVisibility(playerIsPaused && !fullscreenAdInProgress)
                 if (isPlaying) {
                     val now = SystemClock.elapsedRealtime()
                     if (episodePlaybackStartedAtElapsedMillis == 0L) episodePlaybackStartedAtElapsedMillis = now
@@ -509,7 +509,6 @@ internal fun DramaAppActivity.togglePlaybackFromVideoTap() {
             player.pause()
             playerIsPaused = true
             updatePauseOverlayVisibility(true)
-            requestPauseInterstitialIfEligible()
         } else {
             if (player.playbackState == Player.STATE_IDLE) {
                 selectEpisode(currentEpisodeIndex)

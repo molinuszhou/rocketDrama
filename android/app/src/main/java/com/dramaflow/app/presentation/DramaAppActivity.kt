@@ -167,7 +167,6 @@ class DramaAppActivity : FragmentActivity() {
     /** 广告展示前退出沉浸模式，关闭后仅在原本处于沉浸播放时恢复。 */
     internal var playerInImmersiveMode = false
     internal var restoreImmersiveAfterFullscreenAd = false
-    internal var pauseNativeAdInProgress = false
     internal var navigationBackCallback: OnBackPressedCallback? = null
     internal var episodePickerDialog: AlertDialog? = null
     internal val unlockedEpisodeKeys = mutableSetOf<String>()
@@ -267,7 +266,7 @@ class DramaAppActivity : FragmentActivity() {
     override fun onPostResume() {
         super.onPostResume()
         if (!startupContentInitializationStarted) maybeShowAppOpenAd()
-        if (resumePlaybackWhenForeground && playerShown && !fullscreenAdInProgress && !pauseNativeAdInProgress) {
+        if (resumePlaybackWhenForeground && playerShown && !fullscreenAdInProgress) {
             exoPlayer?.play()
             playerIsPaused = false
             updatePauseOverlayVisibility(false)

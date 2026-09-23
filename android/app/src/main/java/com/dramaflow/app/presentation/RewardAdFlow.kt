@@ -78,7 +78,11 @@ internal fun DramaAppActivity.requestRewardedAction(
         deferCashAnimation: Boolean = true,
     ) {
         if (fullscreenAdInProgress || fullscreenAdRequestInFlight) { toast(t("ad_loading")); return }
-        if (consentStore.read() != AdConsent.GRANTED) { toast(t("enable_ads_to_continue")); return }
+        when (consentStore.read()) {
+            AdConsent.DECLINED -> { toast(t("enable_ads_to_continue")); return }
+            AdConsent.UNKNOWN -> consentStore.save(AdConsent.GRANTED)
+            AdConsent.GRANTED -> Unit
+        }
         if (!rewardsApi.isConfigured) { toast(t("rewards_service_not_configured")); return }
         fullscreenAdRequestInFlight = true
         showFullscreenAdLoadingOverlay()

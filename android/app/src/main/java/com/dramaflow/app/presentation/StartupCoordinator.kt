@@ -69,9 +69,6 @@ import kotlin.random.Random
 
 internal fun DramaAppActivity.beginStartupExperience() {
         if (startupContentInitializationStarted) return
-        if (consentStore.read() == AdConsent.UNKNOWN) {
-            consentStore.save(AdConsent.GRANTED)
-        }
         startupCheckinPromptRequested = true
         startupCheckinPromptShown = false
         startupAdFinished = false
