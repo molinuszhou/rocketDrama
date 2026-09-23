@@ -518,6 +518,10 @@ internal fun DramaAppActivity.requestPauseInterstitialIfEligible() {
 
 internal fun DramaAppActivity.needsUnlock(index: Int): Boolean {
         if (!BuildConfig.CONTENT_UNLOCK_ENABLED) return false
+        // The trial is a product-wide promise. Older local catalog responses
+        // may still mark episode 2 or 3 as AD_UNLOCK, so never let their stale
+        // entitlement override the first three free episodes.
+        if (index < FREE_EPISODES) return false
         val drama = selectedDrama
         val episode = drama?.episodes?.getOrNull(index)
         val contentRequiresUnlock = if (episode != null) {

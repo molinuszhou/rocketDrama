@@ -113,6 +113,8 @@ internal fun DramaAppActivity.refreshFloatingRewardWheels() {
         crownSummaryChargeButtons.forEach { updateCrownSummaryChargeButton(it) }
         crownChargeCooldownBars.removeAll { !it.isAttachedToWindow }
         crownChargeCooldownBars.forEach { updateFloatingCrownChargeCooldownBar(it) }
+        crownChargeCooldownRings.removeAll { !it.isAttachedToWindow }
+        crownChargeCooldownRings.forEach { updateCrownChargeCooldownRing(it) }
         walletChargeCooldownRings.removeAll { !it.isAttachedToWindow }
         walletChargeCooldownRings.forEach { updateWalletChargeCooldownRing(it) }
         floatingBoostButtons.removeAll { !it.isAttachedToWindow }
@@ -138,6 +140,14 @@ internal fun DramaAppActivity.updateFloatingCrownChargeCooldownBar(bar: Progress
             "crown-cooldown-second" -> ((elapsedRatio - 0.5f).coerceIn(0f, 0.5f) * 200f).toInt()
             else -> (elapsedRatio * 100f).toInt()
         }.coerceIn(0, 100)
+    }
+
+internal fun DramaAppActivity.updateCrownChargeCooldownRing(ring: ChargeCooldownRingView) {
+        val crowns = rewardsSnapshot?.crownProgress.orEmpty()
+        val cooldown = crownChargeCooldownRemainingSeconds()
+        val duration = crowns.maxOfOrNull { it.chargeCooldownSeconds }?.coerceAtLeast(1) ?: 30
+        ring.visibility = if (cooldown > 0) View.VISIBLE else View.GONE
+        ring.chargeProgress = (duration - cooldown).coerceIn(0, duration).toFloat() / duration
     }
 
 internal fun DramaAppActivity.updateCrownSummaryChargeButton(button: TextView) {
@@ -458,17 +468,89 @@ internal fun DramaAppActivity.showWalletReleaseBoostDialog() {
 }
 
 internal fun DramaAppActivity.requestWalletReleaseBoost() {
-        requestRewardedAction("rv_release_boost", onSettled = { action ->
-            applyRewardsSnapshot(action.snapshot)
+        requestRewardedAction("rv_release_boost", deferCashAnimation = true, onSettled = { action ->
             resumeAfterFullscreenAdIfNeeded()
             val wallet = action.snapshot.wallet
             val received = formatCurrencyAmount(wallet, action.cashAdded, action.cashAddedUsdReference, includeUsdReference = false)
-            val nextMessage = if (action.idempotent) t("wallet_boost_already_settled") else t("wallet_boost_received", received)
-            val cooldown = walletChargeCooldownRemainingSeconds()
-            val message = if (cooldown > 0) "$nextMessage\n\n${t("charge_cooldown", cooldown)}" else nextMessage
-            showBrandedChoiceDialog(t("wallet_boost_received_title"), message, t("done"))
+            if (action.idempotent) {
+                deferredCashFlight = null
+                toast(t("wallet_boost_already_settled"))
+            } else {
+                showWalletCashRewardReceipt(received)
+            }
         })
     }
+
+/** Acknowledge the earned amount first; the wallet flight begins only after this confirmation. */
+internal fun DramaAppActivity.showWalletCashRewardReceipt(amount: String) {
+    val dialog = AlertDialog.Builder(this).create()
+    val card = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.CENTER_HORIZONTAL
+        setPadding(dp(24), dp(24), dp(24), dp(20))
+        background = gradientDrawable(intArrayOf(COLOR_CARD, 0xFF2A2116.toInt()), 28)
+    }
+    card.addView(TextView(this).apply {
+        text = t("wallet_boost_received_title")
+        textSize = 21f
+        typeface = Typeface.DEFAULT_BOLD
+        gravity = Gravity.CENTER
+        setTextColor(COLOR_TEXT_PRIMARY)
+    })
+    val rewardIcon = ImageView(this).apply {
+        setImageResource(R.drawable.wallet_money)
+        scaleType = ImageView.ScaleType.CENTER_INSIDE
+        alpha = 0f
+        scaleX = 0.55f
+        scaleY = 0.55f
+    }
+    card.addView(rewardIcon, LinearLayout.LayoutParams(dp(92), dp(92)).apply { topMargin = dp(12) })
+    val value = TextView(this).apply {
+        text = amount
+        textSize = 40f
+        typeface = Typeface.DEFAULT_BOLD
+        gravity = Gravity.CENTER
+        setTextColor(COLOR_SUNSET)
+        alpha = 0f
+        setPadding(0, dp(3), 0, dp(2))
+    }
+    card.addView(value, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+    card.addView(TextView(this).apply {
+        text = t("cash_reward_confirm_hint")
+        textSize = 13f
+        gravity = Gravity.CENTER
+        setTextColor(COLOR_TEXT_MUTED)
+        setPadding(0, dp(2), 0, dp(18))
+    })
+    card.addView(TextView(this).apply {
+        text = t("done")
+        textSize = 15f
+        typeface = Typeface.DEFAULT_BOLD
+        gravity = Gravity.CENTER
+        setTextColor(Color.WHITE)
+        background = gradientDrawable(intArrayOf(COLOR_CORAL, COLOR_SUNSET), 18)
+        setPadding(0, dp(13), 0, dp(13))
+        isClickable = true
+        setOnClickListener {
+            dialog.dismiss()
+            deferredCashFlight?.let { (previous, current) ->
+                deferredCashFlight = null
+                root.post { animateClaimedCash(previous, current) }
+            }
+        }
+    }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)))
+    dialog.setView(card)
+    dialog.setCancelable(false)
+    dialog.show()
+    dialog.window?.apply {
+        setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+        setLayout((resources.displayMetrics.widthPixels * 0.86f).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
+    }
+    rewardIcon.animate().alpha(1f).scaleX(1.14f).scaleY(1.14f).setDuration(260L).withEndAction {
+        rewardIcon.animate().scaleX(1f).scaleY(1f).setDuration(170L).start()
+    }.start()
+    value.animate().alpha(1f).translationY(-dp(4).toFloat()).setStartDelay(130L).setDuration(260L).start()
+}
 
 internal fun DramaAppActivity.showGemsExchangeDialog(wallet: RewardsApiClient.Wallet) {
         val input = EditText(this).apply {

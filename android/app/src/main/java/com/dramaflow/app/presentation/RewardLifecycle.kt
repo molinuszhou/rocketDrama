@@ -102,6 +102,7 @@ internal fun DramaAppActivity.refreshRewardsSnapshot() {
 internal fun DramaAppActivity.applyRewardsSnapshot(snapshot: RewardsApiClient.Snapshot) {
         val previousGems = rewardsSnapshot?.wallet?.coins ?: lastConfirmedGemBalance
         val previousCash = rewardsSnapshot?.wallet?.cashWallet ?: lastConfirmedCashBalance
+        val previousCrowns = rewardsSnapshot?.crownProgress.orEmpty()
         rewardsSnapshot = snapshot
         val elapsedNow = android.os.SystemClock.elapsedRealtime()
         val crownCooldown = snapshot.crownProgress.maxOfOrNull { it.chargeCooldownRemainingSeconds } ?: 0
@@ -124,10 +125,16 @@ internal fun DramaAppActivity.applyRewardsSnapshot(snapshot: RewardsApiClient.Sn
         if (startupContentInitializationStarted) showStartupCheckinWhenReady()
         // 只有服务端确认余额增加时播放动效；首次同步和余额不变不会触发。
         if (snapshot.wallet.cashMode && previousCash != null && (snapshot.wallet.cashWallet.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO) > (previousCash.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO)) {
-            root.post { animateClaimedCash(previousCash, snapshot.wallet.cashWallet) }
+            if (deferNextCashFlight) {
+                deferNextCashFlight = false
+                deferredCashFlight = previousCash to snapshot.wallet.cashWallet
+            } else {
+                root.post { animateClaimedCash(previousCash, snapshot.wallet.cashWallet) }
+            }
         } else if (!snapshot.wallet.cashMode && previousGems != null && snapshot.wallet.coins > previousGems) {
             root.post { animateClaimedGems(previousGems, snapshot.wallet.coins) }
         }
+        if (deferNextCashFlight) deferNextCashFlight = false
         val pending = snapshot.ring.rewardCoins
         val promptThreshold = snapshot.ring.claimPromptThresholdCoins.coerceAtLeast(0)
         if (startupContentInitializationStarted && promptThreshold > 0 && snapshot.ring.claimable && pending >= promptThreshold && pending - lastFloatingClaimPromptedGems >= promptThreshold && !fullscreenAdInProgress) {
@@ -140,7 +147,53 @@ internal fun DramaAppActivity.applyRewardsSnapshot(snapshot: RewardsApiClient.Sn
         } else if (!snapshot.ring.claimable) {
             lastFloatingClaimPromptedGems = 0
         }
+        if (startupContentInitializationStarted) {
+            root.postDelayed({
+                if (isFinishing || isDestroyed || fullscreenAdInProgress || fullscreenAdRequestInFlight) return@postDelayed
+                if (maybeShowCrownLevelReached(previousCrowns, snapshot)) return@postDelayed
+                maybeShowEpisodeTaskClaimPrompt(snapshot)
+            }, 700L)
+        }
     }
+
+/** Celebrate newly achieved Crown levels once, immediately after the server confirms the progress. */
+internal fun DramaAppActivity.maybeShowCrownLevelReached(
+    previous: List<RewardsApiClient.CrownProgress>,
+    currentSnapshot: RewardsApiClient.Snapshot,
+): Boolean {
+    if (previous.isEmpty()) return false
+    val previousEarned = previous.filter { it.earned }.map { it.code }.toSet()
+    val reached = currentSnapshot.crownProgress
+        .filter { it.earned && it.code !in previousEarned }
+        .maxByOrNull { it.levelRank }
+        ?: return false
+    val reward = formatCurrencyAmount(currentSnapshot.wallet, reached.cash, null, includeUsdReference = false)
+    showBrandedChoiceDialog(
+        title = t("crown_level_reached_title"),
+        message = t("crown_level_reached_message", t(crownTitleKey(reached.code)), reward),
+        primaryLabel = t("done"),
+    )
+    return true
+}
+
+/** The first task is introductory; prompt from the second completed task unless the user opts out. */
+internal fun DramaAppActivity.maybeShowEpisodeTaskClaimPrompt(snapshot: RewardsApiClient.Snapshot) {
+    if (taskRewardPromptPreferences.getBoolean("disabled", false)) return
+    val candidate = snapshot.tasks.withIndex().firstOrNull { (index, task) ->
+        index >= 1 && task.status == "CLAIMABLE"
+    } ?: return
+    val target = candidate.value.target
+    if (target <= taskRewardPromptPreferences.getInt("last_target", 0)) return
+    taskRewardPromptPreferences.edit().putInt("last_target", target).apply()
+    showBrandedChoiceDialog(
+        title = t("task_reward_ready_title"),
+        message = t("task_reward_ready_message", candidate.index + 1, target),
+        primaryLabel = t("task_claim"),
+        onPrimary = { claimEpisodeTaskCash(target) },
+        secondaryLabel = t("task_reward_dont_remind"),
+        onSecondary = { taskRewardPromptPreferences.edit().putBoolean("disabled", true).apply() },
+    )
+}
 
 internal fun DramaAppActivity.startChargeCooldownTicker() {
         if (chargeCooldownTickerRunning) return
@@ -377,7 +430,7 @@ internal fun DramaAppActivity.createCheckinTierStrip(snapshot: RewardsApiClient.
                         when {
                             isToday -> COLOR_ACCENT
                             isDone -> COLOR_PURPLE
-                            else -> COLOR_SURFACE
+                            else -> 0xFF34343C.toInt()
                         },
                         12,
                     )

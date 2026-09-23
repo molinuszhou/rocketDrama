@@ -188,6 +188,7 @@ class DramaAppActivity : FragmentActivity() {
     internal val walletChargeButtons = mutableSetOf<TextView>()
     internal val walletChargeQuotaLabels = mutableSetOf<TextView>()
     internal val crownChargeCooldownBars = mutableSetOf<ProgressBar>()
+    internal val crownChargeCooldownRings = mutableSetOf<ChargeCooldownRingView>()
     internal val walletChargeCooldownRings = mutableSetOf<ChargeCooldownRingView>()
     /** Server-backed cooldowns prevent back-to-back Crown and wallet rewarded placements. */
     internal var crownChargeCooldownUntilElapsedMillis = 0L
@@ -201,6 +202,9 @@ class DramaAppActivity : FragmentActivity() {
     internal var lastConfirmedGemBalance: Long? = null
     internal var lastConfirmedCashBalance: String? = null
     internal var gemFlightInProgress = false
+    /** Wallet ad-boost confirmation owns this flight so it begins only after the user acknowledges the reward. */
+    internal var deferNextCashFlight = false
+    internal var deferredCashFlight: Pair<String, String>? = null
     /** Avoid repeatedly interrupting the viewer with the same accumulated-gem prompt. */
     internal var lastFloatingClaimPromptedGems = 0
     /** Rewards page exposes this only after the hero scrolls away. */
@@ -208,6 +212,7 @@ class DramaAppActivity : FragmentActivity() {
     internal var ignoreVideoTapsUntilMillis = 0L
     internal val favorites by lazy { getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE) }
     internal val playbackHistory by lazy { getSharedPreferences(PLAYBACK_HISTORY_PREFERENCES, Context.MODE_PRIVATE) }
+    internal val taskRewardPromptPreferences by lazy { getSharedPreferences("joyedrama.task_reward_prompts", Context.MODE_PRIVATE) }
 
     internal val consentStore by lazy { AdConsentStore(applicationContext) }
     internal val topOnAds by lazy { TopOnAdsManager(applicationContext, TopOnSettings.fromBuildConfig()) }
@@ -459,7 +464,7 @@ class DramaAppActivity : FragmentActivity() {
             setImageResource(R.drawable.joyedrama_startup_icon)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             contentDescription = "JoyeDrama"
-        }, LinearLayout.LayoutParams(dp(132), dp(132)).apply { bottomMargin = dp(18) })
+        }, LinearLayout.LayoutParams(dp(198), dp(198)).apply { bottomMargin = dp(18) })
         startupProgressLabel = TextView(this).apply {
             text = t("startup_loading")
             textSize = 18f

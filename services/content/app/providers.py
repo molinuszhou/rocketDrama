@@ -102,7 +102,7 @@ class FreeDramaProvider:
             language="zh-CN",
             origin_regions=["SG"],
             total_episodes=12,
-            free_episodes=2,
+            free_episodes=3,
             playback_mode=PlaybackMode.SIGNED_URL,
             availability=Availability(available=True, available_regions=regions),
             badge="自由剧",

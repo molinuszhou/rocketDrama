@@ -110,7 +110,7 @@ internal fun DramaAppActivity.createProfilePage(): View = scrollPage { content -
         content.addView(createSectionHeader(t("my_services"), t("profile_subtitle")), matchParams(top = 10, bottom = 10))
         content.addView(createSettingsRow(t("favorites"), t("continue_watching"), "›") { toast(t("favorites")) }, matchParams(bottom = 8))
         content.addView(createSettingsRow(t("reward_ledger"), t("ledger_note"), "›") { showRewardLedgerHint() }, matchParams(bottom = 8))
-        content.addView(createSettingsRow(t("ad_privacy"), t("rules"), "›") { showAdPrivacySettings() }, matchParams(bottom = 8))
+        content.addView(createSettingsRow(t("settings"), "${t("ad_settings")} · ${t("privacy_terms")}", "›") { showSettingsCenter() }, matchParams(bottom = 8))
         content.addView(createSettingsRow(t("language"), AppLanguage.label(this), "›") { showLanguageSettings() }, matchParams(bottom = 16))
         // 联调阶段保留服务器地址；上线前按产品要求移除此开发分组。
         content.addView(createSectionHeader(t("developer_services"), ""), matchParams(bottom = 10))
@@ -426,6 +426,19 @@ internal fun DramaAppActivity.createSettingsRow(title: String, subtitle: String,
             addView(TextView(this@createSettingsRow).apply { text = trailing; textSize = 14f; setTextColor(COLOR_TEXT_MUTED) })
         }
     }
+
+/** A release-facing settings surface: privacy controls, version and anonymous support identifier. */
+internal fun DramaAppActivity.showSettingsCenter() {
+    val details = "${t("app_version")} ${BuildConfig.VERSION_NAME}\n${t("user_uid")}: ${anonymousInstallationId()}"
+    showBrandedChoiceDialog(
+        title = t("settings"),
+        message = details,
+        primaryLabel = t("ad_settings"),
+        onPrimary = { showAdPrivacySettings() },
+        secondaryLabel = t("privacy_terms"),
+        onSecondary = { showBrandedChoiceDialog(t("privacy_terms"), t("privacy_terms_message"), t("done")) },
+    )
+}
 
 
 internal fun DramaAppActivity.createDramaCard(drama: LocalDrama): View = LinearLayout(this).apply {

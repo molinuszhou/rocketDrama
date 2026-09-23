@@ -75,6 +75,7 @@ internal fun DramaAppActivity.requestRewardedAction(
         onSettled: ((RewardsApiClient.RewardAction) -> Unit)? = null,
         onSettlementUnavailable: ((String) -> Unit)? = null,
         fallbackToInterstitialWhenUnavailable: Boolean = true,
+        deferCashAnimation: Boolean = false,
     ) {
         if (fullscreenAdInProgress || fullscreenAdRequestInFlight) { toast(t("ad_loading")); return }
         if (consentStore.read() != AdConsent.GRANTED) { toast("请先在广告与隐私中启用广告"); return }
@@ -103,12 +104,15 @@ internal fun DramaAppActivity.requestRewardedAction(
                         userId = anonymousInstallationId(), placementId = placementId, targetId = targetId,
                         episodeIndex = episodeIndex, proof = testRewardProof(),
                         onSuccess = { action -> runOnUiThread {
-                            fullscreenAdInProgress = false; applyRewardsSnapshot(action.snapshot)
+                            fullscreenAdInProgress = false
+                            if (deferCashAnimation) deferNextCashFlight = true
+                            applyRewardsSnapshot(action.snapshot)
                             playbackInterstitialShownAtElapsedMillis.clear()
                             playbackInterstitialShownAtElapsedMillis.add(SystemClock.elapsedRealtime())
                             if (onSettled != null) onSettled.invoke(action) else { resumeAfterFullscreenAdIfNeeded(); toast("现金奖励已结算") }
                         } },
                         onFailure = { message -> runOnUiThread {
+                            if (deferCashAnimation) deferNextCashFlight = false
                             fullscreenAdInProgress = false
                             if (onSettlementUnavailable != null) onSettlementUnavailable.invoke(message) else {
                                 episodeTransitionInProgress = false; resumeAfterFullscreenAdIfNeeded()
@@ -118,19 +122,22 @@ internal fun DramaAppActivity.requestRewardedAction(
                     )
                 }
                 TopOnAdsManager.RewardedResult.Cancelled -> {
+                    if (deferCashAnimation) deferNextCashFlight = false
                     fullscreenAdInProgress = false
                     recordRewardedSkipThenMaybeShowInterstitial(wasPlayingBeforeRewarded)
                 }
                 is TopOnAdsManager.RewardedResult.Unavailable -> {
+                    if (deferCashAnimation) deferNextCashFlight = false
                     fullscreenAdInProgress = false
                     val message = t("ad_loading_failed") + " ${result.reason}"
-                    if (fallbackToInterstitialWhenUnavailable) showRewardedFallbackInterstitial(wasPlayingBeforeRewarded, message, placementId, targetId, episodeIndex, onSettled)
+                    if (fallbackToInterstitialWhenUnavailable) showRewardedFallbackInterstitial(wasPlayingBeforeRewarded, message, placementId, targetId, episodeIndex, onSettled, deferCashAnimation)
                     else showRewardedUnavailableNotice(wasPlayingBeforeRewarded, message)
                 }
                 is TopOnAdsManager.RewardedResult.Failed -> {
+                    if (deferCashAnimation) deferNextCashFlight = false
                     fullscreenAdInProgress = false
                     val message = t("ad_loading_failed") + " (${result.code})"
-                    if (fallbackToInterstitialWhenUnavailable) showRewardedFallbackInterstitial(wasPlayingBeforeRewarded, message, placementId, targetId, episodeIndex, onSettled)
+                    if (fallbackToInterstitialWhenUnavailable) showRewardedFallbackInterstitial(wasPlayingBeforeRewarded, message, placementId, targetId, episodeIndex, onSettled, deferCashAnimation)
                     else showRewardedUnavailableNotice(wasPlayingBeforeRewarded, message)
                 }
             }
@@ -169,6 +176,7 @@ internal fun DramaAppActivity.showRewardedFallbackInterstitial(
         targetId: String? = null,
         episodeIndex: Int? = null,
         onOriginalSettled: ((RewardsApiClient.RewardAction) -> Unit)? = null,
+        deferCashAnimation: Boolean = false,
     ) {
         fullscreenAdInProgress = false
         fullscreenAdRequestInFlight = false
@@ -198,6 +206,7 @@ internal fun DramaAppActivity.showRewardedFallbackInterstitial(
                     targetId = targetId,
                     episodeIndex = episodeIndex,
                     onSuccess = { action -> runOnUiThread {
+                        if (deferCashAnimation) deferNextCashFlight = true
                         applyRewardsSnapshot(action.snapshot)
                         onOriginalSettled?.invoke(action) ?: resumeAfterFullscreenAdIfNeeded()
                     } },

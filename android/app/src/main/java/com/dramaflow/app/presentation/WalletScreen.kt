@@ -115,7 +115,6 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
                 orientation = LinearLayout.VERTICAL
                 addView(TextView(this@createWithdrawalPage).apply { text = t("wallet_balance"); textSize = 14f; setTextColor(0xCCFFFFFF.toInt()) })
                 addView(TextView(this@createWithdrawalPage).apply { text = formatWalletTotal(wallet, includeUsdReference = false); textSize = 38f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(0, dp(5), 0, 0); maxLines = 2 })
-                addView(TextView(this@createWithdrawalPage).apply { text = t("wallet_cash_direct_to_wallet"); textSize = 11f; setTextColor(0xBFFFFFFF.toInt()); setPadding(0, dp(6), 0, 0) })
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             balanceRow.addView(ImageView(this@createWithdrawalPage).apply {
                 setImageResource(R.drawable.wallet_money); scaleType = ImageView.ScaleType.CENTER_INSIDE; contentDescription = t("wallet")
@@ -158,12 +157,10 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
                     java.math.BigDecimal("800"), java.math.BigDecimal("1000"),
                 )
                 cashoutTargetsUsd.forEachIndexed { index, targetUsd ->
-                    val remainingUsd = targetUsd.subtract(usdBalance).max(java.math.BigDecimal.ZERO)
                     addView(TextView(this@createWithdrawalPage).apply {
                         val targetLabel = "US$${targetUsd.toPlainString()}"
-                        val remainingLabel = "US$${remainingUsd.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString()}"
-                        text = if (index == 0) t("cashout_progress", targetLabel, remainingLabel) else t("cashout_goal_progress", targetLabel, remainingLabel)
-                        textSize = 11f; setTextColor(0xCCFFFFFF.toInt()); setPadding(0, if (index == 0) dp(4) else dp(16), 0, dp(8))
+                        text = targetLabel
+                        textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(if (index == 0) COLOR_SUNSET else COLOR_AQUA); setPadding(0, if (index == 0) dp(4) else dp(16), 0, dp(8))
                     })
                     addView(ProgressBar(this@createWithdrawalPage, null, android.R.attr.progressBarStyleHorizontal).apply {
                         max = 100; progress = usdBalance.multiply(java.math.BigDecimal(100)).divide(targetUsd, 0, java.math.RoundingMode.DOWN).toInt().coerceIn(0, 100)

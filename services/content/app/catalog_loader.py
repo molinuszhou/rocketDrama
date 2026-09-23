@@ -66,7 +66,9 @@ def load_owned_catalog(path: str) -> tuple[FreeDramaRecord, ...]:
     payload = OwnedCatalogInput.model_validate(json.loads(catalog_file.read_text(encoding="utf-8")))
     records: list[FreeDramaRecord] = []
     for item in payload.dramas:
-        free_episodes = item.freeEpisodes
+        # Keep the self-hosted catalog aligned with the app and rewards policy:
+        # any legacy test catalog with fewer entries still exposes episodes 1–3.
+        free_episodes = max(FREE_EPISODES_COUNT, item.freeEpisodes)
         sorted_episodes = sorted(item.episodes, key=lambda entry: entry.index)
         episodes = tuple(
             Episode(

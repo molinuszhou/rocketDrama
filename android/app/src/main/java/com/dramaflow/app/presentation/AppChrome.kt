@@ -85,7 +85,7 @@ internal fun DramaAppActivity.createPersistentAssetHeader(): View {
             val wallet = rewardsSnapshot?.wallet
             val balanceBar = LinearLayout(this@createPersistentAssetHeader).apply {
                 gravity = Gravity.CENTER_VERTICAL; background = roundedDrawable(COLOR_CARD, 20); setPadding(dp(5), dp(4), dp(5), dp(4)); clipToOutline = true
-                addView(createAssetPill(icon = R.drawable.wallet_money, label = t("wallet_balance"), value = wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—", isGem = false) { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) }, LinearLayout.LayoutParams(0, dp(62), 1f))
+                addView(createAssetPill(icon = R.drawable.wallet_money, label = t("wallet_balance"), value = wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—", isGem = false) { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) }, LinearLayout.LayoutParams(0, dp(72), 1f))
                 val charge = TextView(this@createPersistentAssetHeader).apply {
                     textSize = 10f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; maxLines = 1
                     setPadding(dp(7), dp(5), dp(29), dp(5)); contentDescription = t("extra_reward")
@@ -98,11 +98,11 @@ internal fun DramaAppActivity.createPersistentAssetHeader(): View {
                     walletChargeCooldownRings.add(cooldown); updateWalletChargeCooldownRing(cooldown)
                     addView(cooldown, FrameLayout.LayoutParams(dp(30), dp(30), Gravity.END or Gravity.CENTER_VERTICAL).apply { marginEnd = dp(5) })
                 }
-                addView(chargeSlot, LinearLayout.LayoutParams(dp(116), dp(52)).apply { marginStart = dp(4) })
+                addView(chargeSlot, LinearLayout.LayoutParams(dp(120), dp(60)).apply { marginStart = dp(4) })
             }
-            addView(balanceBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(66)))
+            addView(balanceBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(76)))
         }
-        shell.addView(row, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(66), Gravity.TOP).apply { topMargin = dp(30) })
+        shell.addView(row, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(76), Gravity.TOP).apply { topMargin = dp(30) })
         ViewCompat.setOnApplyWindowInsetsListener(shell) { _, insets ->
             val safeTop = insets.getInsets(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()).top
             val params = row.layoutParams as FrameLayout.LayoutParams
@@ -123,13 +123,13 @@ internal fun DramaAppActivity.createAssetPill(icon: Int, label: String, value: S
         setOnClickListener { onClick() }
         val image = ImageView(this@createAssetPill).apply { setImageResource(icon); scaleType = ImageView.ScaleType.CENTER_INSIDE }
         if (isGem) gemBalanceAnchor = image else cashBalanceAnchor = image
-        addView(image, LinearLayout.LayoutParams(dp(56), dp(56)))
+        addView(image, LinearLayout.LayoutParams(dp(66), dp(66)))
         addView(LinearLayout(this@createAssetPill).apply {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(5), 0, 0, 0)
-            val valueView = TextView(this@createAssetPill).apply { text = value; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY); maxLines = 1; includeFontPadding = false; letterSpacing = -0.02f; setAutoSizeTextTypeUniformWithConfiguration(14, 22, 1, android.util.TypedValue.COMPLEX_UNIT_SP) }
+            val valueView = TextView(this@createAssetPill).apply { text = value; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY); maxLines = 1; includeFontPadding = false; letterSpacing = -0.02f; setAutoSizeTextTypeUniformWithConfiguration(16, 27, 1, android.util.TypedValue.COMPLEX_UNIT_SP) }
         if (isGem) gemBalanceLabel = valueView else cashBalanceLabel = valueView
             addView(valueView)
-            addView(TextView(this@createAssetPill).apply { text = label; textSize = 10f; setTextColor(COLOR_TEXT_MUTED); maxLines = 1 })
+            addView(TextView(this@createAssetPill).apply { text = label; textSize = 11f; setTextColor(COLOR_TEXT_MUTED); maxLines = 1 })
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
     }
 
@@ -220,7 +220,7 @@ internal fun DramaAppActivity.animateClaimedGems(previous: Long, current: Long) 
         animation.start()
 }
 
-/** Cash rewards take a clearly visible, but short, ascent toward the active wallet balance. */
+/** A half-screen cash celebration resolves into a focused flight toward the active wallet balance. */
 internal fun DramaAppActivity.animateClaimedCash(previous: String, current: String) {
         val target = cashBalanceAnchor ?: return
         if (!target.isAttachedToWindow || gemFlightInProgress) return
@@ -231,36 +231,51 @@ internal fun DramaAppActivity.animateClaimedCash(previous: String, current: Stri
         root.getLocationOnScreen(rootLocation); target.getLocationOnScreen(targetLocation)
         val cashDelta = (current.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO).subtract(previous.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO).max(java.math.BigDecimal.ZERO)
         val rewardText = wallet?.let { "+${formatCurrencyAmount(it, cashDelta.toPlainString(), null, includeUsdReference = false)}" } ?: "+$current"
+        val celebration = FrameLayout(this).apply {
+            alpha = 0f
+            background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(0xB8000000.toInt(), 0x30000000, Color.TRANSPARENT))
+        }
+        val size = dp(112)
         val fly = ImageView(this).apply { setImageResource(R.drawable.wallet_money); scaleType = ImageView.ScaleType.CENTER_INSIDE; alpha = 0f }
-        val size = dp(68); val startX = root.width / 2f - size / 2f; val startY = root.height * 0.64f - size / 2f
         val rewardBadge = TextView(this).apply {
-            text = rewardText; textSize = 18f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
-            background = gradientDrawable(intArrayOf(COLOR_CORAL, COLOR_SUNSET), 22); alpha = 0f; setPadding(dp(14), dp(8), dp(14), dp(8))
+            text = rewardText; textSize = 36f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_SUNSET)
+            alpha = 0f; setPadding(dp(18), dp(8), dp(18), dp(8))
         }
         val halo = View(this).apply {
             background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0x22FFB34D); setStroke(dp(2), 0xFFFFB84D.toInt()) }; alpha = 0f
         }
-        root.addView(fly, FrameLayout.LayoutParams(size, size).apply { leftMargin = startX.toInt(); topMargin = startY.toInt() })
-        root.addView(rewardBadge, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { leftMargin = (startX - dp(28)).toInt(); topMargin = (startY - dp(46)).toInt() })
+        val celebrationHeight = (root.height * 0.54f).toInt().coerceAtLeast(dp(260))
+        root.addView(celebration, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, celebrationHeight, Gravity.CENTER))
+        celebration.addView(fly, FrameLayout.LayoutParams(size, size, Gravity.CENTER).apply { topMargin = dp(16) })
+        celebration.addView(rewardBadge, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER).apply { topMargin = dp(136) })
+        repeat(6) { index ->
+            val coin = ImageView(this).apply { setImageResource(R.drawable.wallet_money); scaleType = ImageView.ScaleType.CENTER_INSIDE; alpha = 0f; tag = "cash-coin-$index" }
+            val angle = Math.toRadians((index * 60.0) - 90.0)
+            coin.translationX = kotlin.math.cos(angle).toFloat() * dp(28)
+            coin.translationY = kotlin.math.sin(angle).toFloat() * dp(28)
+            celebration.addView(coin, FrameLayout.LayoutParams(dp(38), dp(38), Gravity.CENTER))
+            coin.animate().alpha(0.95f).translationX(kotlin.math.cos(angle).toFloat() * dp(118)).translationY(kotlin.math.sin(angle).toFloat() * dp(94)).setStartDelay((index * 55).toLong()).setDuration(420L).start()
+        }
         root.addView(halo, FrameLayout.LayoutParams(dp(84), dp(84)).apply { leftMargin = (targetLocation[0] - rootLocation[0] + target.width / 2 - dp(42)); topMargin = (targetLocation[1] - rootLocation[1] + target.height / 2 - dp(42)) })
-        val endX = targetLocation[0] - rootLocation[0] + target.width / 2f - startX - size / 2f
-        val endY = targetLocation[1] - rootLocation[1] + target.height / 2f - startY - size / 2f
+        val celebrationTop = (root.height - celebrationHeight) / 2f
+        val endX = targetLocation[0] - rootLocation[0] + target.width / 2f - root.width / 2f
+        val endY = targetLocation[1] - rootLocation[1] + target.height / 2f - celebrationTop - celebrationHeight / 2f - dp(16)
+        celebration.animate().alpha(1f).setDuration(180L).start()
         AnimatorSet().apply {
             playTogether(
                 ObjectAnimator.ofFloat(fly, View.ALPHA, 0f, 1f, 1f, 0f),
-                ObjectAnimator.ofFloat(fly, View.TRANSLATION_X, 0f, endX),
-                ObjectAnimator.ofFloat(fly, View.TRANSLATION_Y, 0f, -dp(92).toFloat(), endY),
-                ObjectAnimator.ofFloat(fly, View.SCALE_X, .34f, 1.32f, .46f),
-                ObjectAnimator.ofFloat(fly, View.SCALE_Y, .34f, 1.32f, .46f),
+                ObjectAnimator.ofFloat(fly, View.TRANSLATION_X, 0f, 0f, endX),
+                ObjectAnimator.ofFloat(fly, View.TRANSLATION_Y, 0f, -dp(18).toFloat(), endY),
+                ObjectAnimator.ofFloat(fly, View.SCALE_X, .48f, 1.34f, .36f),
+                ObjectAnimator.ofFloat(fly, View.SCALE_Y, .48f, 1.34f, .36f),
                 ObjectAnimator.ofFloat(fly, View.ROTATION, -14f, 12f, 0f),
                 ObjectAnimator.ofFloat(rewardBadge, View.ALPHA, 0f, 1f, 1f, 0f),
-                ObjectAnimator.ofFloat(rewardBadge, View.TRANSLATION_Y, 0f, -dp(56).toFloat(), -dp(94).toFloat()),
+                ObjectAnimator.ofFloat(rewardBadge, View.TRANSLATION_Y, 0f, -dp(14).toFloat(), -dp(48).toFloat()),
             )
-            duration = 980L; interpolator = AccelerateDecelerateInterpolator()
+            duration = 1_120L; interpolator = AccelerateDecelerateInterpolator()
             addListener(object : android.animation.AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: android.animation.Animator) {
-                    (fly.parent as? ViewGroup)?.removeView(fly)
-                    (rewardBadge.parent as? ViewGroup)?.removeView(rewardBadge)
+                    (celebration.parent as? ViewGroup)?.removeView(celebration)
                     halo.animate().alpha(.9f).scaleX(.35f).scaleY(.35f).setDuration(1).withEndAction {
                         halo.animate().alpha(0f).scaleX(1.65f).scaleY(1.65f).setDuration(340).withEndAction { (halo.parent as? ViewGroup)?.removeView(halo) }.start()
                     }.start()
@@ -274,7 +289,7 @@ internal fun DramaAppActivity.animateClaimedCash(previous: String, current: Stri
 }
 
 internal fun DramaAppActivity.createPlayerAssetStrip(): View = LinearLayout(this).apply {
-        gravity = Gravity.CENTER_VERTICAL; setPadding(dp(10), dp(6), dp(10), dp(6)); background = roundedDrawable(0xE8000000.toInt(), 22)
+        gravity = Gravity.CENTER_VERTICAL; setPadding(dp(10), dp(6), dp(10), dp(6)); background = roundedDrawable(0xA6000000.toInt(), 22); alpha = 0.84f
         val wallet = rewardsSnapshot?.wallet
         val walletIcon = ImageView(this@createPlayerAssetStrip).apply { setImageResource(R.drawable.wallet_money); scaleType = ImageView.ScaleType.CENTER_INSIDE; isClickable = true; contentDescription = t("wallet"); setOnClickListener { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) } }
         cashBalanceAnchor = walletIcon

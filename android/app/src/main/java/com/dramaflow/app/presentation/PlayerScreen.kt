@@ -165,7 +165,7 @@ internal fun DramaAppActivity.showPlayer(drama: LocalDrama, startIndex: Int, res
         root.addView(createPlayerChrome(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         if (!BuildConfig.WHITE_PACK) {
             root.addView(createFloatingRewardWheel(compact = true), FrameLayout.LayoutParams(dp(130), dp(104), Gravity.END or Gravity.CENTER_VERTICAL).apply {
-                marginEnd = -dp(2)
+                marginEnd = -dp(14)
                 topMargin = dp(42)
             })
         }
