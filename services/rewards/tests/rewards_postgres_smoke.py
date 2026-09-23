@@ -132,6 +132,7 @@ def run() -> None:
     )
     assert fallback_grant["result"]["action"] == "WELCOME_BONUS"
     assert fallback_grant["result"]["cash_added"] == fallback_initial["welcome"]["cash"]
+    assert fallback_grant["result"]["ad_event_id"] == f"fallback-{fallback_interstitial_id}"
     assert fallback_grant["snapshot"]["welcome"]["claimed"] is True
     assert service.settle_rewarded_fallback(
         user_id=fallback_user,
@@ -155,6 +156,76 @@ def run() -> None:
     assert missing_record_grant["result"]["action"] == "WELCOME_BONUS"
     assert missing_record_grant["result"]["cash_added"] == missing_record_initial["welcome"]["cash"]
     assert missing_record_grant["snapshot"]["welcome"]["claimed"] is True
+
+    # A fallback for the aggregate episode-reward action must expose a rewarded
+    # authorization ID, not the interstitial telemetry ID. The client uses this
+    # ID for /claim-all after the single shown fallback creative.
+    fallback_claim_user = f"v1666-fallback-claim-all-{uuid.uuid4()}"
+    service.bootstrap(fallback_claim_user)
+    service.record_watch_event(
+        user_id=fallback_claim_user,
+        event_id=event_id("fallback-claim-watch"),
+        drama_id="owned:fallback-claim",
+        episode_id="owned:fallback-claim:ep:1",
+        watched_seconds=60,
+    )
+    fallback_claim_interstitial_id = event_id("int-fallback-claim-all")
+    service.record_interstitial(fallback_claim_user, fallback_claim_interstitial_id, "int_rewarded_fallback")
+    fallback_claim_authorization = service.settle_rewarded_fallback(
+        user_id=fallback_claim_user,
+        interstitial_event_id=fallback_claim_interstitial_id,
+        original_placement_id="rv_episode_rewards_claim",
+        target_id=None,
+        episode_index=None,
+    )
+    fallback_authorization_id = fallback_claim_authorization["result"]["ad_event_id"]
+    assert fallback_authorization_id == f"fallback-{fallback_claim_interstitial_id}"
+    fallback_claim_all = service.claim_all_episode_rewards(
+        fallback_claim_user, event_id("fallback-claim-all"), fallback_authorization_id,
+    )
+    assert fallback_claim_all["result"]["action"] == "EPISODE_REWARDS_CLAIM_ALL"
+    assert fallback_claim_all["result"]["claimed_count"] == 1
+    assert float(fallback_claim_all["result"]["cash_added"]) > 0
+
+    # The legacy per-episode action-ad cap must never block the 3-minute then
+    # 6-minute schedule from recording repeated real-playback mid-rolls.
+    service.update_operating_policy("Bearer smoke-admin-token", {
+        "interstitial_cooldown_seconds": 0,
+        "interstitial_global_hourly_limit": 0,
+        "episode_interstitial_limit": 1,
+    })
+    midroll_user = f"v1666-repeat-midroll-{uuid.uuid4()}"
+    service.bootstrap(midroll_user)
+    service.record_interstitial(midroll_user, event_id("midroll-first"), "int_episode_midroll", "owned:midroll:ep:1")
+    repeat_midroll = service.record_interstitial(midroll_user, event_id("midroll-repeat"), "int_episode_midroll", "owned:midroll:ep:1")
+    assert repeat_midroll["idempotent"] is False
+    service.update_operating_policy("Bearer smoke-admin-token", {"interstitial_cooldown_seconds": 60})
+
+    # A Crown level reached by either a normal rewarded completion or the
+    # verified fallback settlement is part of the same cash result. This keeps
+    # the mobile receipt and coin-to-wallet animation universal.
+    with service._transaction() as connection:  # noqa: SLF001 - isolated smoke policy setup
+        service._execute(connection, "UPDATE achievement_policy SET required_rounds = 1 WHERE code = 'BRONZE'")  # noqa: SLF001
+    crown_cash_user = f"v1666-crown-direct-cash-{uuid.uuid4()}"
+    service.bootstrap(crown_cash_user)
+    crown_direct, _ = rewarded(service, crown_cash_user, "rv_crown_upgrade")
+    assert crown_direct["result"]["action"] == "CROWN_UPGRADE"
+    assert crown_direct["result"]["achievements_awarded"][0]["code"] == "BRONZE"
+    assert float(crown_direct["result"]["cash_added"]) > 0
+
+    crown_fallback_user = f"v1666-crown-fallback-cash-{uuid.uuid4()}"
+    service.bootstrap(crown_fallback_user)
+    crown_fallback_interstitial_id = event_id("int-crown-fallback")
+    service.record_interstitial(crown_fallback_user, crown_fallback_interstitial_id, "int_rewarded_fallback")
+    crown_fallback = service.settle_rewarded_fallback(
+        user_id=crown_fallback_user,
+        interstitial_event_id=crown_fallback_interstitial_id,
+        original_placement_id="rv_crown_upgrade",
+        target_id=None,
+        episode_index=None,
+    )
+    assert crown_fallback["result"]["achievements_awarded"][0]["code"] == "BRONZE"
+    assert float(crown_fallback["result"]["cash_added"]) > 0
 
     # 单条激励广告连续解锁一个两集集包；低频模式关闭单集广告翻倍。
     episode_pass, _ = rewarded(service, user_id, "rv_episode_pass", "owned:smoke:ep:4", 4)

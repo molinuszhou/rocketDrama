@@ -209,10 +209,14 @@ class DramaAppActivity : FragmentActivity() {
     internal var lastFloatingClaimPromptedGems = 0
     /** A newly completed watch task waits briefly so it never collides with episode-unlock UI. */
     internal var taskRewardPromptEarliestAtElapsedMillis = 0L
+    /** Only one deferred task prompt may be queued; snapshot refreshes replace rather than duplicate it. */
+    internal var taskRewardPromptRunnable: Runnable? = null
     /** Rewards page exposes this only after the hero scrolls away. */
     internal var rewardsStickyAssetHeader: View? = null
     /** Re-rendering a live reward snapshot must retain the reader at Crown Road or the active task. */
     internal var rewardsTasksScrollY = 0
+    /** Crown Road is refreshed in place so a claim or cooldown never returns the reader to page top. */
+    internal var rewardCrownRoadHost: FrameLayout? = null
     internal var ignoreVideoTapsUntilMillis = 0L
     internal val favorites by lazy { getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE) }
     internal val playbackHistory by lazy { getSharedPreferences(PLAYBACK_HISTORY_PREFERENCES, Context.MODE_PRIVATE) }
@@ -286,6 +290,8 @@ class DramaAppActivity : FragmentActivity() {
     }
 
     override fun onDestroy() {
+        taskRewardPromptRunnable?.let(root::removeCallbacks)
+        taskRewardPromptRunnable = null
         releasePlayer()
         super.onDestroy()
     }
@@ -438,7 +444,7 @@ class DramaAppActivity : FragmentActivity() {
         val nowFavorite = !favorites.getBoolean(key, false)
         favorites.edit().putBoolean(key, nowFavorite).apply()
         favoriteButton?.text = if (nowFavorite) "♥" else "♡"
-        toast(if (nowFavorite) "已加入追剧" else "已取消追剧")
+        toast(if (nowFavorite) t("favorite_added") else t("favorite_removed"))
     }
 
     internal fun isFavorite(): Boolean = selectedDrama?.id?.let { favorites.getBoolean("favorite_$it", false) } ?: false

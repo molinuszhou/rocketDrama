@@ -151,7 +151,7 @@ internal fun DramaAppActivity.selectEpisode(index: Int) {
         if (playerShown && index != currentEpisodeIndex) persistPlaybackProgress()
         val drama = selectedDrama ?: return
         val episode = drama.episodes.getOrNull(index) ?: run {
-            toast("第 ${index + 1} 集信息不存在")
+            toast(t("episode_info_missing", index + 1))
             return
         }
         if (needsUnlock(index)) {
@@ -201,7 +201,7 @@ internal fun DramaAppActivity.selectEpisode(index: Int) {
             onFailure = { message -> runOnUiThread {
                 episodeTransitionInProgress = false
                 logStatus("播放会话创建失败：$message")
-                toast("播放地址获取失败：$message")
+                toast(t("playback_url_failed"))
             } },
         )
     }
@@ -224,7 +224,7 @@ internal fun DramaAppActivity.startNextEpisodeAutomatically(completedIndex: Int,
             unlockEpisodeThenAutoPlay(nextIndex)
         } else {
             episodeTransitionInProgress = true
-            if (!userInitiated) toast("正在进入第 ${nextIndex + 1} 集")
+            if (!userInitiated) toast(t("entering_episode", nextIndex + 1))
             selectEpisode(nextIndex)
         }
     }
@@ -281,7 +281,7 @@ internal fun DramaAppActivity.startEpisodeUnlockAfterConfirmation(index: Int, on
             onSettlementUnavailable = { message ->
                 episodeTransitionInProgress = false
                 resumeAfterFullscreenAdIfNeeded()
-                toast(t("unlock_settlement_pending", message))
+                toast(t("unlock_settlement_pending_generic"))
             },
         )
     }
@@ -315,7 +315,7 @@ internal fun DramaAppActivity.settleEpisodeUnlockAfterAd(
             indexes.take(unlockedCount).forEach { unlockedIndex -> sessionUnlockedEpisodeKeys.add(episodeKey(unlockedIndex)) }
             pendingUnlockIndex = -1
             updateEpisodeStatus()
-            toast(if (unlockedCount > 1) "已连续解锁 $unlockedCount 集" else t("episode_unlocked", index + 1))
+            toast(if (unlockedCount > 1) t("episodes_unlocked", unlockedCount) else t("episode_unlocked", index + 1))
             onUnlocked()
         }
 
@@ -342,7 +342,7 @@ internal fun DramaAppActivity.settleEpisodeUnlockAfterAd(
                         if (unlockMethod == "AD_INTERSTITIAL" || unlockMethod == "AD_REWARDED") interstitialRequestedEpisodeKeys.remove(episodeKey(index))
                         logStatus("自有剧解锁失败：$message")
                         resumeAfterFullscreenAdIfNeeded()
-                        toast("解锁服务暂不可用：$message")
+                        toast(t("unlock_service_unavailable_generic"))
                     }
                 } },
             )
@@ -369,9 +369,16 @@ internal fun DramaAppActivity.recordCompletedEpisodeForRewards(index: Int, onCon
             episodeId = episode.id,
             validWatchSeconds = rewardsSnapshot?.unlock?.validWatchSeconds ?: 60,
             onSuccess = { reward -> runOnUiThread {
-                // A completed watch task can coincide with the next-episode unlock. Let the
-                // latter finish first, then invite the user to collect after 30 seconds.
-                taskRewardPromptEarliestAtElapsedMillis = android.os.SystemClock.elapsedRealtime() + 30_000L
+                // The first task is introductory. Only the second (or a later) newly
+                // claimable task triggers the optional reminder, thirty seconds after
+                // the completion so it cannot collide with the episode-three unlock UI.
+                val nextPromptTask = reward.snapshot.tasks.withIndex().firstOrNull { (taskIndex, task) ->
+                    taskIndex >= 1 && task.status == "CLAIMABLE" &&
+                        task.target > taskRewardPromptPreferences.getInt("last_target", 0)
+                }
+                if (nextPromptTask != null && !taskRewardPromptPreferences.getBoolean("disabled", false)) {
+                    taskRewardPromptEarliestAtElapsedMillis = android.os.SystemClock.elapsedRealtime() + 30_000L
+                }
                 applyRewardsSnapshot(reward.snapshot)
                 // The compact savings-jar amount now reflects a newly claimable
                 // cash reward. Avoid repeating an in-player instruction banner.

@@ -78,7 +78,11 @@ internal fun DramaAppActivity.createTasksPage(): View {
             content.addView(createDailyBenefitsPanel(snapshot), matchParams(top = 10, bottom = 10))
             content.addView(createEpisodeTaskLine(snapshot), matchParams(bottom = 10))
         }
-        content.addView(createCrownRoadPanel(snapshot), matchParams(bottom = 10))
+        FrameLayout(this@createTasksPage).also { host ->
+            rewardCrownRoadHost = host
+            host.addView(createCrownRoadPanel(snapshot), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            content.addView(host, matchParams(bottom = 10))
+        }
     }
     scroll.setOnScrollChangeListener { _, _, scrollY, _, _ ->
         rewardsTasksScrollY = scrollY
@@ -88,6 +92,21 @@ internal fun DramaAppActivity.createTasksPage(): View {
         scroll.post { scroll.scrollTo(0, rewardsTasksScrollY) }
     }
     return scroll
+}
+
+/** Refresh only the Crown Road card after an ad, claim, or cooldown transition. */
+internal fun DramaAppActivity.refreshCrownRoadPanelInPlace(): Boolean {
+    val host = rewardCrownRoadHost ?: return false
+    if (activeTab != MainTab.TASKS || !host.isAttachedToWindow) return false
+    crownSummaryChargeButtons.clear()
+    crownChargeCooldownBars.clear()
+    crownChargeCooldownRings.clear()
+    host.removeAllViews()
+    host.addView(
+        createCrownRoadPanel(rewardsSnapshot),
+        FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT),
+    )
+    return true
 }
 
 /** A compact, inset-aware hero: headline sits below the status bar and the image has no empty lower band. */

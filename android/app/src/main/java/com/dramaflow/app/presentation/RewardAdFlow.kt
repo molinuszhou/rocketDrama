@@ -174,16 +174,17 @@ internal fun DramaAppActivity.handleSettledRewardAction(
 
 /** A user-cancelled rewarded placement may fall back after the configured skip threshold. */
 internal fun DramaAppActivity.recordRewardedSkipThenMaybeShowInterstitial(shouldResume: Boolean, context: String = "rewarded_cancelled") {
-        if (!rewardsApi.isConfigured) { showRewardedUnavailableNotice(shouldResume, "广告未完整观看，未获得奖励或解锁权益"); return }
+        val notice = t("rewarded_not_completed")
+        if (!rewardsApi.isConfigured) { showRewardedUnavailableNotice(shouldResume, notice); return }
         rewardsApi.recordRewardedSkipped(anonymousInstallationId(), context, { snapshot -> runOnUiThread {
             applyRewardsSnapshot(snapshot)
             val policy = snapshot.interstitial
             if (policy.rewardedFallbackEnabled && (policy.rewardedSkipThreshold <= 0 || policy.rewardedSkipCount >= policy.rewardedSkipThreshold)) {
-                showRewardedFallbackInterstitial(shouldResume, "广告未完整观看，未获得奖励或解锁权益")
+                showRewardedFallbackInterstitial(shouldResume, notice)
             } else {
                 resumeAfterFullscreenAd = shouldResume; resumeAfterFullscreenAdIfNeeded(); toast(t("rewarded_not_completed"))
             }
-        } }, { _ -> runOnUiThread { showRewardedUnavailableNotice(shouldResume, "广告未完整观看，未获得奖励或解锁权益") } })
+        } }, { _ -> runOnUiThread { showRewardedUnavailableNotice(shouldResume, notice) } })
 }
 
     /** Handles unavailable rewarded inventory when no fallback interstitial can be presented. */

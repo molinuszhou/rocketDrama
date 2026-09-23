@@ -415,10 +415,11 @@ class RewardsApiClient(
         if (episodeIndex != null) payload.put("episode_index", episodeIndex)
         post("/v2/ads/rewarded/fallback-settlement", payload, { data ->
             val result = data.optJSONObject("result") ?: JSONObject()
+            val rewardedAuthorizationId = result.optString("ad_event_id").ifBlank { interstitialEventId }
             onSuccess(RewardAction(
                 data.optBoolean("idempotent"), result.optString("action"), result.optLong("gems_added"),
                 parseSnapshot(data.getJSONObject("snapshot")), result.optString("cash_added", "0.00"),
-                result.optString("cash_added_usd_reference", "0.00"), interstitialEventId,
+                result.optString("cash_added_usd_reference", "0.00"), rewardedAuthorizationId,
                 result.optLong("released_micros"), result.optInt("unlock_episode_count", 1).coerceAtLeast(1),
             ))
         }, onFailure)

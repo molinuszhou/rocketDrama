@@ -155,13 +155,26 @@ class RewardsService:
                 result["gems_added"] = credited_units  # legacy API compatibility; never presented as Gems by v1.6.4.
                 result["cash_added"] = self._money(credited_micros, wallet_policy)
                 result["cash_added_usd_reference"] = self._usd_reference_money(credited_micros, wallet_policy)
-                self._execute(
-                    connection,
-                    "UPDATE rewarded_ad_events SET result_payload = %s::jsonb WHERE ad_event_id = %s",
-                    (self._json(result), ad_event_id),
-                )
             achievements = self._award_achievements_if_due(connection, user_id, policy)
             result["achievements_awarded"] = achievements
+            # A Crown level may be reached by this completed rewarded ad. Fold that
+            # cash into the same result so the client uses the standard receipt and
+            # transparent wallet-flight animation rather than a silent balance jump.
+            achievement_units = sum(int(item["gems"]) for item in achievements)
+            if achievement_units > 0:
+                wallet_policy = self._wallet_policy(connection, user_id)
+                total_units = int(result.get("gems_added", 0)) + achievement_units
+                total_micros = self._reward_units_to_micros(total_units, wallet_policy)
+                result["gems_added"] = total_units
+                result["cash_added"] = self._money(total_micros, wallet_policy)
+                result["cash_added_usd_reference"] = self._usd_reference_money(total_micros, wallet_policy)
+            # Persist the final payload only after all direct and Crown-level cash has
+            # been settled; idempotent retries must return the same receipt amount.
+            self._execute(
+                connection,
+                "UPDATE rewarded_ad_events SET result_payload = %s::jsonb WHERE ad_event_id = %s",
+                (self._json(result), ad_event_id),
+            )
             result["reset_int_timer"] = True
             return {"idempotent": False, "result": result, "snapshot": self._snapshot(connection, user_id)}
 
@@ -708,7 +721,10 @@ class RewardsService:
                     (user_id, placement),
                 )["count"])
 
-            if episode_id and placement_id in {"int_episode_midroll", "int_seek", "int_speed"}:
+            # Playback-time mid-rolls follow their own first-interval/repeat schedule.
+            # Do not let the legacy one-ad-per-episode cap suppress the later 6-minute
+            # intervals in a long episode. Seek and speed remain legacy action caps.
+            if episode_id and placement_id in {"int_seek", "int_speed"}:
                 episode_limit = int(policy["episode_interstitial_limit"])
                 shown_in_episode = int(self._one(
                     connection,
@@ -851,6 +867,10 @@ class RewardsService:
                 policy=policy,
             )
             fallback_ad_event_id = f"fallback-{interstitial_event_id}"
+            # Downstream actions such as the aggregated episode-reward claim
+            # must use the rewarded-event identifier that created the server
+            # authorization, not the interstitial telemetry identifier.
+            result["ad_event_id"] = fallback_ad_event_id
             self._execute(
                 connection,
                 """INSERT INTO rewarded_ad_events
@@ -875,11 +895,6 @@ class RewardsService:
             result["fallback_interstitial_settled"] = True
             self._execute(
                 connection,
-                "UPDATE rewarded_ad_events SET result_payload = %s::jsonb WHERE ad_event_id = %s",
-                (self._json(result), fallback_ad_event_id),
-            )
-            self._execute(
-                connection,
                 """UPDATE daily_counters
                    SET rv_count = rv_count + 1,
                        last_rv_at = NOW(),
@@ -897,6 +912,25 @@ class RewardsService:
             )
             achievements = self._award_achievements_if_due(connection, user_id, policy)
             result["achievements_awarded"] = achievements
+            achievement_units = sum(int(item["gems"]) for item in achievements)
+            if achievement_units > 0:
+                wallet_policy = self._wallet_policy(connection, user_id)
+                total_units = int(result.get("gems_added", 0)) + achievement_units
+                total_micros = self._reward_units_to_micros(total_units, wallet_policy)
+                result["gems_added"] = total_units
+                result["cash_added"] = self._money(total_micros, wallet_policy)
+                result["cash_added_usd_reference"] = self._usd_reference_money(total_micros, wallet_policy)
+            # Update both idempotency records after all reward components are known.
+            self._execute(
+                connection,
+                "UPDATE rewarded_ad_events SET result_payload = %s::jsonb WHERE ad_event_id = %s",
+                (self._json(result), fallback_ad_event_id),
+            )
+            self._execute(
+                connection,
+                "UPDATE rewarded_fallback_grants SET result_payload = %s::jsonb WHERE interstitial_event_id = %s",
+                (self._json(result), interstitial_event_id),
+            )
             return {"idempotent": False, "result": result, "snapshot": self._snapshot(connection, user_id)}
 
     def withdrawal_preflight(self, user_id: str) -> dict[str, Any]:

@@ -152,13 +152,13 @@ internal fun DramaAppActivity.showPlayer(drama: LocalDrama, startIndex: Int, res
                 window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 playerProgressSeekBar?.isEnabled = false
                 val userMessage = when (httpFailure?.responseCode) {
-                    404 -> "视频文件未找到。请核对 Windows media 目录、片单路径与文件名。"
-                    403 -> "播放链接已失效或服务已重启。请重新进入该集。"
-                    402 -> "该分集需要先完成解锁。"
-                    500, 503 -> "Windows 视频服务暂不可用。请检查服务终端日志与本地媒体配置。"
-                    else -> "视频播放失败：$diagnostic"
+                    404 -> t("player_video_not_found")
+                    403 -> t("player_playback_expired")
+                    402 -> t("player_unlock_required")
+                    500, 503 -> t("player_media_service_unavailable")
+                    else -> t("player_playback_failed")
                 }
-                toast("$userMessage 可在“更多”中选择重新加载本集。")
+                toast(t("player_error_reload_hint", userMessage))
             }
         })
         root.addView(playerView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
@@ -372,7 +372,13 @@ internal fun DramaAppActivity.requestMidEpisodeInterstitialIfEligible(positionSe
         }
         if (contentWatchSecondsSinceMidroll < requiredWatchSeconds || midrollInterstitialRequestInFlight) return
         midrollInterstitialRequestInFlight = true
-        showPlaybackActionInterstitial("int_episode_midroll", episodeId = selectedEpisode()?.id, onShown = {
+        // Mid-rolls are governed exclusively by the real-playback schedule.
+        // They must not be consumed by a separate same-episode action-ad cap.
+        showPlaybackActionInterstitial(
+            "int_episode_midroll",
+            episodeId = selectedEpisode()?.id,
+            countTowardEpisodeLimit = false,
+            onShown = {
             contentWatchSecondsSinceMidroll = 0
             midrollInterstitialShownInSession = true
             midrollInterstitialRequestInFlight = false

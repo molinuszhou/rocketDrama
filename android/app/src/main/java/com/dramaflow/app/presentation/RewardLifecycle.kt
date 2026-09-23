@@ -119,7 +119,13 @@ internal fun DramaAppActivity.applyRewardsSnapshot(snapshot: RewardsApiClient.Sn
         lastConfirmedCashBalance = snapshot.wallet.cashWallet
         refreshFloatingRewardWheels()
         if (startupContentInitializationStarted && !playerShown) {
-            if (withdrawalPageShown) showWithdrawalPage(snapshot.wallet) else if (catalogItems.isNotEmpty()) renderActiveTab()
+            if (withdrawalPageShown) {
+                showWithdrawalPage(snapshot.wallet)
+            } else if (activeTab == MainTab.TASKS && refreshCrownRoadPanelInPlace()) {
+                // Preserve the reader's location at Crown Road while its reward/cooldown state updates.
+            } else if (catalogItems.isNotEmpty()) {
+                renderActiveTab()
+            }
         }
         updateEpisodeStatus()
         if (startupContentInitializationStarted) showStartupCheckinWhenReady()
@@ -135,6 +141,11 @@ internal fun DramaAppActivity.applyRewardsSnapshot(snapshot: RewardsApiClient.Sn
             root.post { animateClaimedGems(previousGems, snapshot.wallet.coins) }
         }
         if (deferNextCashFlight) deferNextCashFlight = false
+        if (startupContentInitializationStarted) {
+            // Crown completion is independent of task reminders and must not wait for
+            // an unrelated 30-second task prompt window.
+            maybeShowCrownLevelReached(previousCrowns, snapshot)
+        }
         val pending = snapshot.ring.rewardCoins
         val promptThreshold = snapshot.ring.claimPromptThresholdCoins.coerceAtLeast(0)
         if (startupContentInitializationStarted && promptThreshold > 0 && snapshot.ring.claimable && pending >= promptThreshold && pending - lastFloatingClaimPromptedGems >= promptThreshold && !fullscreenAdInProgress) {
@@ -147,18 +158,31 @@ internal fun DramaAppActivity.applyRewardsSnapshot(snapshot: RewardsApiClient.Sn
         } else if (!snapshot.ring.claimable) {
             lastFloatingClaimPromptedGems = 0
         }
-        if (startupContentInitializationStarted) {
-            val taskPromptDelay = maxOf(
-                700L,
-                taskRewardPromptEarliestAtElapsedMillis - android.os.SystemClock.elapsedRealtime(),
-            )
-            root.postDelayed({
-                if (isFinishing || isDestroyed || fullscreenAdInProgress || fullscreenAdRequestInFlight) return@postDelayed
-                if (maybeShowCrownLevelReached(previousCrowns, snapshot)) return@postDelayed
-                maybeShowEpisodeTaskClaimPrompt(snapshot)
-            }, taskPromptDelay)
+        if (startupContentInitializationStarted) scheduleEpisodeTaskClaimPrompt()
+    }
+
+/** Queue the second-task reminder exactly once, thirty seconds after it became claimable. */
+internal fun DramaAppActivity.scheduleEpisodeTaskClaimPrompt() {
+    val now = android.os.SystemClock.elapsedRealtime()
+    if (taskRewardPromptEarliestAtElapsedMillis <= now) return
+    taskRewardPromptRunnable?.let(root::removeCallbacks)
+    val prompt = object : Runnable {
+        override fun run() {
+            if (isFinishing || isDestroyed) return
+            if (fullscreenAdInProgress || fullscreenAdRequestInFlight) {
+                // Keep the reminder deferred until any unlock/ad flow completes. No
+                // network refresh or full Reward Center render is needed to retry it.
+                root.postDelayed(this, 1_000L)
+                return
+            }
+            taskRewardPromptEarliestAtElapsedMillis = 0L
+            taskRewardPromptRunnable = null
+            rewardsSnapshot?.let(::maybeShowEpisodeTaskClaimPrompt)
         }
     }
+    taskRewardPromptRunnable = prompt
+    root.postDelayed(prompt, (taskRewardPromptEarliestAtElapsedMillis - now).coerceAtLeast(0L))
+}
 
 /** Celebrate newly achieved Crown levels once, immediately after the server confirms the progress. */
 internal fun DramaAppActivity.maybeShowCrownLevelReached(

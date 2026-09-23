@@ -540,6 +540,9 @@ internal fun DramaAppActivity.showCashRewardReceipt(amount: String, onConfirmed:
     dialog.show()
     dialog.window?.apply {
         setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+        decorView.setBackgroundColor(Color.TRANSPARENT)
+        clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+        attributes = attributes.apply { dimAmount = 0f }
         setLayout((resources.displayMetrics.widthPixels * 0.86f).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
     }
     rewardIcon.animate().alpha(1f).scaleX(1.14f).scaleY(1.14f).setDuration(260L).withEndAction {
