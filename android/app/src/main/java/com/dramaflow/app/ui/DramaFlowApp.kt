@@ -31,7 +31,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dramaflow.app.AppViewModel
-import com.dramaflow.app.ads.PangleConsent
 import com.dramaflow.app.data.AppRoute
 import com.dramaflow.app.data.MainTab
 import com.dramaflow.app.ui.theme.Coral
@@ -72,21 +71,6 @@ fun DramaFlowApp(viewModel: AppViewModel = viewModel()) {
         )
     }
 
-    if (state.pangleConsent == PangleConsent.UNKNOWN) {
-        AlertDialog(
-            onDismissRequest = { viewModel.recordPangleConsent(false) },
-            title = { Text("广告隐私说明") },
-            text = {
-                Text(
-                    "当你主动选择“广告解锁”或“看广告双倍奖励”时，应用会使用 Pangle 激励广告。" +
-                        "同意后，Pangle SDK 仅在需要展示广告时初始化；拒绝不会影响普通内容浏览。"
-                )
-            },
-            dismissButton = { Button(onClick = { viewModel.recordPangleConsent(false) }) { Text("暂不同意") } },
-            confirmButton = { Button(onClick = { viewModel.recordPangleConsent(true) }) { Text("同意并继续") } }
-        )
-    }
-
     if (state.showUnlockDialog) {
         val drama = viewModel.selectedDrama()
         AlertDialog(
@@ -94,10 +78,10 @@ fun DramaFlowApp(viewModel: AppViewModel = viewModel()) {
             title = { Text("解锁第 ${drama?.lockedFrom ?: ""} 集") },
             text = {
                 Text(
-                    if (state.pangleConfigured) {
-                        "完整观看 Pangle 激励广告后，本集会在广告奖励回调确认后解锁。"
+                    if (state.adsConfigured) {
+                        "完整观看聚合激励广告后，本集会在广告奖励回调确认后解锁。"
                     } else {
-                        "Pangle App ID 和激励广告位 ID 尚未配置，暂不能进行广告解锁。"
+                        "广告 App ID 和激励广告位 ID 尚未配置，暂不能进行广告解锁。"
                     }
                 )
             },
@@ -106,7 +90,7 @@ fun DramaFlowApp(viewModel: AppViewModel = viewModel()) {
                 Button(
                     onClick = { viewModel.watchAdToUnlock(activity) },
                     colors = ButtonDefaults.buttonColors(containerColor = Coral),
-                    enabled = state.pangleConfigured && state.pangleConsent == PangleConsent.GRANTED
+                    enabled = state.adsConfigured
                 ) { Text("看广告解锁") }
             }
         )
@@ -128,10 +112,10 @@ fun DramaFlowApp(viewModel: AppViewModel = viewModel()) {
             title = { Text("领取任务奖励") },
             text = {
                 Text(
-                    if (state.pangleConfigured) {
-                        "${reward?.title ?: "任务"}可获得 ${reward?.rewardCoins ?: 0} 金币。可普通领取，或完整观看 Pangle 激励广告领取双倍奖励。"
+                    if (state.adsConfigured) {
+                        "${reward?.title ?: "任务"}可获得 ${reward?.rewardCoins ?: 0} 金币。可普通领取，或完整观看聚合激励广告领取双倍奖励。"
                     } else {
-                        "${reward?.title ?: "任务"}可普通领取。Pangle 广告位尚未配置，双倍奖励暂不可用。"
+                        "${reward?.title ?: "任务"}可普通领取。聚合广告位尚未配置，双倍奖励暂不可用。"
                     }
                 )
             },
@@ -140,7 +124,7 @@ fun DramaFlowApp(viewModel: AppViewModel = viewModel()) {
                 Button(
                     onClick = { reward?.let { viewModel.watchAdForDoubleTaskReward(activity, it.id) } },
                     colors = ButtonDefaults.buttonColors(containerColor = Coral),
-                    enabled = reward != null && state.pangleConfigured && state.pangleConsent == PangleConsent.GRANTED
+                    enabled = reward != null && state.adsConfigured
                 ) { Text("看广告双倍") }
             }
         )

@@ -15,8 +15,10 @@ import com.dramaflow.app.content.ShortDramaSdkManager
 class DramaFlowApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        // Attribution and analytics are reporting services rather than TopOn SDK initialization.
+        // Starting them here preserves AppsFlyer install/open attribution while TopOn still waits
+        // for an eligible, consented ad request.
         EngagementAnalytics.get(this).initialize()
-
         val settings = TopOnSettings.fromBuildConfig()
         if (settings.isConfigured) {
             val mode = if (settings.isDemoMode) "official-demo" else "configured-network"

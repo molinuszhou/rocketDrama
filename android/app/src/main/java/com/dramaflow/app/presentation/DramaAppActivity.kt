@@ -434,7 +434,6 @@ class DramaAppActivity : FragmentActivity() {
             onPrimary = {
                 consentStore.save(if (granted) AdConsent.DECLINED else AdConsent.GRANTED)
                 appOpenAttempted = false
-                if (!granted) maybeShowAppOpenAd()
                 toast(if (granted) t("ads_disabled") else t("ads_enabled"))
             },
             secondaryLabel = t("cancel"),

@@ -8,6 +8,7 @@ import android.util.Log
 import com.appsflyer.AppsFlyerLib
 import com.appsflyer.attribution.AppsFlyerRequestListener
 import com.dramaflow.app.BuildConfig
+import com.dramaflow.app.ads.AdNetworkIdentity
 import com.dramaflow.app.analytics.ReportingProvider.APPSFLYER
 import com.dramaflow.app.analytics.ReportingProvider.FIREBASE
 import com.dramaflow.app.analytics.ReportingProvider.XUANYU
@@ -141,7 +142,7 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
             return
         }
         val payload = adInfo?.let { payloadFor(logicalPlacement, adUnitId, it) }
-            ?: AdPayload(logicalPlacement, adUnitId, "rewarded", "TopOn", 0.0, USD)
+            ?: AdPayload(logicalPlacement, adUnitId, "rewarded", "TopOn", "", 0.0, USD)
         val analytics = firebase ?: run {
             reportingAudit.recordProvider(FIREBASE, BuildConfig.FIREBASE_REWARDED_EVENT_NAME, ReportingStatus.FAILED, logicalPlacement, adUnitId, detail = "firebase_unavailable")
             debug("Firebase Analytics unavailable; rewarded-completion event is skipped")
@@ -153,24 +154,30 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
             putString("ad_unit_id", payload.adUnitId)
             putString("ad_type", payload.adType)
             putString("ad_source", payload.adNetwork)
+            putString("ad_source_id", payload.adSourceId)
         })
         reportingAudit.recordProvider(FIREBASE, BuildConfig.FIREBASE_REWARDED_EVENT_NAME, ReportingStatus.SUCCESS, logicalPlacement, adUnitId, detail = "sdk_accepted_event")
         debug("Firebase ${BuildConfig.FIREBASE_REWARDED_EVENT_NAME}: $payload")
     }
 
-    private fun payloadFor(logicalPlacement: String, adUnitId: String, adInfo: ATAdInfo): AdPayload = AdPayload(
-        logicalPlacement = logicalPlacement,
-        adUnitId = adUnitId,
-        adType = adInfo.topOnAdFormat.orEmpty().ifBlank { adInfo.format.orEmpty().ifBlank { logicalPlacement } },
-        adNetwork = adInfo.networkName.orEmpty().ifBlank { adInfo.adNetworkType.orEmpty().ifBlank { "TopOn" } },
-        ecpm = adInfo.ecpm,
-        currency = adInfo.currency.orEmpty().ifBlank { USD },
-    )
+    private fun payloadFor(logicalPlacement: String, adUnitId: String, adInfo: ATAdInfo): AdPayload {
+        val identity = AdNetworkIdentity.from(adInfo)
+        return AdPayload(
+            logicalPlacement = logicalPlacement,
+            adUnitId = adUnitId,
+            adType = adInfo.topOnAdFormat.orEmpty().ifBlank { adInfo.format.orEmpty().ifBlank { logicalPlacement } },
+            adNetwork = identity.networkName,
+            adSourceId = identity.sourceId,
+            ecpm = adInfo.ecpm,
+            currency = adInfo.currency.orEmpty().ifBlank { USD },
+        )
+    }
 
     private fun appsFlyerRevenueValues(payload: AdPayload, revenueUsd: BigDecimal): HashMap<String, Any> =
         AppsFlyerRevenueContract.eventValues(
             revenueUsd = revenueUsd,
             adSource = payload.adNetwork,
+            adSourceId = payload.adSourceId,
             adUnitId = payload.adUnitId,
             adPlacement = payload.logicalPlacement,
             adType = payload.adType,
@@ -202,6 +209,7 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
         analytics.logEvent(FirebaseAnalytics.Event.AD_IMPRESSION, Bundle().apply {
             putString(FirebaseAnalytics.Param.AD_PLATFORM, "TopOn")
             putString(FirebaseAnalytics.Param.AD_SOURCE, payload.adNetwork)
+            putString("ad_source_id", payload.adSourceId)
             putString(FirebaseAnalytics.Param.AD_FORMAT, payload.adType)
             putString(FirebaseAnalytics.Param.AD_UNIT_NAME, payload.adUnitId)
             putString(FirebaseAnalytics.Param.CURRENCY, USD)
@@ -239,6 +247,7 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
             ?.addQueryParameter("pkg_name", appContext.packageName)
             ?.addQueryParameter("ad_type", payload.adType)
             ?.addQueryParameter("ad_network", payload.adNetwork)
+            ?.addQueryParameter("ad_source_id", payload.adSourceId)
             ?.addQueryParameter("ecpm", formatDecimal(payload.ecpm.coerceAtLeast(0.0)))
             ?.build()
         if (url == null) {
@@ -302,6 +311,7 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
         val adUnitId: String,
         val adType: String,
         val adNetwork: String,
+        val adSourceId: String,
         val ecpm: Double,
         val currency: String,
     )

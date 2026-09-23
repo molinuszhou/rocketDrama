@@ -1,7 +1,7 @@
 package com.dramaflow.app.data
 
 import androidx.compose.ui.graphics.Color
-import com.dramaflow.app.ads.PangleConsent
+import com.dramaflow.app.ads.AdConsent
 
 enum class MainTab(val label: String) {
     HOME("首页"),
@@ -98,9 +98,9 @@ data class UserProfile(
 
 data class AppUiState(
     val initialized: Boolean = false,
-    val pangleConsent: PangleConsent = PangleConsent.UNKNOWN,
-    val pangleConfigured: Boolean = false,
-    val pangleAdsReady: Boolean = false,
+    val adConsent: AdConsent = AdConsent.UNKNOWN,
+    val adsConfigured: Boolean = false,
+    val adsReady: Boolean = false,
     val selectedTab: MainTab = MainTab.DISCOVER,
     val route: AppRoute = AppRoute.MAIN,
     val selectedDramaId: String? = null,

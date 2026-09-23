@@ -20,14 +20,20 @@ val topOnDemoAppKey = "4f7b9ac17decb9babec83aac078742c7"
 val topOnDemoRewardedPlacementId = "b5b449fb3d89d7"
 val topOnDemoInterstitialPlacementId = "b5baca53984692"
 val topOnDemoSplashPlacementId = "b5bea7cc9a4497"
-val topOnAppId = if (topOnDemoMode) topOnDemoAppId else integrationValue("TOPON_APP_ID").ifBlank { "h6a880d76bf897" }
-val topOnAppKey = if (topOnDemoMode) topOnDemoAppKey else integrationValue("TOPON_APP_KEY")
-val topOnRewardedPlacementId = if (topOnDemoMode) topOnDemoRewardedPlacementId else integrationValue("TOPON_REWARDED_PLACEMENT_ID").ifBlank { "n6a880eaaa1a1e" }
-val topOnInterstitialPlacementId = if (topOnDemoMode) topOnDemoInterstitialPlacementId else integrationValue("TOPON_INTERSTITIAL_PLACEMENT_ID").ifBlank { "n6a880e948c456" }
-val topOnSplashPlacementId = if (topOnDemoMode) topOnDemoSplashPlacementId else integrationValue("TOPON_SPLASH_PLACEMENT_ID").ifBlank { "n6a880ebb7fb00" }
-// Demo 模式与官方 Demo 清单保持一致；合作方模式继续使用参数表提供的 AdMob App ID。
+val partnerTopOnAppId = integrationValue("TOPON_APP_ID")
+val partnerTopOnAppKey = integrationValue("TOPON_APP_KEY")
+val partnerTopOnRewardedPlacementId = integrationValue("TOPON_REWARDED_PLACEMENT_ID")
+val partnerTopOnInterstitialPlacementId = integrationValue("TOPON_INTERSTITIAL_PLACEMENT_ID")
+val partnerTopOnSplashPlacementId = integrationValue("TOPON_SPLASH_PLACEMENT_ID")
+val topOnAppId = if (topOnDemoMode) topOnDemoAppId else partnerTopOnAppId
+val topOnAppKey = if (topOnDemoMode) topOnDemoAppKey else partnerTopOnAppKey
+val topOnRewardedPlacementId = if (topOnDemoMode) topOnDemoRewardedPlacementId else partnerTopOnRewardedPlacementId
+val topOnInterstitialPlacementId = if (topOnDemoMode) topOnDemoInterstitialPlacementId else partnerTopOnInterstitialPlacementId
+val topOnSplashPlacementId = if (topOnDemoMode) topOnDemoSplashPlacementId else partnerTopOnSplashPlacementId
+// Demo 模式与官方 Demo 清单保持一致；合作方模式必须显式注入其对应的 AdMob App ID。
 val topOnDemoAdmobAppId = "ca-app-pub-9488501426181082~6354662111"
-val topOnAdmobAppId = if (topOnDemoMode) topOnDemoAdmobAppId else integrationValue("ADMOB_APP_ID").ifBlank { "ca-app-pub-4636975460860893~1434961000" }
+val partnerAdmobAppId = integrationValue("ADMOB_APP_ID")
+val topOnAdmobAppId = if (topOnDemoMode) topOnDemoAdmobAppId else partnerAdmobAppId
 val appsFlyerDevKey = integrationValue("APPSFLYER_DEV_KEY").ifBlank { "DdWbxT9VRELdEsZiAcnGea" }
 val appsFlyerSingleRevenueEventName = integrationValue("APPSFLYER_SINGLE_REVENUE_EVENT_NAME").ifBlank { "ad_impression" }
 val appsFlyerCumulativeRevenueEventName = integrationValue("APPSFLYER_CUMULATIVE_REVENUE_EVENT_NAME").ifBlank { "ad_impression_001" }
@@ -45,6 +51,46 @@ val analyticsDebug = integrationValue("ANALYTICS_DEBUG").trim().equals("true", i
 val externalReportingEnabled = integrationValue("EXTERNAL_REPORTING_ENABLED").trim().equals("true", ignoreCase = true)
 val localContentApiBaseUrl = integrationValue("LOCAL_CONTENT_API_BASE_URL").ifBlank { "http://10.0.2.2:8000" }
 val rewardsApiBaseUrl = integrationValue("REWARDS_API_BASE_URL").ifBlank { "http://10.0.2.2:8100" }
+val commercialReleaseRequested = gradle.startParameter.taskNames.any { task ->
+    val normalized = task.lowercase()
+    normalized.contains("release") && !normalized.contains("whiterelease")
+}
+if (commercialReleaseRequested) {
+    check(!topOnDemoMode) { "TOPON_DEMO_MODE=true is permitted only for Debug builds, never for a commercial Release build." }
+    val missing = listOf(
+        "TOPON_APP_ID" to partnerTopOnAppId,
+        "TOPON_APP_KEY" to partnerTopOnAppKey,
+        "TOPON_REWARDED_PLACEMENT_ID" to partnerTopOnRewardedPlacementId,
+        "TOPON_INTERSTITIAL_PLACEMENT_ID" to partnerTopOnInterstitialPlacementId,
+        "TOPON_SPLASH_PLACEMENT_ID" to partnerTopOnSplashPlacementId,
+        "ADMOB_APP_ID" to partnerAdmobAppId,
+    ).filter { (_, value) -> value.isBlank() }.map { (name, _) -> name }
+    check(missing.isEmpty()) { "Commercial Release requires explicit advertising configuration: ${missing.joinToString()}" }
+}
+
+val validateCommercialReleaseAdConfig = tasks.register("validateCommercialReleaseAdConfig") {
+    group = "verification"
+    description = "Rejects Demo or incomplete advertising credentials for commercial Release tasks."
+    inputs.property("toponDemoMode", topOnDemoMode)
+    inputs.property("TOPON_APP_ID", partnerTopOnAppId)
+    inputs.property("TOPON_APP_KEY", partnerTopOnAppKey)
+    inputs.property("TOPON_REWARDED_PLACEMENT_ID", partnerTopOnRewardedPlacementId)
+    inputs.property("TOPON_INTERSTITIAL_PLACEMENT_ID", partnerTopOnInterstitialPlacementId)
+    inputs.property("TOPON_SPLASH_PLACEMENT_ID", partnerTopOnSplashPlacementId)
+    inputs.property("ADMOB_APP_ID", partnerAdmobAppId)
+    doLast {
+        check(inputs.properties["toponDemoMode"].toString().toBoolean().not()) { "TOPON_DEMO_MODE=true is permitted only for Debug builds, never for a commercial Release build." }
+        val required = listOf("TOPON_APP_ID", "TOPON_APP_KEY", "TOPON_REWARDED_PLACEMENT_ID", "TOPON_INTERSTITIAL_PLACEMENT_ID", "TOPON_SPLASH_PLACEMENT_ID", "ADMOB_APP_ID")
+        val missing = required.filter { key -> inputs.properties[key].toString().isBlank() }
+        check(missing.isEmpty()) { "Commercial Release requires explicit advertising configuration: ${missing.joinToString()}" }
+    }
+}
+tasks.configureEach {
+    val normalized = name.lowercase()
+    if (name != validateCommercialReleaseAdConfig.name && normalized.contains("release") && !normalized.contains("whiterelease")) {
+        dependsOn(validateCommercialReleaseAdConfig)
+    }
+}
 // Firebase 的应用配置属于环境凭据，仓库中不提交。仅在配置文件存在时启用 Google
 // Services 插件；Analytics SDK 与其受开关控制的代码仍可在本地/CI 中正常编译。
 val googleServicesConfigPresent = file("google-services.json").exists() ||
@@ -72,8 +118,8 @@ android {
         minSdk = 26
         targetSdk = 35
         // Android 客户端每次代码改动递增补丁版本；服务端/文档单独改动不变更此版本。
-        versionCode = 46
-        versionName = "1.6.6.11"
+        versionCode = 47
+        versionName = "1.6.6.12"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -113,8 +159,14 @@ android {
         release {
             // Release activity enables FLAG_SECURE; debug remains screenshot-friendly for device verification.
             buildConfigField("boolean", "SCREENSHOT_PROTECTION_ENABLED", "true")
-            // 防止错误把官方 Demo 凭据带入正式白包。
+            // A commercial release never inherits Demo IDs, even if a developer has enabled Demo mode locally.
+            buildConfigField("String", "TOPON_APP_ID", "\"${escapeBuildConfig(partnerTopOnAppId)}\"")
+            buildConfigField("String", "TOPON_APP_KEY", "\"${escapeBuildConfig(partnerTopOnAppKey)}\"")
+            buildConfigField("String", "TOPON_REWARDED_PLACEMENT_ID", "\"${escapeBuildConfig(partnerTopOnRewardedPlacementId)}\"")
+            buildConfigField("String", "TOPON_INTERSTITIAL_PLACEMENT_ID", "\"${escapeBuildConfig(partnerTopOnInterstitialPlacementId)}\"")
+            buildConfigField("String", "TOPON_SPLASH_PLACEMENT_ID", "\"${escapeBuildConfig(partnerTopOnSplashPlacementId)}\"")
             buildConfigField("boolean", "TOPON_DEMO_MODE", "false")
+            manifestPlaceholders["ADMOB_APP_ID"] = partnerAdmobAppId
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

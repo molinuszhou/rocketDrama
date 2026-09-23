@@ -23,12 +23,14 @@ internal object AppsFlyerRevenueContract {
     fun eventValues(
         revenueUsd: BigDecimal,
         adSource: String,
+        adSourceId: String,
         adUnitId: String,
         adPlacement: String,
         adType: String,
     ): HashMap<String, Any> = revenueValues(revenueUsd).apply {
         put("ad_platform", "TopOn")
         put("ad_source", adSource)
+        put("ad_source_id", adSourceId)
         put("ad_unit_id", adUnitId)
         put("ad_placement", adPlacement)
         put("ad_type", adType)

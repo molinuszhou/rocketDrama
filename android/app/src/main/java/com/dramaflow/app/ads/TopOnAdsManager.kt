@@ -62,6 +62,12 @@ class TopOnAdsManager(
         key = "splash_last_show",
         minIntervalMillis = 0L,
     ),
+    /** A short shared guard prevents different full-screen entry points from chaining ads. */
+    private val globalFullscreenPolicy: FullscreenAdPolicy = FullscreenAdPolicy(
+        applicationContext,
+        key = "fullscreen_last_show",
+        minIntervalMillis = GLOBAL_FULLSCREEN_MIN_INTERVAL_MS,
+    ),
 ) {
     sealed interface Initialization {
         data object Ready : Initialization
@@ -81,6 +87,8 @@ class TopOnAdsManager(
         data class Skipped(val reason: String) : FullscreenResult
         data class Failed(val code: Int, val message: String) : FullscreenResult
     }
+
+    private enum class RewardState { NOT_REWARDED, REWARDED, REWARD_FAILED }
 
     private var rewardedRequestInFlight = false
     private var interstitialRequestInFlight = false
@@ -190,6 +198,11 @@ class TopOnAdsManager(
             onResult(RewardedResult.Unavailable("广告请求正在进行中，请勿重复点击"))
             return
         }
+        if (!globalFullscreenPolicy.canShow()) {
+            auditEvent("REQUEST", "rewarded", settings.rewardedPlacementId, "rewarded", result = "BLOCKED_GLOBAL_FREQUENCY")
+            onResult(RewardedResult.Unavailable("请稍候再观看广告"))
+            return
+        }
         when (val decision = rewardedPolicy.canStart()) {
             is RewardedAdPolicy.Decision.Blocked -> {
                 auditEvent("REQUEST", "rewarded", settings.rewardedPlacementId, "rewarded", result = "BLOCKED_POLICY", detail = decision.message)
@@ -223,21 +236,22 @@ class TopOnAdsManager(
         activity: Activity,
         onWillShow: () -> Unit = {},
         onResult: (FullscreenResult) -> Unit,
-    ) = showInterstitial(activity, interstitialPolicy, "int_natural_break", onWillShow, onResult)
+    ) = showInterstitial(activity, interstitialPolicy, "int_natural_break", onWillShow = onWillShow, onResult = onResult)
 
     /** 锁集解锁采用独立频控；每个锁定分集均可尝试 TopOn 激励广告，不使用插屏。 */
     fun showInterstitialForEpisodeUnlock(
         activity: Activity,
         onWillShow: () -> Unit = {},
         onResult: (FullscreenResult) -> Unit,
-    ) = showInterstitial(activity, episodeUnlockPolicy, "int_episode_unlock_legacy", onWillShow, onResult)
+    ) = showInterstitial(activity, episodeUnlockPolicy, "int_episode_unlock_legacy", onWillShow = onWillShow, onResult = onResult)
 
     /** 适用于剧中、拖拽和倍速等明确操作；服务端仍负责 v8 最终频控。 */
     fun showInterstitialForPlaybackAction(
         activity: Activity,
+        bypassGlobalFrequencyCap: Boolean = false,
         onWillShow: () -> Unit = {},
         onResult: (FullscreenResult) -> Unit,
-    ) = showInterstitial(activity, playbackActionPolicy, "int_playback_action", onWillShow, onResult)
+    ) = showInterstitial(activity, playbackActionPolicy, "int_playback_action", bypassGlobalFrequencyCap, onWillShow, onResult)
 
     fun showAppOpenIfEligible(activity: Activity, onResult: (FullscreenResult) -> Unit) {
         adNetworkAudit.recordConfiguration(settings)
@@ -254,6 +268,11 @@ class TopOnAdsManager(
         if (!splashPolicy.canShow()) {
             auditEvent("REQUEST", "splash", settings.splashPlacementId, "splash", result = "BLOCKED_POLICY")
             onResult(FullscreenResult.Skipped("开屏广告频控中"))
+            return
+        }
+        if (!globalFullscreenPolicy.canShow()) {
+            auditEvent("REQUEST", "splash", settings.splashPlacementId, "splash", result = "BLOCKED_GLOBAL_FREQUENCY")
+            onResult(FullscreenResult.Skipped("全屏广告冷却中"))
             return
         }
         splashRequestInFlight = true
@@ -313,6 +332,7 @@ class TopOnAdsManager(
                             Log.i(TAG, "Splash shown: ${entity.adNetworkType}/${entity.adsourceId}")
                             auditAdInfo("SHOWN", "splash", settings.splashPlacementId, "splash", entity, "DISPLAYED")
                             splashPolicy.recordShown()
+                            globalFullscreenPolicy.recordShown()
                             analytics.reportTopOnImpression("splash", settings.splashPlacementId, entity)
                         }
 
@@ -341,6 +361,7 @@ class TopOnAdsManager(
         activity: Activity,
         policy: FullscreenAdPolicy,
         logicalPlacement: String,
+        bypassGlobalFrequencyCap: Boolean = false,
         onWillShow: () -> Unit,
         onResult: (FullscreenResult) -> Unit,
     ) {
@@ -360,33 +381,86 @@ class TopOnAdsManager(
             onResult(FullscreenResult.Skipped("插屏广告频控中"))
             return
         }
+        if (!bypassGlobalFrequencyCap && !globalFullscreenPolicy.canShow()) {
+            auditEvent("REQUEST", logicalPlacement, settings.interstitialPlacementId, "interstitial", result = "BLOCKED_GLOBAL_FREQUENCY")
+            onResult(FullscreenResult.Skipped("全屏广告冷却中"))
+            return
+        }
         interstitialRequestInFlight = true
         auditEvent("REQUEST", logicalPlacement, settings.interstitialPlacementId, "interstitial", result = "STARTED")
         Log.i(TAG, "Interstitial request started: logical=$logicalPlacement, placement=${settings.interstitialPlacementId}")
         var delivered = false
+        var requestExpired = false
+        var interstitialShown = false
+        lateinit var requestTimeout: Runnable
+        lateinit var closeTimeout: Runnable
         fun deliver(result: FullscreenResult) {
             if (delivered) return
             delivered = true
+            mainHandler.removeCallbacks(requestTimeout)
+            mainHandler.removeCallbacks(closeTimeout)
             interstitialRequestInFlight = false
             restoreAppWindowAfterAd(activity)
             onResult(result)
         }
+        requestTimeout = Runnable {
+            if (delivered || interstitialShown) return@Runnable
+            requestExpired = true
+            auditEvent(
+                "LOAD_FAILED",
+                logicalPlacement,
+                settings.interstitialPlacementId,
+                "interstitial",
+                result = "TIMEOUT",
+                errorCode = INTERSTITIAL_LOAD_TIMEOUT_CODE,
+                detail = "client_timeout_ms=$INTERSTITIAL_LOAD_TIMEOUT_MS",
+            )
+            Log.w(TAG, "Interstitial load timed out after ${INTERSTITIAL_LOAD_TIMEOUT_MS}ms: $logicalPlacement")
+            deliver(FullscreenResult.Failed(INTERSTITIAL_LOAD_TIMEOUT_CODE, "interstitial_load_timeout"))
+        }
+        closeTimeout = Runnable {
+            if (delivered || !interstitialShown) return@Runnable
+            auditEvent(
+                "CLOSE_TIMEOUT",
+                logicalPlacement,
+                settings.interstitialPlacementId,
+                "interstitial",
+                result = "TIMEOUT",
+                errorCode = INTERSTITIAL_CLOSE_TIMEOUT_CODE,
+                detail = "client_timeout_ms=$INTERSTITIAL_CLOSE_TIMEOUT_MS",
+            )
+            Log.w(TAG, "Interstitial close callback timed out after ${INTERSTITIAL_CLOSE_TIMEOUT_MS}ms: $logicalPlacement")
+            deliver(FullscreenResult.Failed(INTERSTITIAL_CLOSE_TIMEOUT_CODE, "interstitial_close_timeout"))
+        }
+        mainHandler.postDelayed(requestTimeout, INTERSTITIAL_LOAD_TIMEOUT_MS)
 
         initialize { init ->
+            if (requestExpired || delivered) return@initialize
             when (init) {
                 Initialization.Ready -> {
-                    val ad = ATInterstitial(activity, settings.interstitialPlacementId)
+                    val ad = ATInterstitial(applicationContext, settings.interstitialPlacementId)
                     ad.setAdRevenueListener(TopOnRevenueListener(logicalPlacement, settings.interstitialPlacementId, analytics))
                     ad.setAdListener(object : ATInterstitialExListener {
                         override fun onInterstitialAdLoaded() {
+                            if (requestExpired || delivered) {
+                                auditEvent("LOADED_LATE", logicalPlacement, settings.interstitialPlacementId, "interstitial", result = "IGNORED", detail = "client_timeout_already_delivered")
+                                return
+                            }
+                            mainHandler.removeCallbacks(requestTimeout)
                             Log.i(TAG, "Interstitial loaded: logical=$logicalPlacement, ready=${ad.isAdReady}")
                             auditEvent("LOADED", logicalPlacement, settings.interstitialPlacementId, "interstitial", result = if (ad.isAdReady) "READY" else "NOT_READY")
+                            if (!ad.isAdReady) {
+                                deliver(FullscreenResult.Failed(INTERSTITIAL_NOT_READY_CODE, "interstitial_not_ready"))
+                                return
+                            }
                             showOnActiveActivity(activity, { deliver(FullscreenResult.Skipped(it)) }, onWillShow) {
                                 ad.show(activity)
                             }
                         }
 
                         override fun onInterstitialAdLoadFail(adError: AdError) {
+                            if (requestExpired || delivered) return
+                            mainHandler.removeCallbacks(requestTimeout)
                             Log.w(TAG, "Interstitial load failed: logical=$logicalPlacement, error=${adError.fullErrorInfo}")
                             auditEvent("LOAD_FAILED", logicalPlacement, settings.interstitialPlacementId, "interstitial", result = "NO_AD", errorCode = errorCode(adError), detail = "topon_no_ad")
                             deliver(FullscreenResult.Failed(errorCode(adError), adError.fullErrorInfo.orEmpty()))
@@ -395,13 +469,19 @@ class TopOnAdsManager(
                         override fun onInterstitialAdClicked(entity: ATAdInfo) = Unit
 
                         override fun onInterstitialAdShow(entity: ATAdInfo) {
+                            if (delivered) return
+                            interstitialShown = true
+                            mainHandler.removeCallbacks(requestTimeout)
                             Log.i(TAG, "Interstitial shown: logical=$logicalPlacement, network=${entity.adNetworkType}")
                             auditAdInfo("SHOWN", logicalPlacement, settings.interstitialPlacementId, "interstitial", entity, "DISPLAYED")
                             policy.recordShown()
+                            globalFullscreenPolicy.recordShown()
                             analytics.reportTopOnImpression(logicalPlacement, settings.interstitialPlacementId, entity)
+                            mainHandler.postDelayed(closeTimeout, INTERSTITIAL_CLOSE_TIMEOUT_MS)
                         }
 
                         override fun onInterstitialAdClose(entity: ATAdInfo) {
+                            mainHandler.removeCallbacks(closeTimeout)
                             Log.i(TAG, "Interstitial closed: logical=$logicalPlacement")
                             auditAdInfo("CLOSED", logicalPlacement, settings.interstitialPlacementId, "interstitial", entity, "DISMISSED")
                             deliver(FullscreenResult.Shown)
@@ -426,8 +506,8 @@ class TopOnAdsManager(
         onWillShow: () -> Unit,
         deliver: (RewardedResult) -> Unit,
     ) {
-        val ad = ATRewardVideoAd(activity, settings.rewardedPlacementId)
-        var completed = false
+        val ad = ATRewardVideoAd(applicationContext, settings.rewardedPlacementId)
+        var rewardState = RewardState.NOT_REWARDED
         var latestInfo: ATAdInfo? = null
         var timedOut = false
         val rewardedTimeout = Runnable {
@@ -443,6 +523,9 @@ class TopOnAdsManager(
                 detail = "client_timeout_ms=$REWARDED_LOAD_TIMEOUT_MS",
             )
             Log.w(TAG, "Rewarded load timed out after ${REWARDED_LOAD_TIMEOUT_MS}ms; using fallback path")
+            // TopOn 6.5.40 exposes neither destroy() nor cancelLoad() for ATRewardVideoAd.
+            // The instance uses applicationContext and all late callbacks are ignored below, so it
+            // cannot retain the Activity or re-enter the reward path after this timeout.
             deliver(RewardedResult.Failed(REWARDED_LOAD_TIMEOUT_CODE, "rewarded_load_timeout"))
         }
         mainHandler.postDelayed(rewardedTimeout, REWARDED_LOAD_TIMEOUT_MS)
@@ -480,6 +563,7 @@ class TopOnAdsManager(
                 Log.i(TAG, "Rewarded shown: ${entity.adNetworkType}/${entity.adsourceId}")
                 auditAdInfo("SHOWN", "rewarded", settings.rewardedPlacementId, "rewarded", entity, "DISPLAYED")
                 rewardedPolicy.recordShown()
+                globalFullscreenPolicy.recordShown()
                 analytics.reportTopOnImpression("rewarded", settings.rewardedPlacementId, entity)
             }
 
@@ -489,20 +573,21 @@ class TopOnAdsManager(
 
             override fun onRewardedVideoAdPlayFailed(adError: AdError, entity: ATAdInfo) {
                 latestInfo = entity
+                rewardState = RewardState.REWARD_FAILED
                 auditAdInfo("PLAY_FAILED", "rewarded", settings.rewardedPlacementId, "rewarded", entity, "FAILED", errorCode(adError), "topon_play_failed")
                 deliver(RewardedResult.Failed(errorCode(adError), adError.fullErrorInfo.orEmpty()))
             }
 
             override fun onRewardedVideoAdClosed(entity: ATAdInfo) {
                 latestInfo = entity
-                auditAdInfo("CLOSED", "rewarded", settings.rewardedPlacementId, "rewarded", entity, if (completed) "REWARDED" else "CANCELLED")
-                if (completed) deliver(RewardedResult.RewardEarned) else deliver(RewardedResult.Cancelled)
+                auditAdInfo("CLOSED", "rewarded", settings.rewardedPlacementId, "rewarded", entity, if (rewardState == RewardState.REWARDED) "REWARDED" else "CANCELLED")
+                if (rewardState == RewardState.REWARDED) deliver(RewardedResult.RewardEarned) else deliver(RewardedResult.Cancelled)
             }
 
             override fun onRewardedVideoAdPlayClicked(entity: ATAdInfo) = Unit
 
             override fun onReward(entity: ATAdInfo) {
-                completed = true
+                rewardState = RewardState.REWARDED
                 latestInfo = entity
                 Log.i(TAG, "Rewarded completed: ${entity.adNetworkType}/${entity.adsourceId}")
                 auditAdInfo("REWARD_COMPLETED", "rewarded", settings.rewardedPlacementId, "rewarded", entity, "COMPLETED")
@@ -511,6 +596,7 @@ class TopOnAdsManager(
 
             override fun onRewardFailed(entity: ATAdInfo) {
                 latestInfo = entity
+                rewardState = RewardState.REWARD_FAILED
             }
 
             override fun onDeeplinkCallback(adInfo: ATAdInfo, isSuccess: Boolean) = Unit
@@ -601,40 +687,20 @@ class TopOnAdsManager(
         errorCode: Int? = null,
         detail: String = "",
     ) {
-        // The TopOn→MAX custom adapter places the final MAX network in ATAdInfo.extInfoMap.
-        // Prefer that nested ADN over the parent custom-network name (“Max”) so exported CSVs can
-        // reconcile TopOn's custom source with MAX's actual Google/Pangle/Unity/etc. return.
-        val extInfo = adInfo.extInfoMap.orEmpty()
-        val maxNetwork = extInfo.valueFor("network_name", "NetworkName")
-        val maxAdUnitId = extInfo.valueFor("ad_unit_id", "AdUnitId")
-        val maxNetworkPlacementId = extInfo.valueFor("network_placement_id", "NetworkPlacement")
-        val topOnNetwork = adInfo.networkName.orEmpty().ifBlank { adInfo.adNetworkType.orEmpty() }.ifBlank { "TopOn" }
-        val network = if (maxNetwork.isNotBlank()) "MAX > $maxNetwork" else topOnNetwork
-        val sourceId = when {
-            maxNetworkPlacementId.isNotBlank() -> maxNetworkPlacementId
-            maxAdUnitId.isNotBlank() -> maxAdUnitId
-            else -> adInfo.adsourceId.orEmpty()
-        }
-        val sourceDetail = buildList {
-            if (maxAdUnitId.isNotBlank()) add("max_ad_unit_id=$maxAdUnitId")
-            if (maxNetworkPlacementId.isNotBlank()) add("max_network_placement_id=$maxNetworkPlacementId")
-            if (detail.isNotBlank()) add(detail)
-        }.joinToString("; ")
+        val identity = AdNetworkIdentity.from(adInfo)
+        val sourceDetail = listOf(identity.detail, detail).filter(String::isNotBlank).joinToString("; ")
         auditEvent(
             event = event,
             logicalPlacement = logicalPlacement,
             topOnPlacementId = topOnPlacementId,
             adFormat = adFormat,
-            adNetwork = network,
-            adSourceId = sourceId,
+            adNetwork = identity.networkName,
+            adSourceId = identity.sourceId,
             result = result,
             errorCode = errorCode,
             detail = sourceDetail,
         )
     }
-
-    private fun Map<String, Any>.valueFor(vararg keys: String): String =
-        keys.firstNotNullOfOrNull { key -> this[key]?.toString()?.trim()?.takeIf(String::isNotBlank) }.orEmpty()
 
     private fun auditEvent(
         event: String,
@@ -675,9 +741,15 @@ class TopOnAdsManager(
     private companion object {
         const val TAG = "TopOnAdsManager"
         const val SPLASH_TIMEOUT_MS = 5_000
+        const val INTERSTITIAL_LOAD_TIMEOUT_MS = 8_000L
+        const val INTERSTITIAL_LOAD_TIMEOUT_CODE = -408
+        const val INTERSTITIAL_NOT_READY_CODE = -409
+        const val INTERSTITIAL_CLOSE_TIMEOUT_MS = 120_000L
+        const val INTERSTITIAL_CLOSE_TIMEOUT_CODE = -410
         /** Do not leave a user waiting for a mediation no-fill response indefinitely. */
         const val REWARDED_LOAD_TIMEOUT_MS = 5_000L
         const val REWARDED_LOAD_TIMEOUT_CODE = -408
+        const val GLOBAL_FULLSCREEN_MIN_INTERVAL_MS = 5_000L
     }
 }
 

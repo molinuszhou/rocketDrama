@@ -53,7 +53,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dramaflow.app.AppViewModel
-import com.dramaflow.app.ads.PangleConsent
+import com.dramaflow.app.ads.AdConsent
 import com.dramaflow.app.data.Drama
 import com.dramaflow.app.data.TaskStatus
 import com.dramaflow.app.data.WatchRecord
@@ -330,14 +330,14 @@ fun CoinWalletScreen(padding: PaddingValues, viewModel: AppViewModel) {
 fun SettingsScreen(padding: PaddingValues, viewModel: AppViewModel) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    val consentLabel = when (state.pangleConsent) {
-        PangleConsent.GRANTED -> "已同意"
-        PangleConsent.DECLINED -> "未同意"
-        PangleConsent.UNKNOWN -> "尚未选择"
+    val consentLabel = when (state.adConsent) {
+        AdConsent.GRANTED -> "已同意"
+        AdConsent.DECLINED -> "未同意"
+        AdConsent.UNKNOWN -> "尚未选择"
     }
     val adSubtitle = when {
-        !state.pangleConfigured -> "尚未配置 App ID 与广告位；不会请求广告"
-        state.pangleConsent == PangleConsent.GRANTED -> "已同意；开屏和内容自然断点插屏会按频控展示，激励广告仅在你主动解锁或领取双倍奖励时加载"
+        !state.adsConfigured -> "尚未配置 App ID 与广告位；不会请求广告"
+        state.adConsent == AdConsent.GRANTED -> "已同意；开屏和内容自然断点插屏会按频控展示，激励广告仅在你主动解锁或领取双倍奖励时加载"
         else -> "$consentLabel；开屏、插屏、广告解锁和双倍奖励不可用"
     }
     val entries = listOf(
@@ -354,7 +354,7 @@ fun SettingsScreen(padding: PaddingValues, viewModel: AppViewModel) {
         item { ScreenTopBar("设置", viewModel::navigateBack) }
         item {
             Card(
-                modifier = Modifier.fillMaxWidth().clickable { viewModel.requestPangleConsentChoice() },
+                modifier = Modifier.fillMaxWidth().clickable { viewModel.requestAdConsentChoice() },
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 shape = RoundedCornerShape(16.dp)
             ) {
@@ -362,7 +362,7 @@ fun SettingsScreen(padding: PaddingValues, viewModel: AppViewModel) {
                     Icon(Icons.Outlined.Info, null, tint = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.width(14.dp))
                     Column(Modifier.weight(1f)) {
-                        Text("广告隐私与 Pangle", style = MaterialTheme.typography.titleMedium)
+                        Text("广告与隐私", style = MaterialTheme.typography.titleMedium)
                         Text(adSubtitle, style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
                     }
                     Text("重新选择", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)

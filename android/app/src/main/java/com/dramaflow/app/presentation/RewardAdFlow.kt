@@ -341,6 +341,7 @@ internal fun DramaAppActivity.showPlaybackActionInterstitial(
         resumeAfterFullscreenAd = shouldResume
         topOnAds.showInterstitialForPlaybackAction(
             activity = this,
+            bypassGlobalFrequencyCap = bypassSharedFrequencyCaps,
             onWillShow = {
                 fullscreenAdRequestInFlight = false
                 fullscreenAdInProgress = true

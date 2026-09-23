@@ -26,6 +26,7 @@ class AppsFlyerRevenueContractTest {
         val values = AppsFlyerRevenueContract.eventValues(
             revenueUsd = BigDecimal("0.012"),
             adSource = "Topon Adx",
+            adSourceId = "302667943",
             adUnitId = "unit",
             adPlacement = "splash",
             adType = "Splash",
@@ -33,6 +34,7 @@ class AppsFlyerRevenueContractTest {
         assertEquals(0.012, values[AFInAppEventParameterName.REVENUE])
         assertEquals("USD", values[AFInAppEventParameterName.CURRENCY])
         assertEquals("TopOn", values["ad_platform"])
+        assertEquals("302667943", values["ad_source_id"])
         assertEquals("splash", values["ad_placement"])
     }
 
