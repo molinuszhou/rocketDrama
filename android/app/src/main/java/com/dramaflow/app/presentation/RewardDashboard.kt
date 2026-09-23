@@ -130,13 +130,15 @@ internal fun DramaAppActivity.createRewardBalance(label: String, value: String, 
     addView(icon, LinearLayout.LayoutParams(dp(100), dp(100)))
     addView(LinearLayout(this@createRewardBalance).apply {
         orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(8), 0, 0, 0)
+        addView(TextView(this@createRewardBalance).apply {
+            text = label; textSize = 14f; setTextColor(COLOR_TEXT_MUTED); maxLines = 1; includeFontPadding = false
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         val valueView = TextView(this@createRewardBalance).apply {
             text = value; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY); maxLines = 1; includeFontPadding = false; ellipsize = android.text.TextUtils.TruncateAt.END; letterSpacing = -0.02f
-            setAutoSizeTextTypeUniformWithConfiguration(22, 44, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
+            setAutoSizeTextTypeUniformWithConfiguration(22, 42, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
         }
         if (isGem) gemBalanceLabel = valueView else cashBalanceLabel = valueView
-        addView(valueView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        addView(TextView(this@createRewardBalance).apply { text = label; textSize = 14f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(4), 0, 0); maxLines = 1 })
+        addView(valueView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(3) })
     }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
 }
 
