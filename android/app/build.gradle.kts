@@ -72,8 +72,8 @@ android {
         minSdk = 26
         targetSdk = 35
         // Android 客户端每次代码改动递增补丁版本；服务端/文档单独改动不变更此版本。
-        versionCode = 41
-        versionName = "1.6.6.6"
+        versionCode = 42
+        versionName = "1.6.6.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -175,12 +175,30 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
 
-    // White-label test stack: TopOn mediation, AppsFlyer attribution and Firebase Analytics.
+    // TopOn mediation core. In the current 6.5.73.3 distribution it already bundles the
+    // interstitial, rewarded and splash APIs; adding the older standalone format AARs would
+    // create duplicate classes during release dexing.
     implementation("com.anythink.sdk:core-tpn:6.5.73.3")
     implementation("com.anythink.sdk:adapter-tpn-sdm:6.5.68.1.1")
     implementation("com.smartdigimkttech.sdk:smartdigimkttech-sdk:6.5.68")
     implementation("com.anythink.sdk:adapter-tpn-admob:6.5.36")
     implementation("com.google.android.gms:play-services-ads:24.6.0")
+
+    // MAX is configured as a Custom Network inside TopOn. The Alex adapter bridges TopOn requests
+    // to MAX, while these MAX adapters bring the SDKs for the enabled MAX demand partners.
+    // MAX's AppLovin SDK key and each MAX ad-unit ID remain TopOn dashboard server extras; no MAX
+    // credential is embedded in the client. MAX does not provide the Splash format in this bridge.
+    implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.browser:browser:1.8.0")
+    implementation("com.applovin:applovin-sdk:13.6.0")
+    implementation("io.github.alex-only:max_adapter_tpn:1.3.1")
+    implementation("com.applovin.mediation:google-adapter:24.6.0.0")
+    implementation("com.applovin.mediation:vungle-adapter:7.7.8.1")
+    implementation("com.applovin.mediation:bytedance-adapter:8.3.0.4.1")
+    implementation("com.applovin.mediation:unityads-adapter:4.20.1.0")
+    implementation("com.applovin.mediation:mintegral-adapter:17.1.81.0")
+
+    // Attribution and analytics.
     implementation("com.appsflyer:af-android-sdk:6.17.5")
     implementation(platform("com.google.firebase:firebase-bom:33.10.0"))
     implementation("com.google.firebase:firebase-analytics")

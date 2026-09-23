@@ -94,6 +94,8 @@ class TopOnAdsManager(
     private val safeAdWindows = mutableMapOf<Activity, SafeAdWindowState>()
     /** Activity-level window mode is owned by the presentation layer and must survive a full-screen ad. */
     private val hostEdgeToEdge = mutableMapOf<Activity, Boolean>()
+    /** Local, shareable record for reconciling returned ADN with the mediation dashboard. */
+    private val adNetworkAudit = AdNetworkAuditLog.get(applicationContext)
 
     private data class SafeAdWindowState(
         val statusBarColor: Int,
@@ -115,7 +117,9 @@ class TopOnAdsManager(
      * 否则冷启动时可能在配置尚未就绪前出现无填充或不展示。
      */
     fun initialize(onResult: (Initialization) -> Unit) {
+        adNetworkAudit.recordConfiguration(settings)
         if (!settings.isConfigured) {
+            auditEvent("INITIALIZATION", "sdk", "", "sdk", result = "NOT_CONFIGURED")
             onResult(Initialization.NotConfigured)
             return
         }
@@ -135,6 +139,7 @@ class TopOnAdsManager(
         if (!startInitialization) return
 
         runCatching {
+            auditEvent("INITIALIZATION", "sdk", "", "sdk", result = "STARTED")
             ATSDK.setNetworkLogDebug(settings.enableNetworkDebug)
             ATSDK.init(
                 applicationContext,
@@ -150,11 +155,17 @@ class TopOnAdsManager(
             )
         }.onFailure {
             Log.w(TAG, "TopOn initialization invocation failed", it)
+            auditEvent("INITIALIZATION", "sdk", "", "sdk", result = "FAILED", errorCode = -1, detail = "initialization_exception")
             completeInitialization(Initialization.Failed(-1, it.message.orEmpty()))
         }
     }
 
     private fun completeInitialization(result: Initialization) {
+        when (result) {
+            Initialization.Ready -> auditEvent("INITIALIZATION", "sdk", "", "sdk", result = "READY")
+            Initialization.NotConfigured -> Unit
+            is Initialization.Failed -> auditEvent("INITIALIZATION", "sdk", "", "sdk", result = "FAILED", errorCode = result.code, detail = "sdk_initialization_failed")
+        }
         val callbacks = synchronized(initializationLock) {
             topOnInitialized = result is Initialization.Ready
             topOnInitializationInFlight = false
@@ -168,16 +179,20 @@ class TopOnAdsManager(
         onWillShow: () -> Unit = {},
         onResult: (RewardedResult) -> Unit,
     ) {
+        adNetworkAudit.recordConfiguration(settings)
         if (!settings.canShowRewarded) {
+            auditEvent("REQUEST", "rewarded", settings.rewardedPlacementId, "rewarded", result = "NOT_CONFIGURED")
             onResult(RewardedResult.Unavailable("尚未配置 TopOn App ID、App Key 或激励广告位"))
             return
         }
         if (rewardedRequestInFlight) {
+            auditEvent("REQUEST", "rewarded", settings.rewardedPlacementId, "rewarded", result = "BLOCKED_IN_FLIGHT")
             onResult(RewardedResult.Unavailable("广告请求正在进行中，请勿重复点击"))
             return
         }
         when (val decision = rewardedPolicy.canStart()) {
             is RewardedAdPolicy.Decision.Blocked -> {
+                auditEvent("REQUEST", "rewarded", settings.rewardedPlacementId, "rewarded", result = "BLOCKED_POLICY", detail = decision.message)
                 onResult(RewardedResult.Unavailable(decision.message))
                 return
             }
@@ -185,6 +200,7 @@ class TopOnAdsManager(
         }
 
         rewardedRequestInFlight = true
+        auditEvent("REQUEST", "rewarded", settings.rewardedPlacementId, "rewarded", result = "STARTED")
         var delivered = false
         fun deliver(result: RewardedResult) {
             if (delivered) return
@@ -224,19 +240,24 @@ class TopOnAdsManager(
     ) = showInterstitial(activity, playbackActionPolicy, "int_playback_action", onWillShow, onResult)
 
     fun showAppOpenIfEligible(activity: Activity, onResult: (FullscreenResult) -> Unit) {
+        adNetworkAudit.recordConfiguration(settings)
         if (!settings.canShowSplash) {
+            auditEvent("REQUEST", "splash", settings.splashPlacementId, "splash", result = "NOT_CONFIGURED")
             onResult(FullscreenResult.Skipped("尚未配置 TopOn App ID、App Key 或开屏广告位"))
             return
         }
         if (splashRequestInFlight) {
+            auditEvent("REQUEST", "splash", settings.splashPlacementId, "splash", result = "BLOCKED_IN_FLIGHT")
             onResult(FullscreenResult.Skipped("开屏广告请求正在进行中"))
             return
         }
         if (!splashPolicy.canShow()) {
+            auditEvent("REQUEST", "splash", settings.splashPlacementId, "splash", result = "BLOCKED_POLICY")
             onResult(FullscreenResult.Skipped("开屏广告频控中"))
             return
         }
         splashRequestInFlight = true
+        auditEvent("REQUEST", "splash", settings.splashPlacementId, "splash", result = "STARTED")
         Log.i(TAG, "Splash request started: mode=${if (settings.isDemoMode) "official-demo" else "configured-network"}, placement=${settings.splashPlacementId}")
         var delivered = false
         // TopOn 可能先回调 onAdLoadTimeout，随后仍回调 onAdLoaded(isTimeout=true)。
@@ -260,6 +281,7 @@ class TopOnAdsManager(
                         override fun onAdLoaded(isTimeout: Boolean) {
                             val ready = splash?.isAdReady == true
                             Log.i(TAG, "Splash loaded: isTimeout=$isTimeout, ready=$ready")
+                            auditEvent("LOADED", "splash", settings.splashPlacementId, "splash", result = if (ready) "READY" else "NOT_READY", detail = "timeout_callback=$isTimeout")
                             if (splashRequestExpired || delivered) {
                                 Log.i(TAG, "Splash loaded after startup timeout; discarded to keep startup dialogs ordered")
                                 return
@@ -277,16 +299,19 @@ class TopOnAdsManager(
                         override fun onAdLoadTimeout() {
                             splashRequestExpired = true
                             Log.w(TAG, "Splash load timed out after ${SPLASH_TIMEOUT_MS}ms; startup will continue without a late splash")
+                            auditEvent("LOAD_FAILED", "splash", settings.splashPlacementId, "splash", result = "TIMEOUT", detail = "timeout_ms=$SPLASH_TIMEOUT_MS")
                             deliver(FullscreenResult.Skipped("TopOn 开屏广告加载超时"))
                         }
 
                         override fun onNoAdError(adError: AdError) {
                             Log.w(TAG, "Splash no-ad error: ${adError.fullErrorInfo}")
+                            auditEvent("LOAD_FAILED", "splash", settings.splashPlacementId, "splash", result = "NO_AD", errorCode = errorCode(adError), detail = "topon_no_ad")
                             deliver(FullscreenResult.Failed(errorCode(adError), adError.fullErrorInfo.orEmpty()))
                         }
 
                         override fun onAdShow(entity: ATAdInfo) {
                             Log.i(TAG, "Splash shown: ${entity.adNetworkType}/${entity.adsourceId}")
+                            auditAdInfo("SHOWN", "splash", settings.splashPlacementId, "splash", entity, "DISPLAYED")
                             splashPolicy.recordShown()
                             analytics.reportTopOnImpression("splash", settings.splashPlacementId, entity)
                         }
@@ -295,6 +320,7 @@ class TopOnAdsManager(
 
                         override fun onAdDismiss(entity: ATAdInfo, splashAdExtraInfo: ATSplashAdExtraInfo) {
                             Log.i(TAG, "Splash dismissed")
+                            auditAdInfo("CLOSED", "splash", settings.splashPlacementId, "splash", entity, "DISMISSED")
                             deliver(FullscreenResult.Shown, host)
                         }
 
@@ -332,19 +358,24 @@ class TopOnAdsManager(
         onWillShow: () -> Unit,
         onResult: (FullscreenResult) -> Unit,
     ) {
+        adNetworkAudit.recordConfiguration(settings)
         if (!settings.canShowInterstitial) {
+            auditEvent("REQUEST", logicalPlacement, settings.interstitialPlacementId, "interstitial", result = "NOT_CONFIGURED")
             onResult(FullscreenResult.Skipped("尚未配置 TopOn App ID、App Key 或插屏广告位"))
             return
         }
         if (interstitialRequestInFlight) {
+            auditEvent("REQUEST", logicalPlacement, settings.interstitialPlacementId, "interstitial", result = "BLOCKED_IN_FLIGHT")
             onResult(FullscreenResult.Skipped("插屏广告请求正在进行中"))
             return
         }
         if (!policy.canShow()) {
+            auditEvent("REQUEST", logicalPlacement, settings.interstitialPlacementId, "interstitial", result = "BLOCKED_POLICY")
             onResult(FullscreenResult.Skipped("插屏广告频控中"))
             return
         }
         interstitialRequestInFlight = true
+        auditEvent("REQUEST", logicalPlacement, settings.interstitialPlacementId, "interstitial", result = "STARTED")
         Log.i(TAG, "Interstitial request started: logical=$logicalPlacement, placement=${settings.interstitialPlacementId}")
         var delivered = false
         fun deliver(result: FullscreenResult) {
@@ -363,6 +394,7 @@ class TopOnAdsManager(
                     ad.setAdListener(object : ATInterstitialExListener {
                         override fun onInterstitialAdLoaded() {
                             Log.i(TAG, "Interstitial loaded: logical=$logicalPlacement, ready=${ad.isAdReady}")
+                            auditEvent("LOADED", logicalPlacement, settings.interstitialPlacementId, "interstitial", result = if (ad.isAdReady) "READY" else "NOT_READY")
                             showOnActiveActivity(activity, { deliver(FullscreenResult.Skipped(it)) }, onWillShow) {
                                 ad.show(activity)
                             }
@@ -370,6 +402,7 @@ class TopOnAdsManager(
 
                         override fun onInterstitialAdLoadFail(adError: AdError) {
                             Log.w(TAG, "Interstitial load failed: logical=$logicalPlacement, error=${adError.fullErrorInfo}")
+                            auditEvent("LOAD_FAILED", logicalPlacement, settings.interstitialPlacementId, "interstitial", result = "NO_AD", errorCode = errorCode(adError), detail = "topon_no_ad")
                             deliver(FullscreenResult.Failed(errorCode(adError), adError.fullErrorInfo.orEmpty()))
                         }
 
@@ -377,12 +410,14 @@ class TopOnAdsManager(
 
                         override fun onInterstitialAdShow(entity: ATAdInfo) {
                             Log.i(TAG, "Interstitial shown: logical=$logicalPlacement, network=${entity.adNetworkType}")
+                            auditAdInfo("SHOWN", logicalPlacement, settings.interstitialPlacementId, "interstitial", entity, "DISPLAYED")
                             policy.recordShown()
                             analytics.reportTopOnImpression(logicalPlacement, settings.interstitialPlacementId, entity)
                         }
 
                         override fun onInterstitialAdClose(entity: ATAdInfo) {
                             Log.i(TAG, "Interstitial closed: logical=$logicalPlacement")
+                            auditAdInfo("CLOSED", logicalPlacement, settings.interstitialPlacementId, "interstitial", entity, "DISMISSED")
                             deliver(FullscreenResult.Shown)
                         }
 
@@ -418,6 +453,7 @@ class TopOnAdsManager(
             override fun onAgainRewardFailed(entity: ATAdInfo) = Unit
 
             override fun onRewardedVideoAdLoaded() {
+                auditEvent("LOADED", "rewarded", settings.rewardedPlacementId, "rewarded", result = "READY")
                 showOnActiveActivity(activity, { deliver(RewardedResult.Unavailable(it)) }, onWillShow) {
                     ad.show(activity)
                 }
@@ -425,12 +461,14 @@ class TopOnAdsManager(
 
             override fun onRewardedVideoAdFailed(adError: AdError) {
                 Log.w(TAG, "Rewarded no-ad error: ${adError.fullErrorInfo}")
+                auditEvent("LOAD_FAILED", "rewarded", settings.rewardedPlacementId, "rewarded", result = "NO_AD", errorCode = errorCode(adError), detail = "topon_no_ad")
                 deliver(RewardedResult.Failed(errorCode(adError), adError.fullErrorInfo.orEmpty()))
             }
 
             override fun onRewardedVideoAdPlayStart(entity: ATAdInfo) {
                 latestInfo = entity
                 Log.i(TAG, "Rewarded shown: ${entity.adNetworkType}/${entity.adsourceId}")
+                auditAdInfo("SHOWN", "rewarded", settings.rewardedPlacementId, "rewarded", entity, "DISPLAYED")
                 rewardedPolicy.recordShown()
                 analytics.reportTopOnImpression("rewarded", settings.rewardedPlacementId, entity)
             }
@@ -441,11 +479,13 @@ class TopOnAdsManager(
 
             override fun onRewardedVideoAdPlayFailed(adError: AdError, entity: ATAdInfo) {
                 latestInfo = entity
+                auditAdInfo("PLAY_FAILED", "rewarded", settings.rewardedPlacementId, "rewarded", entity, "FAILED", errorCode(adError), "topon_play_failed")
                 deliver(RewardedResult.Failed(errorCode(adError), adError.fullErrorInfo.orEmpty()))
             }
 
             override fun onRewardedVideoAdClosed(entity: ATAdInfo) {
                 latestInfo = entity
+                auditAdInfo("CLOSED", "rewarded", settings.rewardedPlacementId, "rewarded", entity, if (completed) "REWARDED" else "CANCELLED")
                 if (completed) deliver(RewardedResult.RewardEarned) else deliver(RewardedResult.Cancelled)
             }
 
@@ -455,6 +495,7 @@ class TopOnAdsManager(
                 completed = true
                 latestInfo = entity
                 Log.i(TAG, "Rewarded completed: ${entity.adNetworkType}/${entity.adsourceId}")
+                auditAdInfo("REWARD_COMPLETED", "rewarded", settings.rewardedPlacementId, "rewarded", entity, "COMPLETED")
                 analytics.reportRewardedCompleted("rewarded", settings.rewardedPlacementId, latestInfo)
             }
 
@@ -538,6 +579,75 @@ class TopOnAdsManager(
             isAppearanceLightNavigationBars = state.lightNavigationBars
             show(WindowInsetsCompat.Type.systemBars())
         }
+    }
+
+    private fun auditAdInfo(
+        event: String,
+        logicalPlacement: String,
+        topOnPlacementId: String,
+        adFormat: String,
+        adInfo: ATAdInfo,
+        result: String,
+        errorCode: Int? = null,
+        detail: String = "",
+    ) {
+        // The TopOn→MAX custom adapter places the final MAX network in ATAdInfo.extInfoMap.
+        // Prefer that nested ADN over the parent custom-network name (“Max”) so exported CSVs can
+        // reconcile TopOn's custom source with MAX's actual Google/Pangle/Unity/etc. return.
+        val extInfo = adInfo.extInfoMap.orEmpty()
+        val maxNetwork = extInfo.valueFor("network_name", "NetworkName")
+        val maxAdUnitId = extInfo.valueFor("ad_unit_id", "AdUnitId")
+        val maxNetworkPlacementId = extInfo.valueFor("network_placement_id", "NetworkPlacement")
+        val topOnNetwork = adInfo.networkName.orEmpty().ifBlank { adInfo.adNetworkType.orEmpty() }.ifBlank { "TopOn" }
+        val network = if (maxNetwork.isNotBlank()) "MAX > $maxNetwork" else topOnNetwork
+        val sourceId = when {
+            maxNetworkPlacementId.isNotBlank() -> maxNetworkPlacementId
+            maxAdUnitId.isNotBlank() -> maxAdUnitId
+            else -> adInfo.adsourceId.orEmpty()
+        }
+        val sourceDetail = buildList {
+            if (maxAdUnitId.isNotBlank()) add("max_ad_unit_id=$maxAdUnitId")
+            if (maxNetworkPlacementId.isNotBlank()) add("max_network_placement_id=$maxNetworkPlacementId")
+            if (detail.isNotBlank()) add(detail)
+        }.joinToString("; ")
+        auditEvent(
+            event = event,
+            logicalPlacement = logicalPlacement,
+            topOnPlacementId = topOnPlacementId,
+            adFormat = adFormat,
+            adNetwork = network,
+            adSourceId = sourceId,
+            result = result,
+            errorCode = errorCode,
+            detail = sourceDetail,
+        )
+    }
+
+    private fun Map<String, Any>.valueFor(vararg keys: String): String =
+        keys.firstNotNullOfOrNull { key -> this[key]?.toString()?.trim()?.takeIf(String::isNotBlank) }.orEmpty()
+
+    private fun auditEvent(
+        event: String,
+        logicalPlacement: String,
+        topOnPlacementId: String,
+        adFormat: String,
+        adNetwork: String = "",
+        adSourceId: String = "",
+        result: String = "",
+        errorCode: Int? = null,
+        detail: String = "",
+    ) {
+        adNetworkAudit.record(
+            event = event,
+            logicalPlacement = logicalPlacement,
+            topOnPlacementId = topOnPlacementId,
+            adFormat = adFormat,
+            adNetwork = adNetwork,
+            adSourceId = adSourceId,
+            result = result,
+            errorCode = errorCode,
+            detail = detail,
+        )
     }
 
     private fun errorCode(error: AdError): Int = error.code.toIntOrNull() ?: -1

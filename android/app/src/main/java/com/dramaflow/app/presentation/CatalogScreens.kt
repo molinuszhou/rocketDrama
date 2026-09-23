@@ -110,6 +110,9 @@ internal fun DramaAppActivity.createProfilePage(): View = scrollPage { content -
         content.addView(createSectionHeader(t("my_services"), t("profile_subtitle")), matchParams(top = 10, bottom = 10))
         content.addView(createSettingsRow(t("favorites"), t("continue_watching"), "›") { toast(t("favorites")) }, matchParams(bottom = 8))
         content.addView(createSettingsRow(t("reward_ledger"), t("ledger_note"), "›") { showRewardLedgerHint() }, matchParams(bottom = 8))
+        if (!BuildConfig.WHITE_PACK) {
+            content.addView(createSettingsRow(t("ad_network_audit"), t("ad_network_audit_subtitle"), "›") { showAdNetworkAuditLog() }, matchParams(bottom = 8))
+        }
         content.addView(createSettingsRow(t("settings"), "${t("ad_settings")} · ${t("privacy_terms")}", "›") { showSettingsCenter() }, matchParams(bottom = 8))
         content.addView(createSettingsRow(t("language"), AppLanguage.label(this), "›") { showLanguageSettings() }, matchParams(bottom = 16))
         // 联调阶段保留服务器地址；上线前按产品要求移除此开发分组。
