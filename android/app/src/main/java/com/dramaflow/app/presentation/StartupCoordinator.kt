@@ -87,6 +87,10 @@ internal fun DramaAppActivity.beginStartupExperience() {
 internal fun DramaAppActivity.maybeShowAppOpenAd() {
         if (appOpenAttempted) return
         appOpenAttempted = true
+        if (restoringExternalAdReturn) {
+            finishStartupAfterAppOpen("external_ad_return")
+            return
+        }
         if (consentStore.read() != AdConsent.GRANTED) {
             finishStartupAfterAppOpen("ads_disabled")
             return
@@ -221,6 +225,8 @@ internal fun DramaAppActivity.completeStartupWhenReady() {
             val drama = catalogItems.firstOrNull { it.id == restoredDramaId } ?: catalogItems.firstOrNull()
             if (drama != null) {
                 restorePlayerAfterCatalog = false
+                clearExternalAdReturnCheckpoint()
+                restoringExternalAdReturn = false
                 showPlayer(drama, restoredEpisodeIndex, restoredPositionSeconds)
                 return
             }

@@ -116,6 +116,8 @@ class DramaAppActivity : FragmentActivity() {
     internal var startupProgressPercentLabel: TextView? = null
     internal var resumePlaybackWhenForeground = false
     internal var restorePlayerAfterCatalog = false
+    /** Prevents a second app-open ad while recovering from an ad click's external destination. */
+    internal var restoringExternalAdReturn = false
     internal var restoredDramaId: String? = null
     internal var restoredEpisodeIndex = 0
     internal var restoredPositionSeconds = 0
@@ -240,6 +242,16 @@ class DramaAppActivity : FragmentActivity() {
         restoredDramaId = savedInstanceState?.getString(STATE_DRAMA_ID)
         restoredEpisodeIndex = savedInstanceState?.getInt(STATE_EPISODE_INDEX, 0) ?: 0
         restoredPositionSeconds = savedInstanceState?.getInt(STATE_POSITION_SECONDS, 0) ?: 0
+        readExternalAdReturnCheckpoint()?.let { checkpoint ->
+            restoringExternalAdReturn = true
+            if (!restorePlayerAfterCatalog) {
+                restorePlayerAfterCatalog = true
+                restoredDramaId = checkpoint.dramaId
+                restoredEpisodeIndex = checkpoint.episodeIndex
+                restoredPositionSeconds = checkpoint.positionSeconds
+                logStatus("恢复广告外跳前的播放检查点：${checkpoint.dramaId} #${checkpoint.episodeIndex + 1}")
+            }
+        }
         root = FrameLayout(this).apply { background = pageCanvasDrawable() }
         setContentView(root)
         configureCatalogWindow()
@@ -275,9 +287,29 @@ class DramaAppActivity : FragmentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        // Google Play may relaunch the launcher route after an ad click. LauncherActivity forwards
+        // that intent to this single-task Activity with CLEAR_TOP/SINGLE_TOP, so retain the
+        // existing player rather than starting a fresh loading experience.
+        if (playerShown) {
+            logStatus("已复用现有播放器 Activity 处理外部返回")
+            if (fullscreenAdInProgress || fullscreenAdRequestInFlight) {
+                // Returning via a fresh launcher intent can remove the mediation Activity without
+                // delivering its normal close callback. Recover the host UI and the player here.
+                fullscreenAdInProgress = false
+                fullscreenAdRequestInFlight = false
+                hideFullscreenAdLoadingOverlay()
+                resumeAfterFullscreenAdIfNeeded()
+            }
+        }
+    }
+
     override fun onStop() {
         // 后台不播放声音，但保留播放器实例、剧集和进度；回到前台后自动从原位置继续。
         persistPlaybackProgress()
+        if (fullscreenAdInProgress || fullscreenAdRequestInFlight) saveExternalAdReturnCheckpoint()
         resumePlaybackWhenForeground = playerShown && exoPlayer?.isPlaying == true && !fullscreenAdInProgress
         if (resumePlaybackWhenForeground) exoPlayer?.pause()
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -300,7 +332,7 @@ class DramaAppActivity : FragmentActivity() {
     }
 
     /**
-     * 启动时不再显示“开始追剧”确认框。首次安装默认启用广告请求状态，用户仍可在“我的—广告与隐私”中关闭。
+     * 启动时不显示“开始追剧”确认框。只有用户先主动启用广告后才可能请求开屏。
      * 先显示 JoyeDrama Logo 加载页；开屏关闭、跳过或无填充后，再进入签到与内容初始化。
      */
     internal fun loadLocalCatalog() {
@@ -537,6 +569,7 @@ internal fun DramaAppActivity.showAdNetworkAuditLog() {
         // releasePlayer persists resume state only while the player is still marked visible.
         // Keep this ordering so “My / Continue watching” always resumes the actual episode and time.
         releasePlayer()
+        clearExternalAdReturnCheckpoint()
         playerShown = false
         activeTab = MainTab.HOME
         if (catalogItems.isNotEmpty()) renderActiveTab() else loadLocalCatalog()
@@ -754,6 +787,46 @@ internal fun DramaAppActivity.showAdNetworkAuditLog() {
         lastPersistedPlaybackSecond = safePosition
     }
 
+    /**
+     * Persist synchronously before an ad opens an external store/browser. Android may reclaim the
+     * process while the user is outside the app, so Bundle-only state is insufficient here.
+     */
+    internal fun saveExternalAdReturnCheckpoint() {
+        val drama = selectedDrama ?: return
+        if (!playerShown || currentEpisodeIndex !in drama.episodes.indices) return
+        val positionSeconds = (exoPlayer?.currentPosition?.div(1_000L)?.toInt() ?: playerProgressSeconds)
+            .coerceAtLeast(playerProgressSeconds)
+            .coerceAtLeast(0)
+        playbackHistory.edit()
+            .putString(AD_RETURN_DRAMA_ID, drama.id)
+            .putInt(AD_RETURN_EPISODE_INDEX, currentEpisodeIndex)
+            .putInt(AD_RETURN_POSITION_SECONDS, positionSeconds)
+            .putLong(AD_RETURN_SAVED_AT_MILLIS, System.currentTimeMillis())
+            .commit()
+        logStatus("已保存广告外跳播放检查点：${drama.id} #${currentEpisodeIndex + 1} @${positionSeconds}s")
+    }
+
+    internal fun readExternalAdReturnCheckpoint(): PlaybackReturnCheckpoint? {
+        val checkpoint = PlaybackReturnCheckpoint(
+            dramaId = playbackHistory.getString(AD_RETURN_DRAMA_ID, null).orEmpty(),
+            episodeIndex = playbackHistory.getInt(AD_RETURN_EPISODE_INDEX, -1),
+            positionSeconds = playbackHistory.getInt(AD_RETURN_POSITION_SECONDS, -1),
+            savedAtMillis = playbackHistory.getLong(AD_RETURN_SAVED_AT_MILLIS, 0L),
+        )
+        return checkpoint.takeIf { it.isFresh(System.currentTimeMillis()) }.also {
+            if (it == null) clearExternalAdReturnCheckpoint()
+        }
+    }
+
+    internal fun clearExternalAdReturnCheckpoint() {
+        playbackHistory.edit()
+            .remove(AD_RETURN_DRAMA_ID)
+            .remove(AD_RETURN_EPISODE_INDEX)
+            .remove(AD_RETURN_POSITION_SECONDS)
+            .remove(AD_RETURN_SAVED_AT_MILLIS)
+            .apply()
+    }
+
     internal fun persistNextEpisodeResume(completedIndex: Int) {
         val drama = selectedDrama ?: return
         val nextIndex = (completedIndex + 1).coerceAtMost(drama.episodes.lastIndex.coerceAtLeast(0))
@@ -830,6 +903,12 @@ internal fun DramaAppActivity.showAdNetworkAuditLog() {
     internal fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     companion object {
-        fun intent(context: Context): Intent = Intent(context, DramaAppActivity::class.java)
+        /**
+         * LauncherActivity is recreated by some external destinations (including Google Play).
+         * Route that return to the live player instead of pushing a second startup Activity.
+         */
+        fun intent(context: Context): Intent = Intent(context, DramaAppActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
     }
 }

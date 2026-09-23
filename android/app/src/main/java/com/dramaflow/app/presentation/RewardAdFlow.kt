@@ -298,6 +298,9 @@ internal fun DramaAppActivity.resumeAfterFullscreenAdIfNeeded() {
         }
         restoreImmersiveAfterFullscreenAd = false
         resumeAfterFullscreenAd = false
+        // The host Activity survived the ad hand-off, so a later cold launch must not reopen this
+        // now-stale checkpoint instead of the user's normal catalog entry.
+        clearExternalAdReturnCheckpoint()
         if (!isFinishing && !isDestroyed) {
             if (playerShown) configurePlayerWindow() else configureCatalogWindow()
             root.post {
