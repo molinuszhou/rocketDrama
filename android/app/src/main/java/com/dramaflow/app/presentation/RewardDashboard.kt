@@ -131,12 +131,12 @@ internal fun DramaAppActivity.createRewardBalance(label: String, value: String, 
     addView(LinearLayout(this@createRewardBalance).apply {
         orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(8), 0, 0, 0)
         val valueView = TextView(this@createRewardBalance).apply {
-            text = value; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY); maxLines = 1; includeFontPadding = false; ellipsize = android.text.TextUtils.TruncateAt.END; letterSpacing = -0.02f
-            setAutoSizeTextTypeUniformWithConfiguration(24, 46, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
+            text = value; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY); maxLines = 1; includeFontPadding = true; gravity = Gravity.CENTER_VERTICAL; ellipsize = android.text.TextUtils.TruncateAt.END; letterSpacing = -0.02f
+            setAutoSizeTextTypeUniformWithConfiguration(22, 42, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
         }
         if (isGem) gemBalanceLabel = valueView else cashBalanceLabel = valueView
-        addView(valueView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-    }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        addView(valueView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(76)))
+    }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
 }
 
 /** Crown Road uses one readable row per level so all benefits fit without horizontal compression. */
