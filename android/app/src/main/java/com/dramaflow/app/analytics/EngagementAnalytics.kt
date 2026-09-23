@@ -6,6 +6,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import com.appsflyer.AppsFlyerLib
+import com.appsflyer.attribution.AppsFlyerRequestListener
 import com.dramaflow.app.BuildConfig
 import com.google.firebase.analytics.FirebaseAnalytics
 import com.secmtp.sdk.core.api.ATAdInfo
@@ -33,7 +34,13 @@ import okhttp3.Response
  */
 class EngagementAnalytics private constructor(private val appContext: Context) {
     private val appsFlyer = AppsFlyerLib.getInstance()
-    private val firebase by lazy { FirebaseAnalytics.getInstance(appContext) }
+    /** Firebase auto-initializes from google-services.json; guard the side-channel so an accidental
+     * missing test configuration never blocks ads, AppsFlyer events, or rewards. */
+    private val firebase: FirebaseAnalytics? by lazy {
+        runCatching { FirebaseAnalytics.getInstance(appContext) }
+            .onFailure { Log.w(TAG, "Firebase Analytics is unavailable; Firebase events are skipped", it) }
+            .getOrNull()
+    }
     private val httpClient = OkHttpClient()
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -54,6 +61,8 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
             Log.w(TAG, "AppsFlyer Dev Key is not configured; attribution events are skipped")
             return
         }
+        // AppsFlyer requires this to be set before init/start for complete diagnostic logs.
+        appsFlyer.setDebugLog(BuildConfig.ANALYTICS_DEBUG)
         appsFlyer.init(BuildConfig.APPSFLYER_DEV_KEY, null, appContext)
         appsFlyer.start(appContext)
         Log.i(TAG, "AppsFlyer initialization requested; uid=${appsFlyerUid().orEmpty()}")
@@ -80,33 +89,26 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
     fun reportTopOnRevenue(logicalPlacement: String, adUnitId: String, adInfo: ATAdInfo) {
         if (!BuildConfig.EXTERNAL_REPORTING_ENABLED) { debug("外部上报已关闭：跳过收入事件 $logicalPlacement"); return }
         val payload = payloadFor(logicalPlacement, adUnitId, adInfo)
-        val currency = payload.currency.trim().uppercase(Locale.ROOT)
-        if (currency != USD || !payload.ecpm.isFinite() || payload.ecpm <= 0.0) {
+        val revenueUsd = AppsFlyerRevenueContract.usdRevenueFromEcpm(payload.currency, payload.ecpm)
+        if (revenueUsd == null) {
             debug("广告收入不满足 AppsFlyer USD paid-impression 条件，跳过：$payload")
             return
         }
-
-        val revenueUsd = BigDecimal.valueOf(payload.ecpm).movePointLeft(3)
-        if (revenueUsd.signum() <= 0) return
 
         // Firebase 标准 ad_impression 同样以真实 paid impression 收入为准，而不是 onShow 估算。
         logFirebaseImpression(payload, revenueUsd)
 
         if (BuildConfig.APPSFLYER_DEV_KEY.isBlank()) return
         val singleValues = appsFlyerRevenueValues(payload, revenueUsd)
-        appsFlyer.logEvent(appContext, BuildConfig.APPSFLYER_SINGLE_REVENUE_EVENT_NAME, singleValues)
-        debug("AppsFlyer ${BuildConfig.APPSFLYER_SINGLE_REVENUE_EVENT_NAME}: $singleValues")
+        logAppsFlyerRevenueEvent(BuildConfig.APPSFLYER_SINGLE_REVENUE_EVENT_NAME, singleValues)
 
-        pendingAppsFlyerRevenueUsd = pendingAppsFlyerRevenueUsd.add(revenueUsd)
-        if (pendingAppsFlyerRevenueUsd.compareTo(APPSFLYER_CUMULATIVE_THRESHOLD_USD) >= 0) {
-            val accumulated = pendingAppsFlyerRevenueUsd
-            val accumulatedValues = hashMapOf<String, Any>(
-                "currency" to USD,
-                "value" to accumulated.toDouble(),
+        val (remainder, readyBatch) = AppsFlyerRevenueContract.appendAndTakeReadyBatch(pendingAppsFlyerRevenueUsd, revenueUsd)
+        pendingAppsFlyerRevenueUsd = remainder
+        readyBatch?.let { accumulated ->
+            logAppsFlyerRevenueEvent(
+                BuildConfig.APPSFLYER_CUMULATIVE_REVENUE_EVENT_NAME,
+                AppsFlyerRevenueContract.revenueValues(accumulated),
             )
-            appsFlyer.logEvent(appContext, BuildConfig.APPSFLYER_CUMULATIVE_REVENUE_EVENT_NAME, accumulatedValues)
-            debug("AppsFlyer ${BuildConfig.APPSFLYER_CUMULATIVE_REVENUE_EVENT_NAME}: $accumulatedValues")
-            pendingAppsFlyerRevenueUsd = BigDecimal.ZERO
         }
     }
 
@@ -115,7 +117,11 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
         if (!BuildConfig.EXTERNAL_REPORTING_ENABLED) { debug("外部上报已关闭：跳过激励完成事件 $logicalPlacement"); return }
         val payload = adInfo?.let { payloadFor(logicalPlacement, adUnitId, it) }
             ?: AdPayload(logicalPlacement, adUnitId, "rewarded", "TopOn", 0.0, USD)
-        firebase.logEvent(BuildConfig.FIREBASE_REWARDED_EVENT_NAME, Bundle().apply {
+        val analytics = firebase ?: run {
+            debug("Firebase Analytics unavailable; rewarded-completion event is skipped")
+            return
+        }
+        analytics.logEvent(BuildConfig.FIREBASE_REWARDED_EVENT_NAME, Bundle().apply {
             putString("ad_placement", payload.logicalPlacement)
             putString("ad_unit_id", payload.adUnitId)
             putString("ad_type", payload.adType)
@@ -133,18 +139,32 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
         currency = adInfo.currency.orEmpty().ifBlank { USD },
     )
 
-    private fun appsFlyerRevenueValues(payload: AdPayload, revenueUsd: BigDecimal): HashMap<String, Any> = hashMapOf(
-        "currency" to USD,
-        "value" to revenueUsd.toDouble(),
-        "ad_platform" to "TopOn",
-        "ad_source" to payload.adNetwork,
-        "ad_unit_id" to payload.adUnitId,
-        "ad_placement" to payload.logicalPlacement,
-        "ad_type" to payload.adType,
-    )
+    private fun appsFlyerRevenueValues(payload: AdPayload, revenueUsd: BigDecimal): HashMap<String, Any> =
+        AppsFlyerRevenueContract.eventValues(
+            revenueUsd = revenueUsd,
+            adSource = payload.adNetwork,
+            adUnitId = payload.adUnitId,
+            adPlacement = payload.logicalPlacement,
+            adType = payload.adType,
+        )
+
+    /** Request callbacks distinguish a locally queued logEvent call from a successful SDK submission. */
+    private fun logAppsFlyerRevenueEvent(eventName: String, values: HashMap<String, Any>) {
+        appsFlyer.logEvent(appContext, eventName, values, object : AppsFlyerRequestListener {
+            override fun onSuccess() = debug("AppsFlyer $eventName submitted: $values")
+
+            override fun onError(errorCode: Int, errorDescription: String) {
+                Log.w(TAG, "AppsFlyer $eventName submission failed: code=$errorCode, message=$errorDescription")
+            }
+        })
+    }
 
     private fun logFirebaseImpression(payload: AdPayload, revenueUsd: BigDecimal) {
-        firebase.logEvent(FirebaseAnalytics.Event.AD_IMPRESSION, Bundle().apply {
+        val analytics = firebase ?: run {
+            debug("Firebase Analytics unavailable; paid-impression event is skipped")
+            return
+        }
+        analytics.logEvent(FirebaseAnalytics.Event.AD_IMPRESSION, Bundle().apply {
             putString(FirebaseAnalytics.Param.AD_PLATFORM, "TopOn")
             putString(FirebaseAnalytics.Param.AD_SOURCE, payload.adNetwork)
             putString(FirebaseAnalytics.Param.AD_FORMAT, payload.adType)
@@ -239,8 +259,6 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
         private const val XUANYU_UID_RETRY_DELAY_MS = 750L
         private const val XUANYU_NETWORK_RETRY_COUNT = 2
         private const val XUANYU_NETWORK_RETRY_DELAY_MS = 1_500L
-        private val APPSFLYER_CUMULATIVE_THRESHOLD_USD = BigDecimal("0.01")
-
         @Volatile
         private var instance: EngagementAnalytics? = null
 

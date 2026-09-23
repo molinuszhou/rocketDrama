@@ -72,8 +72,8 @@ android {
         minSdk = 26
         targetSdk = 35
         // Android 客户端每次代码改动递增补丁版本；服务端/文档单独改动不变更此版本。
-        versionCode = 35
-        versionName = "1.6.6.0"
+        versionCode = 36
+        versionName = "1.6.6.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -139,6 +139,8 @@ android {
             buildConfigField("boolean", "ADS_ENABLED", "false")
             buildConfigField("boolean", "REWARDS_ENABLED", "false")
             buildConfigField("boolean", "CONTENT_UNLOCK_ENABLED", "false")
+            // White release is content-only; never start attribution or send analytics side-channel events.
+            buildConfigField("boolean", "EXTERNAL_REPORTING_ENABLED", "false")
             resValue("string", "app_name", "JoyeDrama White")
         }
     }
