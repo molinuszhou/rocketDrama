@@ -690,7 +690,7 @@ class TopOnAdsManager(
         const val TAG = "TopOnAdsManager"
         const val SPLASH_TIMEOUT_MS = 5_000
         /** Do not leave a user waiting for a mediation no-fill response indefinitely. */
-        const val REWARDED_LOAD_TIMEOUT_MS = 12_000L
+        const val REWARDED_LOAD_TIMEOUT_MS = 5_000L
         const val REWARDED_LOAD_TIMEOUT_CODE = -408
     }
 }
