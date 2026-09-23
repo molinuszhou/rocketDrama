@@ -443,6 +443,23 @@ class TopOnAdsManager(
         val ad = ATRewardVideoAd(activity, settings.rewardedPlacementId)
         var completed = false
         var latestInfo: ATAdInfo? = null
+        var timedOut = false
+        val rewardedTimeout = Runnable {
+            if (timedOut) return@Runnable
+            timedOut = true
+            auditEvent(
+                "LOAD_FAILED",
+                "rewarded",
+                settings.rewardedPlacementId,
+                "rewarded",
+                result = "TIMEOUT",
+                errorCode = REWARDED_LOAD_TIMEOUT_CODE,
+                detail = "client_timeout_ms=$REWARDED_LOAD_TIMEOUT_MS",
+            )
+            Log.w(TAG, "Rewarded load timed out after ${REWARDED_LOAD_TIMEOUT_MS}ms; using fallback path")
+            deliver(RewardedResult.Failed(REWARDED_LOAD_TIMEOUT_CODE, "rewarded_load_timeout"))
+        }
+        mainHandler.postDelayed(rewardedTimeout, REWARDED_LOAD_TIMEOUT_MS)
         ad.setAdRevenueListener(TopOnRevenueListener("rewarded", settings.rewardedPlacementId, analytics))
         ad.setAdListener(object : ATRewardVideoExListener {
             override fun onRewardedVideoAdAgainPlayStart(entity: ATAdInfo) = Unit
@@ -453,6 +470,11 @@ class TopOnAdsManager(
             override fun onAgainRewardFailed(entity: ATAdInfo) = Unit
 
             override fun onRewardedVideoAdLoaded() {
+                if (timedOut) {
+                    auditEvent("LOADED_LATE", "rewarded", settings.rewardedPlacementId, "rewarded", result = "IGNORED", detail = "client_timeout_already_delivered")
+                    return
+                }
+                mainHandler.removeCallbacks(rewardedTimeout)
                 auditEvent("LOADED", "rewarded", settings.rewardedPlacementId, "rewarded", result = "READY")
                 showOnActiveActivity(activity, { deliver(RewardedResult.Unavailable(it)) }, onWillShow) {
                     ad.show(activity)
@@ -460,6 +482,8 @@ class TopOnAdsManager(
             }
 
             override fun onRewardedVideoAdFailed(adError: AdError) {
+                if (timedOut) return
+                mainHandler.removeCallbacks(rewardedTimeout)
                 Log.w(TAG, "Rewarded no-ad error: ${adError.fullErrorInfo}")
                 auditEvent("LOAD_FAILED", "rewarded", settings.rewardedPlacementId, "rewarded", result = "NO_AD", errorCode = errorCode(adError), detail = "topon_no_ad")
                 deliver(RewardedResult.Failed(errorCode(adError), adError.fullErrorInfo.orEmpty()))
@@ -665,6 +689,9 @@ class TopOnAdsManager(
     private companion object {
         const val TAG = "TopOnAdsManager"
         const val SPLASH_TIMEOUT_MS = 5_000
+        /** Do not leave a user waiting for a mediation no-fill response indefinitely. */
+        const val REWARDED_LOAD_TIMEOUT_MS = 12_000L
+        const val REWARDED_LOAD_TIMEOUT_CODE = -408
     }
 }
 
