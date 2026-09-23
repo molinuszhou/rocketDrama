@@ -8,6 +8,9 @@ import android.util.Log
 import com.appsflyer.AppsFlyerLib
 import com.appsflyer.attribution.AppsFlyerRequestListener
 import com.dramaflow.app.BuildConfig
+import com.dramaflow.app.analytics.ReportingProvider.APPSFLYER
+import com.dramaflow.app.analytics.ReportingProvider.FIREBASE
+import com.dramaflow.app.analytics.ReportingProvider.XUANYU
 import com.google.firebase.analytics.FirebaseAnalytics
 import com.secmtp.sdk.core.api.ATAdInfo
 import java.io.IOException
@@ -34,6 +37,7 @@ import okhttp3.Response
  */
 class EngagementAnalytics private constructor(private val appContext: Context) {
     private val appsFlyer = AppsFlyerLib.getInstance()
+    private val reportingAudit = ReportingAuditLog.get(appContext)
     /** Firebase auto-initializes from google-services.json; guard the side-channel so an accidental
      * missing test configuration never blocks ads, AppsFlyer events, or rewards. */
     private val firebase: FirebaseAnalytics? by lazy {
@@ -54,17 +58,24 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
         if (initialized) return
         initialized = true
         if (!BuildConfig.EXTERNAL_REPORTING_ENABLED) {
+            reportingAudit.recordProvider(APPSFLYER, "sdk_initialization", ReportingStatus.SKIPPED_DISABLED)
+            reportingAudit.recordProvider(FIREBASE, "sdk_initialization", ReportingStatus.SKIPPED_DISABLED)
+            reportingAudit.recordProvider(XUANYU, "sdk_initialization", ReportingStatus.SKIPPED_DISABLED)
             Log.i(TAG, "外部数据上报已关闭：AppsFlyer、Firebase 与炫羽事件不会发送")
             return
         }
         if (BuildConfig.APPSFLYER_DEV_KEY.isBlank()) {
+            reportingAudit.recordProvider(APPSFLYER, "sdk_initialization", ReportingStatus.SKIPPED_NOT_CONFIGURED)
             Log.w(TAG, "AppsFlyer Dev Key is not configured; attribution events are skipped")
-            return
+        } else {
+            reportingAudit.recordProvider(APPSFLYER, "sdk_initialization", ReportingStatus.STARTED)
+            appsFlyer.setDebugLog(BuildConfig.ANALYTICS_DEBUG)
+            appsFlyer.init(BuildConfig.APPSFLYER_DEV_KEY, null, appContext)
+            appsFlyer.start(appContext)
+            reportingAudit.recordProvider(APPSFLYER, "sdk_initialization", ReportingStatus.SUCCESS, detail = "start_requested")
         }
-        // AppsFlyer requires this to be set before init/start for complete diagnostic logs.
-        appsFlyer.setDebugLog(BuildConfig.ANALYTICS_DEBUG)
-        appsFlyer.init(BuildConfig.APPSFLYER_DEV_KEY, null, appContext)
-        appsFlyer.start(appContext)
+        reportingAudit.recordProvider(FIREBASE, "sdk_initialization", ReportingStatus.SUCCESS, detail = "firebase_lazy_init")
+        reportingAudit.recordProvider(XUANYU, "sdk_initialization", ReportingStatus.SUCCESS, detail = "http_client_ready")
         Log.i(TAG, "AppsFlyer initialization requested; uid=${appsFlyerUid().orEmpty()}")
     }
 
@@ -75,7 +86,11 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
 
     /** 广告真实展示：炫羽展示上报使用此时机；收入事件等待 paid impression 回调。 */
     fun reportTopOnImpression(logicalPlacement: String, adUnitId: String, adInfo: ATAdInfo) {
-        if (!BuildConfig.EXTERNAL_REPORTING_ENABLED) { debug("外部上报已关闭：跳过展示事件 $logicalPlacement"); return }
+        if (!BuildConfig.EXTERNAL_REPORTING_ENABLED) {
+            recordAllDisabled("ad_impression", logicalPlacement, adUnitId)
+            debug("外部上报已关闭：跳过展示事件 $logicalPlacement")
+            return
+        }
         reportXuanyuAdShow(payloadFor(logicalPlacement, adUnitId, adInfo))
     }
 
@@ -87,10 +102,16 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
      */
     @Synchronized
     fun reportTopOnRevenue(logicalPlacement: String, adUnitId: String, adInfo: ATAdInfo) {
-        if (!BuildConfig.EXTERNAL_REPORTING_ENABLED) { debug("外部上报已关闭：跳过收入事件 $logicalPlacement"); return }
+        if (!BuildConfig.EXTERNAL_REPORTING_ENABLED) {
+            recordAllDisabled("ad_revenue", logicalPlacement, adUnitId)
+            debug("外部上报已关闭：跳过收入事件 $logicalPlacement")
+            return
+        }
         val payload = payloadFor(logicalPlacement, adUnitId, adInfo)
         val revenueUsd = AppsFlyerRevenueContract.usdRevenueFromEcpm(payload.currency, payload.ecpm)
         if (revenueUsd == null) {
+            reportingAudit.recordProvider(APPSFLYER, "ad_revenue", ReportingStatus.SKIPPED_NOT_CONFIGURED, logicalPlacement, adUnitId, detail = "non_usd_or_invalid_ecpm")
+            reportingAudit.recordProvider(FIREBASE, "ad_impression", ReportingStatus.SKIPPED_NOT_CONFIGURED, logicalPlacement, adUnitId, detail = "non_usd_or_invalid_ecpm")
             debug("广告收入不满足 AppsFlyer USD paid-impression 条件，跳过：$payload")
             return
         }
@@ -114,19 +135,26 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
 
     /** Firebase 的唯一自定义事件：只在激励广告完整回调后发送。 */
     fun reportRewardedCompleted(logicalPlacement: String, adUnitId: String, adInfo: ATAdInfo?) {
-        if (!BuildConfig.EXTERNAL_REPORTING_ENABLED) { debug("外部上报已关闭：跳过激励完成事件 $logicalPlacement"); return }
+        if (!BuildConfig.EXTERNAL_REPORTING_ENABLED) {
+            reportingAudit.recordProvider(FIREBASE, BuildConfig.FIREBASE_REWARDED_EVENT_NAME, ReportingStatus.SKIPPED_DISABLED, logicalPlacement, adUnitId)
+            debug("外部上报已关闭：跳过激励完成事件 $logicalPlacement")
+            return
+        }
         val payload = adInfo?.let { payloadFor(logicalPlacement, adUnitId, it) }
             ?: AdPayload(logicalPlacement, adUnitId, "rewarded", "TopOn", 0.0, USD)
         val analytics = firebase ?: run {
+            reportingAudit.recordProvider(FIREBASE, BuildConfig.FIREBASE_REWARDED_EVENT_NAME, ReportingStatus.FAILED, logicalPlacement, adUnitId, detail = "firebase_unavailable")
             debug("Firebase Analytics unavailable; rewarded-completion event is skipped")
             return
         }
+        reportingAudit.recordProvider(FIREBASE, BuildConfig.FIREBASE_REWARDED_EVENT_NAME, ReportingStatus.QUEUED, logicalPlacement, adUnitId)
         analytics.logEvent(BuildConfig.FIREBASE_REWARDED_EVENT_NAME, Bundle().apply {
             putString("ad_placement", payload.logicalPlacement)
             putString("ad_unit_id", payload.adUnitId)
             putString("ad_type", payload.adType)
             putString("ad_source", payload.adNetwork)
         })
+        reportingAudit.recordProvider(FIREBASE, BuildConfig.FIREBASE_REWARDED_EVENT_NAME, ReportingStatus.SUCCESS, logicalPlacement, adUnitId, detail = "sdk_accepted_event")
         debug("Firebase ${BuildConfig.FIREBASE_REWARDED_EVENT_NAME}: $payload")
     }
 
@@ -150,10 +178,15 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
 
     /** Request callbacks distinguish a locally queued logEvent call from a successful SDK submission. */
     private fun logAppsFlyerRevenueEvent(eventName: String, values: HashMap<String, Any>) {
+        reportingAudit.recordProvider(APPSFLYER, eventName, ReportingStatus.QUEUED, values["ad_placement"]?.toString().orEmpty(), values["ad_unit_id"]?.toString().orEmpty())
         appsFlyer.logEvent(appContext, eventName, values, object : AppsFlyerRequestListener {
-            override fun onSuccess() = debug("AppsFlyer $eventName submitted: $values")
+            override fun onSuccess() {
+                reportingAudit.recordProvider(APPSFLYER, eventName, ReportingStatus.SUCCESS, values["ad_placement"]?.toString().orEmpty(), values["ad_unit_id"]?.toString().orEmpty(), detail = "sdk_callback_success")
+                debug("AppsFlyer $eventName submitted: $values")
+            }
 
             override fun onError(errorCode: Int, errorDescription: String) {
+                reportingAudit.recordProvider(APPSFLYER, eventName, ReportingStatus.FAILED, values["ad_placement"]?.toString().orEmpty(), values["ad_unit_id"]?.toString().orEmpty(), errorCode.toString(), errorDescription)
                 Log.w(TAG, "AppsFlyer $eventName submission failed: code=$errorCode, message=$errorDescription")
             }
         })
@@ -161,9 +194,11 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
 
     private fun logFirebaseImpression(payload: AdPayload, revenueUsd: BigDecimal) {
         val analytics = firebase ?: run {
+            reportingAudit.recordProvider(FIREBASE, "ad_impression", ReportingStatus.FAILED, payload.logicalPlacement, payload.adUnitId, detail = "firebase_unavailable")
             debug("Firebase Analytics unavailable; paid-impression event is skipped")
             return
         }
+        reportingAudit.recordProvider(FIREBASE, "ad_impression", ReportingStatus.QUEUED, payload.logicalPlacement, payload.adUnitId)
         analytics.logEvent(FirebaseAnalytics.Event.AD_IMPRESSION, Bundle().apply {
             putString(FirebaseAnalytics.Param.AD_PLATFORM, "TopOn")
             putString(FirebaseAnalytics.Param.AD_SOURCE, payload.adNetwork)
@@ -173,14 +208,19 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
             putDouble(FirebaseAnalytics.Param.VALUE, revenueUsd.toDouble())
             putString("ad_placement", payload.logicalPlacement)
         })
+        reportingAudit.recordProvider(FIREBASE, "ad_impression", ReportingStatus.SUCCESS, payload.logicalPlacement, payload.adUnitId, detail = "sdk_accepted_event")
         debug("Firebase ad_impression: placement=${payload.logicalPlacement}, value=${revenueUsd.toPlainString()}")
     }
 
     private fun reportXuanyuAdShow(payload: AdPayload, uidAttempt: Int = 0, networkAttempt: Int = 0) {
-        if (!BuildConfig.EXTERNAL_REPORTING_ENABLED) return
+        if (!BuildConfig.EXTERNAL_REPORTING_ENABLED) {
+            reportingAudit.recordProvider(XUANYU, "w_ad_show", ReportingStatus.SKIPPED_DISABLED, payload.logicalPlacement, payload.adUnitId)
+            return
+        }
         val baseUrl = BuildConfig.XUANYU_EVENT_BASE_URL.trim().removeSuffix("/")
         val uid = appsFlyerUid()
         if (baseUrl.isBlank()) {
+            reportingAudit.recordProvider(XUANYU, "w_ad_show", ReportingStatus.SKIPPED_NOT_CONFIGURED, payload.logicalPlacement, payload.adUnitId, detail = "base_url_blank")
             debug("炫羽广告展示上报跳过：baseUrl 未配置")
             return
         }
@@ -188,6 +228,7 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
             if (uidAttempt < XUANYU_UID_RETRY_COUNT) {
                 mainHandler.postDelayed({ reportXuanyuAdShow(payload, uidAttempt + 1, networkAttempt) }, XUANYU_UID_RETRY_DELAY_MS)
             } else {
+                reportingAudit.recordProvider(XUANYU, "w_ad_show", ReportingStatus.FINAL_FAILED, payload.logicalPlacement, payload.adUnitId, detail = "appsflyer_uid_not_ready")
                 Log.w(TAG, "炫羽广告展示上报跳过：AppsFlyer uid 未就绪")
             }
             return
@@ -201,19 +242,23 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
             ?.addQueryParameter("ecpm", formatDecimal(payload.ecpm.coerceAtLeast(0.0)))
             ?.build()
         if (url == null) {
+            reportingAudit.recordProvider(XUANYU, "w_ad_show", ReportingStatus.FAILED, payload.logicalPlacement, payload.adUnitId, detail = "invalid_url")
             Log.w(TAG, "炫羽广告展示上报地址无效")
             return
         }
+        reportingAudit.recordProvider(XUANYU, "w_ad_show", ReportingStatus.STARTED, payload.logicalPlacement, payload.adUnitId, detail = "http_request")
         httpClient.newCall(Request.Builder().url(url).get().build()).enqueue(object : Callback {
             override fun onFailure(call: Call, error: IOException) {
                 if (networkAttempt < XUANYU_NETWORK_RETRY_COUNT) {
                     val nextAttempt = networkAttempt + 1
+                    reportingAudit.recordProvider(XUANYU, "w_ad_show", ReportingStatus.RETRYING, payload.logicalPlacement, payload.adUnitId, detail = "attempt=$nextAttempt")
                     Log.w(TAG, "炫羽广告展示上报失败（第 ${nextAttempt} 次重试前）：${error.message}")
                     mainHandler.postDelayed(
                         { reportXuanyuAdShow(payload, uidAttempt, nextAttempt) },
                         XUANYU_NETWORK_RETRY_DELAY_MS,
                     )
                 } else {
+                    reportingAudit.recordProvider(XUANYU, "w_ad_show", ReportingStatus.FINAL_FAILED, payload.logicalPlacement, payload.adUnitId, detail = error.message.orEmpty())
                     Log.w(TAG, "炫羽广告展示上报最终失败：${error.message}")
                 }
             }
@@ -221,15 +266,18 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
             override fun onResponse(call: Call, response: Response) {
                 response.use {
                     if (it.isSuccessful) {
+                        reportingAudit.recordProvider(XUANYU, "w_ad_show", ReportingStatus.SUCCESS, payload.logicalPlacement, payload.adUnitId, detail = "http_${it.code}")
                         debug("炫羽广告展示上报成功：${payload.logicalPlacement}")
                     } else if (networkAttempt < XUANYU_NETWORK_RETRY_COUNT) {
                         val nextAttempt = networkAttempt + 1
+                        reportingAudit.recordProvider(XUANYU, "w_ad_show", ReportingStatus.RETRYING, payload.logicalPlacement, payload.adUnitId, it.code.toString(), "attempt=$nextAttempt")
                         Log.w(TAG, "炫羽广告展示上报失败：HTTP ${it.code}，将重试")
                         mainHandler.postDelayed(
                             { reportXuanyuAdShow(payload, uidAttempt, nextAttempt) },
                             XUANYU_NETWORK_RETRY_DELAY_MS,
                         )
                     } else {
+                        reportingAudit.recordProvider(XUANYU, "w_ad_show", ReportingStatus.FINAL_FAILED, payload.logicalPlacement, payload.adUnitId, it.code.toString())
                         Log.w(TAG, "炫羽广告展示上报最终失败：HTTP ${it.code}")
                     }
                 }
@@ -241,6 +289,12 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
 
     private fun debug(message: String) {
         if (BuildConfig.DEBUG || BuildConfig.ANALYTICS_DEBUG) Log.d(TAG, message)
+    }
+
+    private fun recordAllDisabled(eventName: String, placement: String, adUnitId: String) {
+        reportingAudit.recordProvider(APPSFLYER, eventName, ReportingStatus.SKIPPED_DISABLED, placement, adUnitId)
+        reportingAudit.recordProvider(FIREBASE, eventName, ReportingStatus.SKIPPED_DISABLED, placement, adUnitId)
+        reportingAudit.recordProvider(XUANYU, "w_ad_show", ReportingStatus.SKIPPED_DISABLED, placement, adUnitId)
     }
 
     data class AdPayload(
