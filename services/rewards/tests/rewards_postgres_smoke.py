@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import uuid
+from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 
@@ -90,6 +91,78 @@ def run() -> None:
     assert initial["wallet"]["release"]["boost_cap"] == 10
     assert [item["gems"] for item in initial["checkin"]["tiers"][:7]] == [3000, 6000, 8000, 12000, 15000, 25000, 50000]
     assert [item["gems"] for item in initial["crown_progress"]] == [12000, 26000, 66000, 80000, 100000]
+
+    # Advertising operations telemetry stores only an installation hash, de-duplicates
+    # client retries and separates shown counts from paid-impression revenue.
+    mediation_event_id = event_id("mediation-shown")
+    mediation_date = service._now().date()  # noqa: SLF001 - integration test setup
+    mediation_now_ms = int(service._now().timestamp() * 1000)  # noqa: SLF001 - integration test setup
+    mediation_app_version = f"smoke-{uuid.uuid4()}"
+    mediation_shown = service.record_ad_mediation_event(
+        client_event_id=mediation_event_id,
+        install_id_hash="a" * 64,
+        event_type="SHOWN",
+        logical_placement="int_playback_action",
+        topon_placement_id="topon-int-demo",
+        ad_format="interstitial",
+        ad_network="MAX > Google AdMob",
+        ad_source_id="google-demo-unit",
+        app_version=mediation_app_version,
+        currency="USD",
+        ecpm=1.25,
+        occurred_at_ms=mediation_now_ms,
+    )
+    assert mediation_shown["accepted"] is True
+    assert mediation_shown["idempotent"] is False
+    assert mediation_shown["estimated_value"] == "0"
+    assert service.record_ad_mediation_event(
+        client_event_id=mediation_event_id,
+        install_id_hash="a" * 64,
+        event_type="SHOWN",
+        logical_placement="int_playback_action",
+        topon_placement_id="topon-int-demo",
+        ad_format="interstitial",
+        ad_network="MAX > Google AdMob",
+        ad_source_id="google-demo-unit",
+        app_version=mediation_app_version,
+        currency="USD",
+        ecpm=1.25,
+        occurred_at_ms=mediation_now_ms,
+    )["idempotent"] is True
+    mediation_paid = service.record_ad_mediation_event(
+        client_event_id=event_id("mediation-paid"),
+        install_id_hash="a" * 64,
+        event_type="PAID_REVENUE",
+        logical_placement="int_playback_action",
+        topon_placement_id="topon-int-demo",
+        ad_format="interstitial",
+        ad_network="MAX > Google AdMob",
+        ad_source_id="google-demo-unit",
+        app_version=mediation_app_version,
+        currency="USD",
+        ecpm=1.25,
+        occurred_at_ms=mediation_now_ms,
+    )
+    assert mediation_paid["estimated_value"] == "0.00125"
+    with service._transaction() as connection:  # noqa: SLF001 - integration test setup
+        metric = service._one(  # noqa: SLF001 - integration test setup
+            connection,
+            "SELECT shown_count, paid_revenue_count, revenue_value FROM ad_mediation_daily_metrics WHERE app_version = %s AND logical_placement = %s",
+            (mediation_app_version, "int_playback_action"),
+        )
+    assert metric is not None
+    assert metric["shown_count"] == 1
+    assert metric["paid_revenue_count"] == 1
+    assert str(metric["revenue_value"]) == "0.001250000000"
+    admin_service = RewardsService(replace(settings, admin_dashboard_token="smoke-admin-token"))
+    daily_metrics = admin_service.admin_ad_mediation_daily_metrics(
+        "Bearer smoke-admin-token",
+        mediation_date,
+        mediation_date,
+    )
+    assert daily_metrics["totals"]["shown_count"] >= 1
+    assert daily_metrics["totals"]["paid_revenue_count"] >= 1
+    assert any(row["app_version"] == mediation_app_version for row in daily_metrics["rows"])
 
     # 欢迎奖励和签到均必须由完整激励广告结算，旧直接接口不再能绕过广告。
     welcome, _ = rewarded(service, user_id, "rv_welcome_bonus")

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 from fastapi import FastAPI, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -9,6 +11,7 @@ from app.config import Settings
 from app.migrations import apply_runtime_migrations
 from app.schemas import (
     ApiEnvelope,
+    AdMediationEventRequest,
     BootstrapRequest,
     CheckinRequest,
     ClaimAllEpisodeRewardsRequest,
@@ -189,6 +192,39 @@ def exchange_gems(payload: GemsExchangeRequest) -> dict:
 @app.post("/v2/interstitials/shown", response_model=ApiEnvelope)
 def interstitial_shown(payload: InterstitialShownRequest) -> dict:
     return {"code": 0, "data": service.record_interstitial(payload.user_id, payload.event_id, payload.placement_id, payload.episode_id)}
+
+
+@app.post("/v2/operations/ad-mediation-events", response_model=ApiEnvelope)
+def record_ad_mediation_event(payload: AdMediationEventRequest) -> dict:
+    return {
+        "code": 0,
+        "data": service.record_ad_mediation_event(
+            client_event_id=payload.client_event_id,
+            install_id_hash=payload.install_id_hash,
+            event_type=payload.event_type,
+            logical_placement=payload.logical_placement,
+            topon_placement_id=payload.topon_placement_id,
+            ad_format=payload.ad_format,
+            ad_network=payload.ad_network,
+            ad_source_id=payload.ad_source_id,
+            app_version=payload.app_version,
+            currency=payload.currency,
+            ecpm=payload.ecpm,
+            occurred_at_ms=payload.occurred_at_ms,
+        ),
+    }
+
+
+@app.get("/v2/admin/operations/ad-mediation-daily", response_model=ApiEnvelope)
+def admin_ad_mediation_daily(
+    authorization: str | None = Header(default=None),
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> dict:
+    return {
+        "code": 0,
+        "data": service.admin_ad_mediation_daily_metrics(authorization, start_date, end_date),
+    }
 
 
 @app.post("/v2/withdrawals/preflight", response_model=ApiEnvelope)

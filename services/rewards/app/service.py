@@ -5,6 +5,7 @@ import math
 import secrets
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from typing import Any, Iterator
 from zoneinfo import ZoneInfo
 
@@ -798,6 +799,185 @@ class RewardsService:
                     (user_id, business_date),
                 )
             return {"idempotent": False, "snapshot": self._snapshot(connection, user_id)}
+
+    def record_ad_mediation_event(
+        self,
+        *,
+        client_event_id: str,
+        install_id_hash: str,
+        event_type: str,
+        logical_placement: str,
+        topon_placement_id: str,
+        ad_format: str,
+        ad_network: str,
+        ad_source_id: str,
+        app_version: str,
+        currency: str,
+        ecpm: float | None,
+        occurred_at_ms: int,
+    ) -> dict[str, Any]:
+        """Persist a de-duplicated, non-financial mirror of TopOn callbacks.
+
+        The Android client only sends a SHA-256 installation pseudonym. Event values
+        are observed mediation estimates (``eCPM / 1000``), not a settlement or a
+        replacement for TopOn/MAX financial reports.
+        """
+
+        occurred_at = datetime.fromtimestamp(occurred_at_ms / 1_000, UTC)
+        # Reject obviously stale/future client clocks rather than contaminating daily
+        # operations reporting. A retry queue is expected to deliver events shortly
+        # after the device becomes online.
+        if abs((datetime.now(UTC) - occurred_at).total_seconds()) > 31 * 24 * 60 * 60:
+            raise ServiceError(2301, "广告运营事件时间超出允许范围", 422)
+        normalized_currency = currency.strip().upper()
+        normalized_ecpm = Decimal(str(ecpm)) if ecpm is not None else None
+        estimated_value = (normalized_ecpm / Decimal("1000")) if event_type == "PAID_REVENUE" and normalized_ecpm is not None else Decimal("0")
+        metric_date = occurred_at.date()
+
+        with self._transaction() as connection:
+            existing = self._one(
+                connection,
+                "SELECT client_event_id FROM ad_mediation_events WHERE client_event_id = %s",
+                (client_event_id,),
+            )
+            if existing:
+                return {
+                    "idempotent": True,
+                    "accepted": True,
+                    "client_event_id": client_event_id,
+                    "event_type": event_type,
+                }
+            self._execute(
+                connection,
+                """
+                INSERT INTO ad_mediation_events (
+                    client_event_id, install_id_hash, event_type, logical_placement,
+                    topon_placement_id, ad_format, ad_network, ad_source_id,
+                    app_version, currency, ecpm, impression_value, client_occurred_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    client_event_id,
+                    install_id_hash,
+                    event_type,
+                    logical_placement,
+                    topon_placement_id,
+                    ad_format,
+                    ad_network,
+                    ad_source_id,
+                    app_version,
+                    normalized_currency,
+                    normalized_ecpm,
+                    estimated_value,
+                    occurred_at,
+                ),
+            )
+            self._execute(
+                connection,
+                """
+                INSERT INTO ad_mediation_daily_metrics (
+                    metric_date, app_version, logical_placement, topon_placement_id,
+                    ad_format, ad_network, ad_source_id, currency,
+                    shown_count, paid_revenue_count, revenue_value
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s
+                )
+                ON CONFLICT (
+                    metric_date, app_version, logical_placement, topon_placement_id,
+                    ad_format, ad_network, ad_source_id, currency
+                ) DO UPDATE SET
+                    shown_count = ad_mediation_daily_metrics.shown_count + EXCLUDED.shown_count,
+                    paid_revenue_count = ad_mediation_daily_metrics.paid_revenue_count + EXCLUDED.paid_revenue_count,
+                    revenue_value = ad_mediation_daily_metrics.revenue_value + EXCLUDED.revenue_value,
+                    updated_at = NOW()
+                """,
+                (
+                    metric_date,
+                    app_version,
+                    logical_placement,
+                    topon_placement_id,
+                    ad_format,
+                    ad_network,
+                    ad_source_id,
+                    normalized_currency,
+                    1 if event_type == "SHOWN" else 0,
+                    1 if event_type == "PAID_REVENUE" else 0,
+                    estimated_value,
+                ),
+            )
+            # Preserve compact daily aggregates indefinitely while retaining only a
+            # bounded reconciliation window of raw client callbacks.
+            self._execute(
+                connection,
+                "DELETE FROM ad_mediation_events WHERE accepted_at < NOW() - INTERVAL '90 days'",
+            )
+            return {
+                "idempotent": False,
+                "accepted": True,
+                "client_event_id": client_event_id,
+                "event_type": event_type,
+                "estimated_value": format(estimated_value, "f"),
+            }
+
+    def admin_ad_mediation_daily_metrics(
+        self,
+        authorization: str | None,
+        start_date: date | None = None,
+        end_date: date | None = None,
+    ) -> dict[str, Any]:
+        self._verify_admin_token(authorization)
+        default_end = self._now().date()
+        actual_end = end_date or default_end
+        actual_start = start_date or actual_end - timedelta(days=6)
+        if actual_start > actual_end:
+            raise ServiceError(2302, "广告运营报表开始日期不能晚于结束日期", 422)
+        if actual_end - actual_start > timedelta(days=366):
+            raise ServiceError(2303, "广告运营报表最大查询范围为 366 天", 422)
+        with self._transaction() as connection:
+            rows = self._all(
+                connection,
+                """
+                SELECT metric_date, app_version, logical_placement, topon_placement_id,
+                       ad_format, ad_network, ad_source_id, currency,
+                       shown_count, paid_revenue_count, revenue_value, updated_at
+                FROM ad_mediation_daily_metrics
+                WHERE metric_date BETWEEN %s AND %s
+                ORDER BY metric_date DESC, revenue_value DESC, shown_count DESC,
+                         logical_placement ASC, ad_network ASC
+                """,
+                (actual_start, actual_end),
+            )
+            totals = self._one(
+                connection,
+                """
+                SELECT COALESCE(SUM(shown_count), 0) AS shown_count,
+                       COALESCE(SUM(paid_revenue_count), 0) AS paid_revenue_count,
+                       COALESCE(SUM(revenue_value), 0) AS revenue_value
+                FROM ad_mediation_daily_metrics
+                WHERE metric_date BETWEEN %s AND %s
+                """,
+                (actual_start, actual_end),
+            ) or {}
+        def serialize(row: dict[str, Any]) -> dict[str, Any]:
+            return {
+                **row,
+                "metric_date": row["metric_date"].isoformat(),
+                "currency": row["currency"].strip(),
+                "revenue_value": format(Decimal(str(row["revenue_value"])), "f"),
+                "updated_at": row["updated_at"].isoformat(),
+            }
+        return {
+            "start_date": actual_start.isoformat(),
+            "end_date": actual_end.isoformat(),
+            "totals": {
+                "shown_count": int(totals.get("shown_count", 0)),
+                "paid_revenue_count": int(totals.get("paid_revenue_count", 0)),
+                "revenue_value": format(Decimal(str(totals.get("revenue_value", 0))), "f"),
+            },
+            "rows": [serialize(row) for row in rows],
+            "disclaimer": "收入值为客户端 TopOn paid-impression 回调的 eCPM/1000 估算，仅用于运营对账；TopOn/MAX 后台结算报表为财务事实来源。",
+        }
 
     def settle_rewarded_fallback(
         self,

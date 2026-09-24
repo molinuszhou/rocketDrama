@@ -56,6 +56,7 @@ import com.dramaflow.app.R
 import com.dramaflow.app.i18n.AppLanguage
 import com.dramaflow.app.ads.AdConsent
 import com.dramaflow.app.ads.AdConsentStore
+import com.dramaflow.app.ads.AdMediationEventReporter
 import com.dramaflow.app.ads.AdNetworkAuditLog
 import com.dramaflow.app.ads.TopOnAdsManager
 import com.dramaflow.app.ads.TopOnSettings
@@ -228,7 +229,16 @@ class DramaAppActivity : FragmentActivity() {
     internal val taskRewardPromptPreferences by lazy { getSharedPreferences("joyedrama.task_reward_prompts", Context.MODE_PRIVATE) }
 
     internal val consentStore by lazy { AdConsentStore(applicationContext) }
-    internal val topOnAds by lazy { TopOnAdsManager(applicationContext, TopOnSettings.fromBuildConfig()) }
+    internal val adMediationReporter by lazy {
+        AdMediationEventReporter(
+            applicationContext,
+            baseUrlProvider = { rewardsBaseUrl() },
+            installationIdProvider = { anonymousInstallationId() },
+        )
+    }
+    internal val topOnAds by lazy {
+        TopOnAdsManager(applicationContext, TopOnSettings.fromBuildConfig(), adMediationReporter = adMediationReporter)
+    }
     internal val rewardsApi by lazy { RewardsApiClient(baseUrlProvider = { rewardsBaseUrl() }) }
     internal val localDramaApi by lazy { LocalDramaApiClient() }
     internal val serverPreferences by lazy { getSharedPreferences(SERVER_PREFERENCES, Context.MODE_PRIVATE) }
@@ -268,6 +278,7 @@ class DramaAppActivity : FragmentActivity() {
             }
         }
         onBackPressedDispatcher.addCallback(this, requireNotNull(navigationBackCallback))
+        adMediationReporter.flushPending()
         beginStartupExperience()
     }
 

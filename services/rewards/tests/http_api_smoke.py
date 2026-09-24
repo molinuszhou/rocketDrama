@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 import uuid
@@ -71,6 +72,47 @@ def run() -> None:
     assert snapshot["crown_progress"][0]["episode_progress_points"] == 2
     assert snapshot["crown_progress"][0]["rewarded_ad_progress_points"] == 1
     assert snapshot["ring"]["claim_prompt_threshold_gems"] == 50_000
+
+    # TopOn operations telemetry is separate from the reward ledger, idempotent and
+    # carries only a client-side installation hash.
+    mediation_id = event_id("mediation-http")
+    _, mediation = post(
+        "/v2/operations/ad-mediation-events",
+        {
+            "client_event_id": mediation_id,
+            "install_id_hash": "b" * 64,
+            "event_type": "PAID_REVENUE",
+            "logical_placement": "int_playback_action",
+            "topon_placement_id": "topon-int-http",
+            "ad_format": "interstitial",
+            "ad_network": "MAX > Google AdMob",
+            "ad_source_id": "google-http-unit",
+            "app_version": "http-smoke",
+            "currency": "USD",
+            "ecpm": 2.5,
+            "occurred_at_ms": int(time.time() * 1000),
+        },
+    )
+    assert mediation["data"]["accepted"] is True
+    assert mediation["data"]["estimated_value"] == "0.0025"
+    _, mediation_retry = post(
+        "/v2/operations/ad-mediation-events",
+        {
+            "client_event_id": mediation_id,
+            "install_id_hash": "b" * 64,
+            "event_type": "PAID_REVENUE",
+            "logical_placement": "int_playback_action",
+            "topon_placement_id": "topon-int-http",
+            "ad_format": "interstitial",
+            "ad_network": "MAX > Google AdMob",
+            "ad_source_id": "google-http-unit",
+            "app_version": "http-smoke",
+            "currency": "USD",
+            "ecpm": 2.5,
+            "occurred_at_ms": int(time.time() * 1000),
+        },
+    )
+    assert mediation_retry["data"]["idempotent"] is True
 
     # 欢迎奖励和签到均通过激励广告落账，不能直接绕过。
     _, welcome, _ = rewarded("rv_welcome_bonus")

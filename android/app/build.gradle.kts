@@ -118,8 +118,8 @@ android {
         minSdk = 26
         targetSdk = 35
         // Android 客户端每次代码改动递增补丁版本；服务端/文档单独改动不变更此版本。
-        versionCode = 49
-        versionName = "1.6.6.14"
+        versionCode = 50
+        versionName = "1.6.6.15"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -246,6 +246,7 @@ dependencies {
     implementation("io.github.alex-only:max_adapter_tpn:1.3.1")
     implementation("com.applovin.mediation:google-adapter:24.6.0.0")
     implementation("com.applovin.mediation:vungle-adapter:7.7.8.1")
+    implementation("com.applovin.mediation:facebook-adapter:6.20.0.0")
     implementation("com.applovin.mediation:bytedance-adapter:8.3.0.4.1")
     implementation("com.applovin.mediation:unityads-adapter:4.20.1.0")
     implementation("com.applovin.mediation:mintegral-adapter:17.1.81.0")

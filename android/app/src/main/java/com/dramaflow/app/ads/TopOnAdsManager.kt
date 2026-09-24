@@ -41,6 +41,7 @@ class TopOnAdsManager(
     private val applicationContext: Context,
     private val settings: TopOnSettings,
     private val analytics: EngagementAnalytics = EngagementAnalytics.get(applicationContext),
+    private val adMediationReporter: AdMediationEventReporter? = null,
     private val rewardedPolicy: RewardedAdPolicy = RewardedAdPolicy(applicationContext),
     private val interstitialPolicy: FullscreenAdPolicy = FullscreenAdPolicy(
         applicationContext,
@@ -348,7 +349,7 @@ class TopOnAdsManager(
 
                         override fun onDownloadConfirm(context: Context, adInfo: ATAdInfo, networkConfirmInfo: ATNetworkConfirmInfo) = Unit
                     }, SPLASH_TIMEOUT_MS)
-                    splash!!.setAdRevenueListener(TopOnRevenueListener("splash", settings.splashPlacementId, "splash", analytics, adNetworkAudit))
+                    splash!!.setAdRevenueListener(TopOnRevenueListener("splash", settings.splashPlacementId, "splash", analytics, adNetworkAudit, adMediationReporter))
                     splash!!.loadAd()
                 }
                 Initialization.NotConfigured -> deliver(FullscreenResult.Skipped("尚未配置 TopOn 开屏广告参数"))
@@ -439,7 +440,7 @@ class TopOnAdsManager(
             when (init) {
                 Initialization.Ready -> {
                     val ad = ATInterstitial(applicationContext, settings.interstitialPlacementId)
-                    ad.setAdRevenueListener(TopOnRevenueListener(logicalPlacement, settings.interstitialPlacementId, "interstitial", analytics, adNetworkAudit))
+                    ad.setAdRevenueListener(TopOnRevenueListener(logicalPlacement, settings.interstitialPlacementId, "interstitial", analytics, adNetworkAudit, adMediationReporter))
                     ad.setAdListener(object : ATInterstitialExListener {
                         override fun onInterstitialAdLoaded() {
                             if (requestExpired || delivered) {
@@ -529,7 +530,7 @@ class TopOnAdsManager(
             deliver(RewardedResult.Failed(REWARDED_LOAD_TIMEOUT_CODE, "rewarded_load_timeout"))
         }
         mainHandler.postDelayed(rewardedTimeout, REWARDED_LOAD_TIMEOUT_MS)
-        ad.setAdRevenueListener(TopOnRevenueListener("rewarded", settings.rewardedPlacementId, "rewarded", analytics, adNetworkAudit))
+        ad.setAdRevenueListener(TopOnRevenueListener("rewarded", settings.rewardedPlacementId, "rewarded", analytics, adNetworkAudit, adMediationReporter))
         ad.setAdListener(object : ATRewardVideoExListener {
             override fun onRewardedVideoAdAgainPlayStart(entity: ATAdInfo) = Unit
             override fun onRewardedVideoAdAgainPlayEnd(entity: ATAdInfo) = Unit
@@ -701,6 +702,9 @@ class TopOnAdsManager(
             revenue = if (event == "SHOWN") AdRevenueAuditValues.fromPaidImpression(adInfo.currency, adInfo.ecpm) else AdRevenueAuditValues(),
             detail = sourceDetail,
         )
+        if (event == "SHOWN") {
+            adMediationReporter?.recordShown(logicalPlacement, topOnPlacementId, adFormat, adInfo)
+        }
     }
 
     private fun auditEvent(
@@ -737,10 +741,12 @@ class TopOnAdsManager(
         private val adFormat: String,
         private val analytics: EngagementAnalytics,
         private val adNetworkAudit: AdNetworkAuditLog,
+        private val adMediationReporter: AdMediationEventReporter?,
     ) : ATAdRevenueListener {
         override fun onAdRevenuePaid(adInfo: ATAdInfo) {
             adNetworkAudit.recordPaidRevenue(logicalPlacement, adUnitId, adFormat, adInfo)
             analytics.reportTopOnRevenue(logicalPlacement, adUnitId, adInfo)
+            adMediationReporter?.recordPaidRevenue(logicalPlacement, adUnitId, adFormat, adInfo)
         }
     }
 

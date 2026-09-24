@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -204,6 +204,27 @@ class InterstitialShownRequest(BaseModel):
     event_id: str = Field(min_length=8, max_length=160)
     placement_id: InterstitialPlacement
     episode_id: str | None = Field(default=None, max_length=256)
+
+
+class AdMediationEventRequest(BaseModel):
+    """A non-financial client mirror of an observed TopOn mediation callback.
+
+    ``install_id_hash`` is SHA-256 calculated on device; raw installation and user
+    identifiers are intentionally not accepted by the operations ledger.
+    """
+
+    client_event_id: str = Field(min_length=8, max_length=160)
+    install_id_hash: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    event_type: Literal["SHOWN", "PAID_REVENUE"]
+    logical_placement: str = Field(min_length=1, max_length=80)
+    topon_placement_id: str = Field(min_length=1, max_length=160)
+    ad_format: str = Field(min_length=1, max_length=32)
+    ad_network: str = Field(min_length=1, max_length=160)
+    ad_source_id: str = Field(default="", max_length=256)
+    app_version: str = Field(min_length=1, max_length=64)
+    currency: str = Field(default="", max_length=3, pattern=r"^[A-Za-z]{0,3}$")
+    ecpm: float | None = Field(default=None, ge=0.0, le=10_000_000.0)
+    occurred_at_ms: int = Field(ge=0, le=4_102_444_800_000)
 
 
 class WithdrawalPreflightRequest(BaseModel):

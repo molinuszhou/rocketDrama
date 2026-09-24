@@ -113,6 +113,7 @@ internal enum class ReportingProvider(val wireName: String) {
     APPSFLYER("AppsFlyer"),
     FIREBASE("Firebase"),
     XUANYU("Xuanyu"),
+    REWARDS_OPERATIONS("Rewards Operations"),
 }
 
 internal object ReportingStatus {
