@@ -38,6 +38,8 @@ val appsFlyerDevKey = integrationValue("APPSFLYER_DEV_KEY").ifBlank { "DdWbxT9VR
 val appsFlyerSingleRevenueEventName = integrationValue("APPSFLYER_SINGLE_REVENUE_EVENT_NAME").ifBlank { "ad_impression" }
 val appsFlyerCumulativeRevenueEventName = integrationValue("APPSFLYER_CUMULATIVE_REVENUE_EVENT_NAME").ifBlank { "ad_impression_001" }
 val firebaseRewardedEventName = integrationValue("FIREBASE_REWARDED_EVENT_NAME").ifBlank { "rewarded_ad_completed" }
+val firebaseCumulativeRevenueEventName = integrationValue("FIREBASE_CUMULATIVE_REVENUE_EVENT_NAME").ifBlank { "ad_impression_001" }
+val xuanyuCumulativeRevenueEventName = integrationValue("XUANYU_CUMULATIVE_REVENUE_EVENT_NAME").ifBlank { "ad_impression_001" }
 // 炫羽海外事件服务当前测试协议为 HTTP；Android 清单仅对该域名放行明文流量。
 val xuanyuEventBaseUrl = integrationValue("XUANYU_EVENT_BASE_URL").ifBlank { "http://api.eventtrack.top" }
 val shortDramaSdkEnabled = integrationValue("SHORT_DRAMA_SDK_ENABLED").trim().equals("true", ignoreCase = true)
@@ -118,8 +120,8 @@ android {
         minSdk = 26
         targetSdk = 35
         // Android 客户端每次代码改动递增补丁版本；服务端/文档单独改动不变更此版本。
-        versionCode = 50
-        versionName = "1.6.6.15"
+        versionCode = 51
+        versionName = "1.6.6.16"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -133,6 +135,8 @@ android {
         buildConfigField("String", "APPSFLYER_SINGLE_REVENUE_EVENT_NAME", "\"${escapeBuildConfig(appsFlyerSingleRevenueEventName)}\"")
         buildConfigField("String", "APPSFLYER_CUMULATIVE_REVENUE_EVENT_NAME", "\"${escapeBuildConfig(appsFlyerCumulativeRevenueEventName)}\"")
         buildConfigField("String", "FIREBASE_REWARDED_EVENT_NAME", "\"${escapeBuildConfig(firebaseRewardedEventName)}\"")
+        buildConfigField("String", "FIREBASE_CUMULATIVE_REVENUE_EVENT_NAME", "\"${escapeBuildConfig(firebaseCumulativeRevenueEventName)}\"")
+        buildConfigField("String", "XUANYU_CUMULATIVE_REVENUE_EVENT_NAME", "\"${escapeBuildConfig(xuanyuCumulativeRevenueEventName)}\"")
         buildConfigField("String", "XUANYU_EVENT_BASE_URL", "\"${escapeBuildConfig(xuanyuEventBaseUrl)}\"")
         buildConfigField("boolean", "SHORT_DRAMA_SDK_ENABLED", shortDramaSdkEnabled.toString())
         buildConfigField("String", "SHORT_DRAMA_APP_ID", "\"${escapeBuildConfig(shortDramaAppId)}\"")

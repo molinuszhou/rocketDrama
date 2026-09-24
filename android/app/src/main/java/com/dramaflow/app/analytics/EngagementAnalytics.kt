@@ -30,9 +30,10 @@ import okhttp3.Response
  *
  * - AppsFlyer：仅在 TopOn paid impression 回调中，按合作方口径上报 ad_impression
  *   和 ad_impression_001 两个收入自定义事件；不在加载、展示、关闭或奖励回调估算收入。
- * - Firebase：在同一个 paid impression 回调中上报标准 ad_impression，奖励完成时发送一个
- *   自定义事件。
- * - 炫羽：按《海外事件上报》在广告实际展示回调中请求 /event/w_ad_show。
+ * - Firebase：在每个 paid-impression 回调中上报标准 ad_impression；累计达到合作方
+ *   阈值后上报自定义 ad_impression_001。奖励完成另行发送完成事件。
+ * - 炫羽：在广告实际展示时请求 /event/w_ad_show；同一累计阈值达到后请求
+ *   /event/ad_impression_001。
  *
  * 奖励、解锁和宝石账本仍只由 Rewards API 结算。任何上报失败均不会阻断广告关闭、内容播放
  * 或权益结算。
@@ -119,7 +120,7 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
             return
         }
 
-        // Firebase 标准 ad_impression 同样以真实 paid impression 收入为准，而不是 onShow 估算。
+        // Firebase 标准 ad_impression 以真实 paid-impression 收入为准，而不是 onShow 估算。
         logFirebaseImpression(payload, revenueUsd, revenueAudit)
 
         if (BuildConfig.APPSFLYER_DEV_KEY.isBlank()) return
@@ -129,12 +130,15 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
         val (remainder, readyBatch) = AppsFlyerRevenueContract.appendAndTakeReadyBatch(pendingAppsFlyerRevenueUsd, revenueUsd)
         pendingAppsFlyerRevenueUsd = remainder
         readyBatch?.let { accumulated ->
+            val cumulativeRevenueAudit = AdRevenueAuditValues.fromReportedValue(AppsFlyerRevenueContract.USD, accumulated)
             logAppsFlyerRevenueEvent(
                 BuildConfig.APPSFLYER_CUMULATIVE_REVENUE_EVENT_NAME,
                 AppsFlyerRevenueContract.revenueValues(accumulated),
-                AdRevenueAuditValues.fromReportedValue(AppsFlyerRevenueContract.USD, accumulated),
+                cumulativeRevenueAudit,
                 auditDetail = "cumulative_value_no_single_ecpm",
             )
+            logFirebaseCumulativeRevenue(accumulated, cumulativeRevenueAudit)
+            reportXuanyuCumulativeRevenue(accumulated, cumulativeRevenueAudit)
         }
     }
 
@@ -235,8 +239,25 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
             putDouble(FirebaseAnalytics.Param.VALUE, revenueUsd.toDouble())
             putString("ad_placement", payload.logicalPlacement)
         })
-        reportingAudit.recordProvider(FIREBASE, "ad_impression", ReportingStatus.SUCCESS, payload.logicalPlacement, payload.adUnitId, revenue = revenueAudit, detail = "sdk_accepted_event")
+        reportingAudit.recordProvider(FIREBASE, "ad_impression", ReportingStatus.SUCCESS, payload.logicalPlacement, payload.adUnitId, revenue = revenueAudit, detail = "sdk_accepted_event; standard_paid_impression")
         debug("Firebase ad_impression: placement=${payload.logicalPlacement}, value=${revenueUsd.toPlainString()}")
+    }
+
+    private fun logFirebaseCumulativeRevenue(revenueUsd: BigDecimal, revenueAudit: AdRevenueAuditValues) {
+        val eventName = FirebaseImpressionContract.cumulativeEventName(BuildConfig.FIREBASE_CUMULATIVE_REVENUE_EVENT_NAME)
+        val analytics = firebase ?: run {
+            reportingAudit.recordProvider(FIREBASE, eventName, ReportingStatus.FAILED, revenue = revenueAudit, detail = "firebase_unavailable; cumulative_paid_impression")
+            return
+        }
+        reportingAudit.recordProvider(FIREBASE, eventName, ReportingStatus.QUEUED, revenue = revenueAudit, detail = "cumulative_paid_impression")
+        analytics.logEvent(eventName, Bundle().apply {
+            putString(FirebaseAnalytics.Param.AD_PLATFORM, "TopOn")
+            putString(FirebaseAnalytics.Param.CURRENCY, USD)
+            putDouble(FirebaseAnalytics.Param.VALUE, revenueUsd.toDouble())
+            putString("revenue_scope", "cumulative_paid_impression")
+        })
+        reportingAudit.recordProvider(FIREBASE, eventName, ReportingStatus.SUCCESS, revenue = revenueAudit, detail = "sdk_accepted_event; cumulative_paid_impression")
+        debug("Firebase $eventName: cumulative_value=${revenueUsd.toPlainString()}")
     }
 
     private fun reportXuanyuAdShow(payload: AdPayload, uidAttempt: Int = 0, networkAttempt: Int = 0) {
@@ -308,6 +329,78 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
                     } else {
                         reportingAudit.recordProvider(XUANYU, "w_ad_show", ReportingStatus.FINAL_FAILED, payload.logicalPlacement, payload.adUnitId, errorCode = it.code.toString(), revenue = revenueAudit)
                         Log.w(TAG, "炫羽广告展示上报最终失败：HTTP ${it.code}")
+                    }
+                }
+            }
+        })
+    }
+
+    /** Sends the partner's cumulative paid-impression batch without attributing it to one ad source. */
+    private fun reportXuanyuCumulativeRevenue(
+        revenueUsd: BigDecimal,
+        revenueAudit: AdRevenueAuditValues,
+        uidAttempt: Int = 0,
+        networkAttempt: Int = 0,
+    ) {
+        val eventName = FirebaseImpressionContract.cumulativeEventName(BuildConfig.XUANYU_CUMULATIVE_REVENUE_EVENT_NAME)
+        if (!BuildConfig.EXTERNAL_REPORTING_ENABLED) {
+            reportingAudit.recordProvider(XUANYU, eventName, ReportingStatus.SKIPPED_DISABLED, revenue = revenueAudit)
+            return
+        }
+        val baseUrl = BuildConfig.XUANYU_EVENT_BASE_URL.trim().removeSuffix("/")
+        val uid = appsFlyerUid()
+        if (baseUrl.isBlank()) {
+            reportingAudit.recordProvider(XUANYU, eventName, ReportingStatus.SKIPPED_NOT_CONFIGURED, revenue = revenueAudit, detail = "base_url_blank; cumulative_paid_impression")
+            return
+        }
+        if (uid.isNullOrBlank()) {
+            if (uidAttempt < XUANYU_UID_RETRY_COUNT) {
+                mainHandler.postDelayed({ reportXuanyuCumulativeRevenue(revenueUsd, revenueAudit, uidAttempt + 1, networkAttempt) }, XUANYU_UID_RETRY_DELAY_MS)
+            } else {
+                reportingAudit.recordProvider(XUANYU, eventName, ReportingStatus.FINAL_FAILED, revenue = revenueAudit, detail = "appsflyer_uid_not_ready; cumulative_paid_impression")
+            }
+            return
+        }
+        val url = ("$baseUrl/event/$eventName").toHttpUrlOrNull()?.newBuilder()
+            ?.addQueryParameter("uid", uid)
+            ?.addQueryParameter("app_ver", BuildConfig.VERSION_NAME)
+            ?.addQueryParameter("pkg_name", appContext.packageName)
+            ?.addQueryParameter("currency", USD)
+            ?.addQueryParameter("value", revenueUsd.toPlainString())
+            ?.addQueryParameter("revenue_scope", "cumulative_paid_impression")
+            ?.build()
+        if (url == null) {
+            reportingAudit.recordProvider(XUANYU, eventName, ReportingStatus.FAILED, revenue = revenueAudit, detail = "invalid_url; cumulative_paid_impression")
+            return
+        }
+        reportingAudit.recordProvider(XUANYU, eventName, ReportingStatus.STARTED, revenue = revenueAudit, detail = "http_request; cumulative_paid_impression")
+        httpClient.newCall(Request.Builder().url(url).get().build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, error: IOException) {
+                if (networkAttempt < XUANYU_NETWORK_RETRY_COUNT) {
+                    val nextAttempt = networkAttempt + 1
+                    reportingAudit.recordProvider(XUANYU, eventName, ReportingStatus.RETRYING, revenue = revenueAudit, detail = "attempt=$nextAttempt; cumulative_paid_impression")
+                    mainHandler.postDelayed(
+                        { reportXuanyuCumulativeRevenue(revenueUsd, revenueAudit, uidAttempt, nextAttempt) },
+                        XUANYU_NETWORK_RETRY_DELAY_MS,
+                    )
+                } else {
+                    reportingAudit.recordProvider(XUANYU, eventName, ReportingStatus.FINAL_FAILED, revenue = revenueAudit, detail = "${error.message.orEmpty()}; cumulative_paid_impression")
+                }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    if (it.isSuccessful) {
+                        reportingAudit.recordProvider(XUANYU, eventName, ReportingStatus.SUCCESS, revenue = revenueAudit, detail = "http_${it.code}; cumulative_paid_impression")
+                    } else if (networkAttempt < XUANYU_NETWORK_RETRY_COUNT) {
+                        val nextAttempt = networkAttempt + 1
+                        reportingAudit.recordProvider(XUANYU, eventName, ReportingStatus.RETRYING, errorCode = it.code.toString(), revenue = revenueAudit, detail = "attempt=$nextAttempt; cumulative_paid_impression")
+                        mainHandler.postDelayed(
+                            { reportXuanyuCumulativeRevenue(revenueUsd, revenueAudit, uidAttempt, nextAttempt) },
+                            XUANYU_NETWORK_RETRY_DELAY_MS,
+                        )
+                    } else {
+                        reportingAudit.recordProvider(XUANYU, eventName, ReportingStatus.FINAL_FAILED, errorCode = it.code.toString(), revenue = revenueAudit, detail = "cumulative_paid_impression")
                     }
                 }
             }

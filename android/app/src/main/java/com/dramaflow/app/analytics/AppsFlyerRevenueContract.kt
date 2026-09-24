@@ -42,7 +42,9 @@ internal object AppsFlyerRevenueContract {
         AFInAppEventParameterName.CURRENCY to USD,
     )
 
-    /** Returns the post-event remainder and the full batch to send, if the batch reached US$0.01. */
+    /** Returns the post-event remainder and the full batch to send, if the batch reached US$0.01.
+     * The returned batch is shared by AppsFlyer ad_impression_001, Firebase
+     * ad_impression_001 and Xuanyu ad_impression_001. */
     fun appendAndTakeReadyBatch(pendingUsd: BigDecimal, revenueUsd: BigDecimal): Pair<BigDecimal, BigDecimal?> {
         val accumulated = pendingUsd.add(revenueUsd)
         return if (accumulated >= cumulativeThresholdUsd) BigDecimal.ZERO to accumulated else accumulated to null
