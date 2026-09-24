@@ -15,6 +15,8 @@ data class TopOnSettings(
     val rewardedPlacementId: String,
     val interstitialPlacementId: String,
     val splashPlacementId: String,
+    /** Configured through TOPON_REWARDED_LOAD_TIMEOUT_MS; Gradle clamps it to 1–60 seconds. */
+    val rewardedLoadTimeoutMillis: Long,
     val isDemoMode: Boolean,
     val enableNetworkDebug: Boolean,
 ) {
@@ -37,6 +39,7 @@ data class TopOnSettings(
             rewardedPlacementId = BuildConfig.TOPON_REWARDED_PLACEMENT_ID.trim(),
             interstitialPlacementId = BuildConfig.TOPON_INTERSTITIAL_PLACEMENT_ID.trim(),
             splashPlacementId = BuildConfig.TOPON_SPLASH_PLACEMENT_ID.trim(),
+            rewardedLoadTimeoutMillis = BuildConfig.TOPON_REWARDED_LOAD_TIMEOUT_MS,
             isDemoMode = BuildConfig.TOPON_DEMO_MODE,
             enableNetworkDebug = BuildConfig.DEBUG || BuildConfig.ANALYTICS_DEBUG,
         )

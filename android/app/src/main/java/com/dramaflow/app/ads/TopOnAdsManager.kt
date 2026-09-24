@@ -521,15 +521,15 @@ class TopOnAdsManager(
                 "rewarded",
                 result = "TIMEOUT",
                 errorCode = REWARDED_LOAD_TIMEOUT_CODE,
-                detail = "client_timeout_ms=$REWARDED_LOAD_TIMEOUT_MS",
+                detail = "client_timeout_ms=${settings.rewardedLoadTimeoutMillis}",
             )
-            Log.w(TAG, "Rewarded load timed out after ${REWARDED_LOAD_TIMEOUT_MS}ms; using fallback path")
+            Log.w(TAG, "Rewarded load timed out after ${settings.rewardedLoadTimeoutMillis}ms; using fallback path")
             // TopOn 6.5.40 exposes neither destroy() nor cancelLoad() for ATRewardVideoAd.
             // The instance uses applicationContext and all late callbacks are ignored below, so it
             // cannot retain the Activity or re-enter the reward path after this timeout.
             deliver(RewardedResult.Failed(REWARDED_LOAD_TIMEOUT_CODE, "rewarded_load_timeout"))
         }
-        mainHandler.postDelayed(rewardedTimeout, REWARDED_LOAD_TIMEOUT_MS)
+        mainHandler.postDelayed(rewardedTimeout, settings.rewardedLoadTimeoutMillis)
         ad.setAdRevenueListener(TopOnRevenueListener("rewarded", settings.rewardedPlacementId, "rewarded", analytics, adNetworkAudit, adMediationReporter))
         ad.setAdListener(object : ATRewardVideoExListener {
             override fun onRewardedVideoAdAgainPlayStart(entity: ATAdInfo) = Unit
@@ -758,8 +758,6 @@ class TopOnAdsManager(
         const val INTERSTITIAL_NOT_READY_CODE = -409
         const val INTERSTITIAL_CLOSE_TIMEOUT_MS = 120_000L
         const val INTERSTITIAL_CLOSE_TIMEOUT_CODE = -410
-        /** Do not leave a user waiting for a mediation no-fill response indefinitely. */
-        const val REWARDED_LOAD_TIMEOUT_MS = 5_000L
         const val REWARDED_LOAD_TIMEOUT_CODE = -408
         const val GLOBAL_FULLSCREEN_MIN_INTERVAL_MS = 5_000L
     }

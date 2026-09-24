@@ -11,6 +11,11 @@ fun integrationValue(name: String): String =
         ?: System.getenv(name)
         ?: ""
 
+fun integrationTimeoutMillis(name: String, defaultValue: Long): Long =
+    integrationValue(name).trim().toLongOrNull()
+        ?.coerceIn(1_000L, 60_000L)
+        ?: defaultValue
+
 fun escapeBuildConfig(value: String): String = value.replace("\\", "\\\\").replace("\"", "\\\"")
 
 // TopOn 官方 Android Demo 的公开测试凭据，仅允许 Debug 测试模式使用；不可用于正式投放。
@@ -34,6 +39,9 @@ val topOnSplashPlacementId = if (topOnDemoMode) topOnDemoSplashPlacementId else 
 val topOnDemoAdmobAppId = "ca-app-pub-9488501426181082~6354662111"
 val partnerAdmobAppId = integrationValue("ADMOB_APP_ID")
 val topOnAdmobAppId = if (topOnDemoMode) topOnDemoAdmobAppId else partnerAdmobAppId
+// Configurable from local.properties, -P or environment: TOPON_REWARDED_LOAD_TIMEOUT_MS.
+// Keep the app responsive while allowing slow mediation waterfalls enough time to return a fill.
+val topOnRewardedLoadTimeoutMillis = integrationTimeoutMillis("TOPON_REWARDED_LOAD_TIMEOUT_MS", 10_000L)
 val appsFlyerDevKey = integrationValue("APPSFLYER_DEV_KEY").ifBlank { "DdWbxT9VRELdEsZiAcnGea" }
 val appsFlyerSingleRevenueEventName = integrationValue("APPSFLYER_SINGLE_REVENUE_EVENT_NAME").ifBlank { "ad_impression" }
 val appsFlyerCumulativeRevenueEventName = integrationValue("APPSFLYER_CUMULATIVE_REVENUE_EVENT_NAME").ifBlank { "ad_impression_001" }
@@ -119,8 +127,8 @@ android {
         minSdk = 26
         targetSdk = 35
         // Android 客户端每次代码改动递增补丁版本；服务端/文档单独改动不变更此版本。
-        versionCode = 52
-        versionName = "1.6.6.17"
+        versionCode = 53
+        versionName = "1.6.6.18"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -129,6 +137,7 @@ android {
         buildConfigField("String", "TOPON_REWARDED_PLACEMENT_ID", "\"${escapeBuildConfig(topOnRewardedPlacementId)}\"")
         buildConfigField("String", "TOPON_INTERSTITIAL_PLACEMENT_ID", "\"${escapeBuildConfig(topOnInterstitialPlacementId)}\"")
         buildConfigField("String", "TOPON_SPLASH_PLACEMENT_ID", "\"${escapeBuildConfig(topOnSplashPlacementId)}\"")
+        buildConfigField("long", "TOPON_REWARDED_LOAD_TIMEOUT_MS", "${topOnRewardedLoadTimeoutMillis}L")
         buildConfigField("boolean", "TOPON_DEMO_MODE", topOnDemoMode.toString())
         buildConfigField("String", "APPSFLYER_DEV_KEY", "\"${escapeBuildConfig(appsFlyerDevKey)}\"")
         buildConfigField("String", "APPSFLYER_SINGLE_REVENUE_EVENT_NAME", "\"${escapeBuildConfig(appsFlyerSingleRevenueEventName)}\"")
