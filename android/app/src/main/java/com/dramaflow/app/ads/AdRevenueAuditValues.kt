@@ -1,0 +1,38 @@
+package com.dramaflow.app.ads
+
+import java.math.BigDecimal
+import java.math.RoundingMode
+import java.util.Locale
+
+/**
+ * Exact revenue values retained in the local audit CSVs. TopOn supplies eCPM,
+ * so one-impression value is always eCPM / 1,000 in the same ISO currency.
+ */
+data class AdRevenueAuditValues(
+    val currency: String = "",
+    val ecpm: String = "",
+    val value: String = "",
+) {
+    companion object {
+        fun fromPaidImpression(currency: String?, ecpm: Double): AdRevenueAuditValues {
+            val normalizedCurrency = currency.orEmpty().trim().uppercase(Locale.ROOT)
+            if (normalizedCurrency.isBlank() || !ecpm.isFinite() || ecpm < 0.0) return AdRevenueAuditValues()
+            val rawEcpm = BigDecimal.valueOf(ecpm)
+            return AdRevenueAuditValues(
+                currency = normalizedCurrency,
+                ecpm = format(rawEcpm),
+                value = format(rawEcpm.movePointLeft(3)),
+            )
+        }
+
+        /** For the AppsFlyer accumulated event, which deliberately has no single-source eCPM. */
+        fun fromReportedValue(currency: String, value: BigDecimal): AdRevenueAuditValues =
+            AdRevenueAuditValues(
+                currency = currency.trim().uppercase(Locale.ROOT),
+                value = format(value),
+            )
+
+        private fun format(value: BigDecimal): String =
+            value.setScale(12, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()
+    }
+}

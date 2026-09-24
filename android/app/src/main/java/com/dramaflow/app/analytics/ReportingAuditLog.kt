@@ -2,6 +2,7 @@ package com.dramaflow.app.analytics
 
 import android.content.Context
 import com.dramaflow.app.BuildConfig
+import com.dramaflow.app.ads.AdRevenueAuditValues
 import java.io.File
 import java.time.Instant
 import java.time.format.DateTimeFormatter
@@ -22,6 +23,7 @@ class ReportingAuditLog private constructor(context: Context) {
         placement: String = "",
         adUnitId: String = "",
         errorCode: String = "",
+        revenue: AdRevenueAuditValues = AdRevenueAuditValues(),
         detail: String = "",
     ) {
         synchronized(lock) {
@@ -35,6 +37,9 @@ class ReportingAuditLog private constructor(context: Context) {
                 placement,
                 adUnitId,
                 errorCode,
+                revenue.currency,
+                revenue.ecpm,
+                revenue.value,
                 detail.take(MAX_DETAIL_LENGTH),
             ).joinToString(",") { csvCell(it) }
             file.appendText("$row\n", Charsets.UTF_8)
@@ -70,7 +75,7 @@ class ReportingAuditLog private constructor(context: Context) {
         if (!directory.exists()) directory.mkdirs()
         if (!file.exists() || file.length() == 0L) {
             file.writeText(
-                "recorded_at_utc,app_version,provider,event_name,status,placement,ad_unit_id,error_code,detail\n",
+                "recorded_at_utc,app_version,provider,event_name,status,placement,ad_unit_id,error_code,currency,ecpm,value,detail\n",
                 Charsets.UTF_8,
             )
         }
@@ -89,7 +94,9 @@ class ReportingAuditLog private constructor(context: Context) {
 
     companion object {
         private const val DIRECTORY_NAME = "reporting_audit"
-        private const val FILE_NAME = "joyedrama_reporting_audit.csv"
+        // Preserve the historical CSV instead of mixing its original nine-column rows with
+        // per-channel currency/eCPM/value data produced after this app update.
+        private const val FILE_NAME = "joyedrama_reporting_audit_v2.csv"
         private const val MAX_FILE_BYTES = 1_000_000L
         private const val MAX_EVENTS = 2_000
         private const val MAX_DETAIL_LENGTH = 300
@@ -126,5 +133,6 @@ internal fun ReportingAuditLog.recordProvider(
     placement: String = "",
     adUnitId: String = "",
     errorCode: String = "",
+    revenue: AdRevenueAuditValues = AdRevenueAuditValues(),
     detail: String = "",
-) = record(provider.wireName, eventName, status, placement, adUnitId, errorCode, detail)
+) = record(provider.wireName, eventName, status, placement, adUnitId, errorCode, revenue, detail)

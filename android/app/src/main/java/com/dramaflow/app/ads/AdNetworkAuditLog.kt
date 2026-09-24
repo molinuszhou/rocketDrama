@@ -2,6 +2,7 @@ package com.dramaflow.app.ads
 
 import android.content.Context
 import com.dramaflow.app.BuildConfig
+import com.secmtp.sdk.core.api.ATAdInfo
 import java.io.File
 import java.time.Instant
 import java.time.format.DateTimeFormatter
@@ -62,6 +63,7 @@ class AdNetworkAuditLog private constructor(context: Context) {
         adSourceId: String = "",
         result: String = "",
         errorCode: Int? = null,
+        revenue: AdRevenueAuditValues = AdRevenueAuditValues(),
         detail: String = "",
     ) {
         synchronized(lock) {
@@ -77,11 +79,35 @@ class AdNetworkAuditLog private constructor(context: Context) {
                 adSourceId,
                 result,
                 errorCode?.toString().orEmpty(),
+                revenue.currency,
+                revenue.ecpm,
+                revenue.value,
                 detail.take(MAX_DETAIL_LENGTH),
             ).joinToString(",") { csvCell(it) }
             auditFile.appendText("$row\n", Charsets.UTF_8)
             trimIfNeededLocked()
         }
+    }
+
+    /** Records TopOn's paid-impression callback separately from show/close lifecycle events. */
+    fun recordPaidRevenue(
+        logicalPlacement: String,
+        topOnPlacementId: String,
+        adFormat: String,
+        adInfo: ATAdInfo,
+    ) {
+        val identity = AdNetworkIdentity.from(adInfo)
+        record(
+            event = "PAID_REVENUE",
+            logicalPlacement = logicalPlacement,
+            topOnPlacementId = topOnPlacementId,
+            adFormat = adFormat,
+            adNetwork = identity.networkName,
+            adSourceId = identity.sourceId,
+            result = "REPORTED",
+            revenue = AdRevenueAuditValues.fromPaidImpression(adInfo.currency, adInfo.ecpm),
+            detail = identity.detail,
+        )
     }
 
     fun summary(): Summary = synchronized(lock) {
@@ -115,7 +141,7 @@ class AdNetworkAuditLog private constructor(context: Context) {
     private fun ensureHeaderLocked() {
         if (!auditDirectory.exists()) auditDirectory.mkdirs()
         if (!auditFile.exists() || auditFile.length() == 0L) {
-            auditFile.writeText("recorded_at_utc,app_version,event,logical_placement,topon_placement_id,ad_format,ad_network,ad_source_id,result,error_code,detail\n", Charsets.UTF_8)
+            auditFile.writeText("recorded_at_utc,app_version,event,logical_placement,topon_placement_id,ad_format,ad_network,ad_source_id,result,error_code,currency,ecpm,value,detail\n", Charsets.UTF_8)
         }
     }
 
@@ -132,7 +158,9 @@ class AdNetworkAuditLog private constructor(context: Context) {
 
     companion object {
         private const val DIRECTORY_NAME = "ad_audit"
-        private const val FILE_NAME = "joyedrama_topon_adn_audit.csv"
+        // The old CSV is left in place for review. A versioned file prevents a mixed-column export
+        // after an app update while adding paid-impression eCPM and per-impression value fields.
+        private const val FILE_NAME = "joyedrama_topon_adn_audit_v2.csv"
         private const val MAX_FILE_BYTES = 1_000_000L
         private const val MAX_EVENTS = 2_000
         private const val MAX_DETAIL_LENGTH = 300
