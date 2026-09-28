@@ -151,7 +151,7 @@ internal fun DramaAppActivity.createRewardBalance(label: String, value: String, 
         orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(8), 0, 0, 0)
         val valueView = TextView(this@createRewardBalance).apply {
             text = value; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY); maxLines = 1; includeFontPadding = true; gravity = Gravity.CENTER_VERTICAL; ellipsize = android.text.TextUtils.TruncateAt.END; letterSpacing = -0.02f
-            setAutoSizeTextTypeUniformWithConfiguration(22, 42, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
+            setAutoSizeTextTypeUniformWithConfiguration(26, 52, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
         }
         if (isGem) gemBalanceLabel = valueView else cashBalanceLabel = valueView
         addView(valueView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(76)))
@@ -392,7 +392,7 @@ internal fun DramaAppActivity.createDailyBenefitsPanel(snapshot: RewardsApiClien
             text = t("daily_checkin_amount", checkinAmount)
             textSize = 24f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_CORAL); setPadding(dp(4), dp(2), 0, dp(5))
         })
-        val checkinText = snapshot?.let { t("checkin_cash_description", it.checkinTodayIndex, checkinAmount.orEmpty()) } ?: t("ledger_note")
+        val checkinText = t("daily_benefits_subtitle")
         addView(createBenefitRow("", checkinText, if (snapshot?.checkinSignedToday == true) t("calendar_reminder_action") else t("watch_ad_checkin"), R.drawable.wallet_money) {
             if (snapshot?.checkinSignedToday == true) showCheckinCalendarReminderPrompt() else completeDailyCheckin()
         })

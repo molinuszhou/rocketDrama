@@ -294,16 +294,8 @@ internal fun DramaAppActivity.showWelcomeRewardDialog(snapshot: RewardsApiClient
             text = t("welcome_subtitle"); textSize = 15f; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(8), 0, dp(16))
         })
         content.addView(TextView(this@showWelcomeRewardDialog).apply {
-            text = formatWelcomeRewardCashValue(snapshot) ?: "—"; textSize = 34f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_CORAL)
-            background = roundedDrawable(COLOR_SURFACE, 20); setPadding(dp(22), dp(14), dp(22), dp(14))
-        })
-        val cashValue = formatWelcomeRewardCashValue(snapshot)
-        content.addView(TextView(this@showWelcomeRewardDialog).apply {
-            text = cashValue?.let { t("welcome_cash_ready") } ?: t("welcome_cash_value_syncing")
-            textSize = 13f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_SUNSET); setPadding(0, dp(10), 0, 0)
-        })
-        content.addView(TextView(this@showWelcomeRewardDialog).apply {
-            text = t("welcome_cash_claim_message"); textSize = 13f; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(12), dp(0), dp(16))
+            text = formatWelcomeRewardCashValue(snapshot) ?: "—"; textSize = 48f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_CORAL); includeFontPadding = false
+            background = roundedDrawable(COLOR_SURFACE, 20); setPadding(dp(22), dp(10), dp(22), dp(10))
         })
         content.addView(TextView(this@showWelcomeRewardDialog).apply {
             text = t("watch_ad_claim"); textSize = 17f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
@@ -314,6 +306,7 @@ internal fun DramaAppActivity.showWelcomeRewardDialog(snapshot: RewardsApiClient
             text = t("later"); textSize = 14f; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(18), 0, 0); isClickable = true
             setOnClickListener { dialog.dismiss(); onFinished() }
         })
+        content.translationY = -dp(18).toFloat()
         page.addView(content, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
         dialog.setContentView(page)
         dialog.setCanceledOnTouchOutside(false)
@@ -325,7 +318,7 @@ internal fun DramaAppActivity.showWelcomeRewardDialog(snapshot: RewardsApiClient
             setGravity(Gravity.CENTER)
             attributes = attributes.apply { dimAmount = 0f }
         }
-        gem.animate().scaleX(1.14f).scaleY(1.14f).setDuration(320L).setInterpolator(AccelerateDecelerateInterpolator()).withEndAction {
+        gem.animate().scaleX(1.18f).scaleY(1.18f).setDuration(520L).setInterpolator(AccelerateDecelerateInterpolator()).withEndAction {
             gem.animate().scaleX(1f).scaleY(1f).setDuration(420L).start()
         }.start()
     }
@@ -344,12 +337,23 @@ internal fun DramaAppActivity.formatWelcomeRewardCashValue(snapshot: RewardsApiC
 
 internal fun DramaAppActivity.addWelcomeConfetti(host: FrameLayout) {
         val colors = intArrayOf(COLOR_CORAL, COLOR_SUNSET, COLOR_AQUA, COLOR_PURPLE, 0xFFFFDB6A.toInt())
-        repeat(16) { index ->
+        repeat(28) { index ->
             val dot = View(this).apply { background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(colors[index % colors.size]) }; alpha = 0f }
-            host.addView(dot, FrameLayout.LayoutParams(dp(7 + index % 4 * 2), dp(7 + index % 4 * 2)).apply { leftMargin = dp(18 + (index * 41) % 300); topMargin = dp(18 + (index * 29) % 210) })
+            val size = dp(8 + index % 5 * 2)
+            host.addView(dot, FrameLayout.LayoutParams(size, size).apply { leftMargin = dp(12 + (index * 47) % 340); topMargin = dp(12 + (index * 31) % 250) })
             dot.postDelayed({
-                AnimatorSet().apply { playTogether(ObjectAnimator.ofFloat(dot, View.ALPHA, 0f, .95f, 0f), ObjectAnimator.ofFloat(dot, View.TRANSLATION_Y, 0f, -dp(40 + index * 4).toFloat()), ObjectAnimator.ofFloat(dot, View.ROTATION, 0f, 160f)); duration = 1050L + index * 35L; start() }
-            }, index * 70L)
+                AnimatorSet().apply {
+                    playTogether(
+                        ObjectAnimator.ofFloat(dot, View.ALPHA, 0f, .95f, .85f, 0f),
+                        ObjectAnimator.ofFloat(dot, View.TRANSLATION_Y, 0f, -dp(70 + index * 3).toFloat()),
+                        ObjectAnimator.ofFloat(dot, View.SCALE_X, .55f, 1.35f, .8f),
+                        ObjectAnimator.ofFloat(dot, View.SCALE_Y, .55f, 1.35f, .8f),
+                        ObjectAnimator.ofFloat(dot, View.ROTATION, 0f, 260f),
+                    )
+                    duration = 1700L + index * 45L
+                    start()
+                }
+            }, index * 55L)
         }
     }
 
@@ -367,6 +371,15 @@ internal fun DramaAppActivity.showCheckinRewardDialog(snapshot: RewardsApiClient
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
             setTextColor(COLOR_TEXT_PRIMARY)
+        })
+        content.addView(TextView(this).apply {
+            val sevenDayTotal = snapshot?.checkinRewardTiers?.take(7)?.sumOf { it.toLong() } ?: 0L
+            text = if (snapshot == null) t("checkin_syncing") else t("checkin_seven_day_total", formatRewardUnitsAsCash(snapshot, sevenDayTotal))
+            textSize = 15f
+            gravity = Gravity.CENTER
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(COLOR_SUNSET)
+            setPadding(0, dp(5), 0, dp(8))
         })
         content.addView(TextView(this).apply {
             text = when {
@@ -438,7 +451,14 @@ internal fun DramaAppActivity.showCheckinRewardDialog(snapshot: RewardsApiClient
      * 奖励数据只提供“连续天数”和“今日是否已签”；具体宝石列表来自服务端动态规则。超过七天时保持最高奖励档。
      */
 internal fun DramaAppActivity.createCheckinTierStrip(snapshot: RewardsApiClient.Snapshot?): View {
-        val tiers = snapshot?.checkinRewardTiers?.take(7).orEmpty().ifEmpty { listOf(0, 0, 0, 0, 0, 0, 0) }
+        // Always reserve seven slots. If an older server sends fewer tiers, repeat its
+        // final value so the seven-day promise remains visible without inventing a new amount.
+        val serverTiers = snapshot?.checkinRewardTiers?.take(7).orEmpty()
+        val tiers = if (serverTiers.isEmpty()) {
+            List(7) { 0 }
+        } else {
+            serverTiers + List(7 - serverTiers.size) { serverTiers.last() }
+        }
         // checkinStreak 是已经完成的天数：首日未签到时为 0，必须突出“今日第 1 天”而非打勾。
         val completedDays = snapshot?.checkinStreak ?: 0
         val signedToday = snapshot?.checkinSignedToday == true

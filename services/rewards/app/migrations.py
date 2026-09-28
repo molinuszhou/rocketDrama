@@ -41,6 +41,7 @@ def apply_runtime_migrations(settings: Settings) -> None:
             ("025_v1652_charge_cooldowns_and_crown_points", sql_directory / "025_v1652_charge_cooldowns_and_crown_points.sql"),
             ("026_v1656_player_reward_fallback_and_cooldowns", sql_directory / "026_v1656_player_reward_fallback_and_cooldowns.sql"),
             ("027_ad_mediation_operations_events", sql_directory / "027_ad_mediation_operations_events.sql"),
+            ("028_v1657_reward_center_targets", sql_directory / "028_v1657_reward_center_targets.sql"),
         )
     with psycopg.connect(settings.database_url, autocommit=True) as connection:
         with connection.cursor() as cursor:

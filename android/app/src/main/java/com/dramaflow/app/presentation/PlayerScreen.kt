@@ -278,14 +278,14 @@ internal fun DramaAppActivity.createPlayerTopBar(): View {
         // offset that could overlap a notch/status region on first opening the player.
         shell.addView(back, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.TOP or Gravity.START).apply { topMargin = dp(8); marginStart = dp(8) })
         assets?.let { assetView ->
-            shell.addView(assetView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(50), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(8) })
+            shell.addView(assetView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(50), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(26) })
         }
         ViewCompat.setOnApplyWindowInsetsListener(shell) { _, insets ->
             val safeTop = insets.getInsets(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()).top
             val margin = safeTop + dp(8)
             (back.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = margin; back.layoutParams = params }
             assets?.let { assetView ->
-                (assetView.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = margin; assetView.layoutParams = params }
+                (assetView.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = margin + dp(18); assetView.layoutParams = params }
             }
             insets
         }

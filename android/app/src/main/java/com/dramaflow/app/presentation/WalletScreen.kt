@@ -152,9 +152,18 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
                 val usdBalance = wallet.availableBalanceUsdReference.toBigDecimalOrNull()
                     ?: wallet.cashWalletUsdReference.toBigDecimalOrNull()
                     ?: balance
+                val thresholdUsdLabel = rewardsSnapshot?.withdrawal?.thresholdUsdReference?.toBigDecimalOrNull()?.let {
+                    "US$${it.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString()}"
+                } ?: formatCurrencyAmount(wallet, threshold.toPlainString(), null, false)
+                val firstTargetUsd = rewardsSnapshot?.withdrawal?.thresholdUsdReference?.toBigDecimalOrNull()
+                    ?: java.math.BigDecimal("200")
+                // Keep the original target proportions (200:500:800:1000) while taking
+                // the first target from the server-issued withdrawal policy.
                 val cashoutTargetsUsd = listOf(
-                    java.math.BigDecimal("200"), java.math.BigDecimal("500"),
-                    java.math.BigDecimal("800"), java.math.BigDecimal("1000"),
+                    firstTargetUsd,
+                    firstTargetUsd.multiply(java.math.BigDecimal("2.5")),
+                    firstTargetUsd.multiply(java.math.BigDecimal("4")),
+                    firstTargetUsd.multiply(java.math.BigDecimal("5")),
                 )
                 cashoutTargetsUsd.forEachIndexed { index, targetUsd ->
                     addView(TextView(this@createWithdrawalPage).apply {
@@ -167,13 +176,15 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
                         progressTintList = ColorStateList.valueOf(if (index == 0) COLOR_SUNSET else COLOR_AQUA); backgroundTintList = ColorStateList.valueOf(0x44FFFFFF)
                     }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(6)).apply { topMargin = dp(2); bottomMargin = dp(3) })
                 }
+                addView(TextView(this@createWithdrawalPage).apply {
+                    text = t("cashout_step_request_dynamic", thresholdUsdLabel)
+                    textSize = 13f
+                    gravity = Gravity.CENTER
+                    setTextColor(COLOR_TEXT_MUTED)
+                    setPadding(dp(4), dp(12), dp(4), dp(2))
+                })
             }
         }, matchParams(bottom = 14))
-        addView(TextView(this@createWithdrawalPage).apply {
-            text = t("request_cashout"); textSize = 17f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
-            background = gradientDrawable(intArrayOf(COLOR_CORAL, COLOR_SUNSET), 24); setPadding(0, dp(16), 0, dp(16)); isClickable = true
-            setOnClickListener { showCashoutEligibilityNotice() }
-        })
     }
 
 internal fun DramaAppActivity.formatCurrencyAmount(wallet: RewardsApiClient.Wallet, amount: String, usdReference: String? = null, includeUsdReference: Boolean = false): String {

@@ -182,10 +182,10 @@ internal fun DramaAppActivity.updatePlayerWalletBoostButton(button: TextView) {
         val available = wallet?.release?.boostAvailable == true && cooldown <= 0
         button.visibility = if (wallet == null) View.GONE else View.VISIBLE
         button.text = if (cooldown > 0) t("charge_cooldown", cooldown) else t("extra_reward")
-        button.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_charge_bolt, 0, 0, 0)
-        button.compoundDrawablePadding = dp(3)
-        button.setTextColor(if (available) Color.WHITE else 0xCCFFFFFF.toInt())
-        button.background = roundedDrawable(if (available) COLOR_CORAL else 0x661C1C1C, 13)
+        button.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_wallet, 0, 0, 0)
+        button.compoundDrawablePadding = dp(4)
+        button.setTextColor(if (available) COLOR_CORAL else COLOR_TEXT_MUTED)
+        button.background = roundedDrawable(if (available) 0x22FF6D4A else COLOR_SURFACE, 13)
         button.alpha = if (available) 1f else 0.72f
         button.isClickable = available
         button.setOnClickListener { if (available) showWalletReleaseBoostDialog() }
@@ -197,10 +197,10 @@ internal fun DramaAppActivity.updateWalletHeaderBoostButton(button: TextView) {
         val available = wallet?.release?.boostAvailable == true && cooldown <= 0
         button.visibility = if (wallet == null) View.GONE else View.VISIBLE
         button.text = if (cooldown > 0) t("charge_cooldown", cooldown) else t("extra_reward")
-        button.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_charge_bolt, 0, 0, 0)
-        button.compoundDrawablePadding = dp(3)
-        button.setTextColor(if (available) Color.WHITE else COLOR_TEXT_MUTED)
-        button.background = roundedDrawable(if (available) 0xFF2A2116.toInt() else COLOR_SURFACE, 14)
+        button.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_wallet, 0, 0, 0)
+        button.compoundDrawablePadding = dp(4)
+        button.setTextColor(if (available) COLOR_CORAL else COLOR_TEXT_MUTED)
+        button.background = roundedDrawable(if (available) 0x22FF6D4A else COLOR_SURFACE, 14)
         button.alpha = if (available) 1f else 0.72f
         button.isClickable = available
         button.setOnClickListener { if (available) showWalletReleaseBoostDialog() }

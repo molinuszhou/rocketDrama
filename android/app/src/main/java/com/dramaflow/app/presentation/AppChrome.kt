@@ -321,7 +321,8 @@ internal fun DramaAppActivity.createTopSafePlayerAssetStrip(): View {
         ViewCompat.setOnApplyWindowInsetsListener(shell) { _, insets ->
             val safeTop = insets.getInsets(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()).top
             val params = strip.layoutParams as FrameLayout.LayoutParams
-            val margin = maxOf(safeTop, dp(18)) + dp(10)
+            // Keep the in-player asset strip clear of the video action area and status icons.
+            val margin = maxOf(safeTop, dp(18)) + dp(22)
             if (params.topMargin != margin) { params.topMargin = margin; strip.layoutParams = params }
             insets
         }

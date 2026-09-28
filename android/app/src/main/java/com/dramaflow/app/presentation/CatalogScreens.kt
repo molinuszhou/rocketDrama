@@ -3,13 +3,12 @@ package com.dramaflow.app.presentation
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
 import android.app.AlertDialog
+import android.app.Dialog
 import android.content.Context
-import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.text.Editable
@@ -23,6 +22,8 @@ import android.view.ViewGroup
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.view.animation.LinearInterpolator
 import android.view.WindowManager
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -440,8 +441,53 @@ internal fun DramaAppActivity.showSettingsCenter() {
         primaryLabel = t("ad_settings"),
         onPrimary = { showAdPrivacySettings() },
         secondaryLabel = t("privacy_terms"),
-        onSecondary = { showBrandedChoiceDialog(t("privacy_terms"), t("privacy_terms_message"), t("done")) },
+        onSecondary = { showPrivacyPolicyPage() },
     )
+}
+
+/** Shows the remotely maintained privacy policy without leaving the app. */
+internal fun DramaAppActivity.showPrivacyPolicyPage() {
+    val dialog = Dialog(this)
+    val page = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setBackgroundColor(COLOR_BACKGROUND)
+    }
+    val toolbar = LinearLayout(this).apply {
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(16), dp(10), dp(10), dp(10))
+        setBackgroundColor(COLOR_CARD)
+    }
+    toolbar.addView(TextView(this).apply {
+        text = t("privacy_terms")
+        textSize = 19f
+        typeface = Typeface.DEFAULT_BOLD
+        setTextColor(COLOR_TEXT_PRIMARY)
+    }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+    toolbar.addView(TextView(this).apply {
+        text = "×"
+        textSize = 28f
+        gravity = Gravity.CENTER
+        setTextColor(COLOR_TEXT_PRIMARY)
+        setPadding(dp(12), 0, dp(8), 0)
+        isClickable = true
+        setOnClickListener { dialog.dismiss() }
+    }, LinearLayout.LayoutParams(dp(52), dp(48)))
+    page.addView(toolbar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(64)))
+    page.addView(WebView(this).apply {
+        webViewClient = WebViewClient()
+        settings.javaScriptEnabled = false
+        settings.domStorageEnabled = false
+        settings.builtInZoomControls = false
+        settings.displayZoomControls = false
+        loadUrl("https://xuanfeather.com/joyedrama/privacy-policy.html")
+    }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+    dialog.setContentView(page)
+    dialog.setCanceledOnTouchOutside(true)
+    dialog.show()
+    dialog.window?.apply {
+        setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+        setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+    }
 }
 
 
