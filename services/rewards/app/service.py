@@ -15,6 +15,9 @@ from psycopg.rows import dict_row
 from app.config import Settings
 
 
+CHECKIN_CYCLE_DAYS = 7
+
+
 class ServiceError(Exception):
     def __init__(self, code: int, message: str, status_code: int = 400) -> None:
         super().__init__(message)
@@ -289,7 +292,7 @@ class RewardsService:
                 (user_id,),
             )
             if previous and previous["business_date"] == business_date - timedelta(days=1):
-                streak_day = previous["streak_day"] % 30 + 1
+                streak_day = previous["streak_day"] % CHECKIN_CYCLE_DAYS + 1
             else:
                 streak_day = 1
             reward = self._one(connection, "SELECT gems FROM signin_reward_tiers WHERE day_number = %s", (streak_day,))
@@ -1181,7 +1184,7 @@ class RewardsService:
                 """,
                 (user_id,),
             )
-            streak_day = previous["streak_day"] % 30 + 1 if previous and previous["business_date"] == business_date - timedelta(days=1) else 1
+            streak_day = previous["streak_day"] % CHECKIN_CYCLE_DAYS + 1 if previous and previous["business_date"] == business_date - timedelta(days=1) else 1
             reward = self._one(connection, "SELECT gems FROM signin_reward_tiers WHERE day_number = %s", (streak_day,))
             if not reward:
                 raise ServiceError(1500, "数据库缺少签到奖励种子数据", 503)
@@ -1821,9 +1824,13 @@ class RewardsService:
         completed_streak = int(checkin["streak_day"]) if checkin else (
             int(previous["streak_day"]) if previous and previous["business_date"] == business_date - timedelta(days=1) else 0
         )
-        today_streak = completed_streak if checkin else (completed_streak % 30 + 1)
+        today_streak = completed_streak if checkin else (completed_streak % CHECKIN_CYCLE_DAYS + 1)
         today_reward = self._one(connection, "SELECT gems FROM signin_reward_tiers WHERE day_number = %s", (today_streak,))["gems"]
-        tiers = self._all(connection, "SELECT day_number, gems FROM signin_reward_tiers ORDER BY day_number")
+        tiers = self._all(
+            connection,
+            "SELECT day_number, gems FROM signin_reward_tiers WHERE day_number <= %s ORDER BY day_number",
+            (CHECKIN_CYCLE_DAYS,),
+        )
         episode_reward_claims = self._all(
             connection,
             """

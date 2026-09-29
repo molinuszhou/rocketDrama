@@ -473,7 +473,7 @@ internal fun DramaAppActivity.showCheckinRewardDialog(snapshot: RewardsApiClient
     }
 
     /**
-     * 奖励数据只提供“连续天数”和“今日是否已签”；具体宝石列表来自服务端动态规则。超过七天时保持最高奖励档。
+     * 奖励数据只提供“连续天数”和“今日是否已签”；具体奖励列表来自服务端动态规则，且按七日周期循环。
      */
 internal fun DramaAppActivity.createCheckinTierStrip(snapshot: RewardsApiClient.Snapshot?): View {
     val serverTiers = snapshot?.checkinRewardTiers?.take(7).orEmpty()

@@ -25,7 +25,10 @@ import model_300usd_three_day as model  # noqa: E402
 OUTPUT_DEFAULT = Path("docs/reward-model-300usd-3days/JoyeDrama_三日300美元_阶梯充能广告测算模型.xlsx")
 MAX_DAYS = 30
 MAX_EPISODES_PER_DAY = 100
-EVENTS_PER_DAY = 3 + MAX_EPISODES_PER_DAY * 2  # welcome, check-in, crown/task and claim per episode, wallet
+MAX_CROWN_ACTIVE_ADS_PER_DAY = 10
+MAX_WALLET_BOOSTS_PER_DAY = 10
+# welcome + check-in + active Crown ads + crown/task and claim per episode + wallet boosts
+EVENTS_PER_DAY = 2 + MAX_CROWN_ACTIVE_ADS_PER_DAY + MAX_EPISODES_PER_DAY * 2 + MAX_WALLET_BOOSTS_PER_DAY
 FIRST_ENGINE_ROW = 10
 
 NAVY = "16324F"
@@ -69,9 +72,11 @@ R = {
     "crown_active_rv": 43,
     "wallet_active_rv": 44,
     "checkin_start": 49,
-    "task_start": 57,
-    "crown_start": 77,
-    "damping_start": 88,
+    "task_start": 59,
+    "crown_start": 76,
+    "crown_episode_points": 73,
+    "crown_active_points": 74,
+    "damping_start": 85,
 }
 
 SCENARIOS = (
@@ -149,8 +154,9 @@ def input_row(ws, row: int, label: str, value, unit: str, category: str, note: s
 
 
 def formulas_for_engine(row: int, phase: str) -> tuple[str, ...]:
-    """Return F:Q formulas for a single server-ordered settlement event."""
-    # H raw units, I prior, J damping, K potential, L cap remaining, M credited, N cumulative, O USD.
+    """Return H:S formulas for one server-ordered settlement event."""
+    # H raw units, I prior, J damping, K potential, L cap remaining, M credited,
+    # N cumulative, O USD, P/RV content, Q/RV tasks, R/RV reward center, S/interstitial.
     prior = "=0" if row == FIRST_ENGINE_ROW else f"=$N${row - 1}"
     damping = (
         f'=IF($I{row}<Inputs!$D${R["damping_start"]},Inputs!$E${R["damping_start"]},'
@@ -164,25 +170,34 @@ def formulas_for_engine(row: int, phase: str) -> tuple[str, ...]:
     credited = f"=MIN($K{row},$L{row})"
     cumulative = f"=$I{row}+$M{row}"
     usd = f"=$N{row}/Inputs!$D${R['units_per_usd']}"
+    crown_active_count = f'COUNTIF($E${FIRST_ENGINE_ROW}:$E{row},"皇冠主动加速")'
+    crown_active_today_count = f'COUNTIFS($D${FIRST_ENGINE_ROW}:$D{row},$D{row},$E${FIRST_ENGINE_ROW}:$E{row},"皇冠主动加速")'
+    wallet_boost_count = f'COUNTIFS($D${FIRST_ENGINE_ROW}:$D{row},$D{row},$E${FIRST_ENGINE_ROW}:$E{row},"钱包加速")'
+    points_before = f'(($G{row}-1)*Inputs!$I${R["crown_episode_points"]}+{crown_active_count}*Inputs!$I${R["crown_active_points"]})'
+    points_after = f'($G{row}*Inputs!$I${R["crown_episode_points"]}+{crown_active_count}*Inputs!$I${R["crown_active_points"]})'
     if phase == "欢迎奖励":
         raw = f'=IF($D{row}=1,Inputs!$D${R["welcome"]},0)'
         content_rv = f'=IF($T{row}>0,ROUNDUP(MAX(0,$T{row}-Inputs!$D${R["free_episodes"]})/Inputs!$D${R["unlock_bundle"]},0)+IF($D{row}=1,Inputs!$D${R["welcome_rv"]},0),0)'
         task_rv = "=0"
         reward_center_rv = "=0"
-        interstitial = (
-            f'=ROUND(ROUNDUP(MAX(0,$T{row}-Inputs!$D${R["free_episodes"]})/Inputs!$D${R["unlock_bundle"]},0)*Inputs!$D${R["pack_interstitial"]},0)'
-        )
+        interstitial = f'=ROUND(ROUNDUP(MAX(0,$T{row}-Inputs!$D${R["free_episodes"]})/Inputs!$D${R["unlock_bundle"]},0)*Inputs!$D${R["pack_interstitial"]},0)'
     elif phase == "日初签到":
-        raw = f'=IFERROR(IF($D{row}<=3,ROUNDDOWN(INDEX(Inputs!$D${R["checkin_start"]}:$D${R["checkin_start"] + 2},$D{row})*Inputs!$D${R["checkin_rate"]},0),0),0)'
+        raw = f'=IFERROR(ROUNDDOWN(INDEX(Inputs!$D${R["checkin_start"]}:$D${R["checkin_start"] + 6},MOD($D{row}-1,7)+1)*Inputs!$D${R["checkin_rate"]},0),0)'
         content_rv = f'=IF($H{row}>0,Inputs!$D${R["checkin_rv"]},0)'
         task_rv = "=0"
         reward_center_rv = "=0"
         interstitial = "=0"
+    elif phase == "皇冠主动加速":
+        raw = "=0"
+        content_rv = "=0"
+        task_rv = "=0"
+        reward_center_rv = f'=IF({crown_active_today_count}<=Inputs!$D${R["crown_active_rv"]},1,0)'
+        interstitial = "=0"
     elif phase == "皇冠/任务":
         raw = (
             f'=IF($F{row}<=$T{row},'
-            f'SUMPRODUCT(--((($G{row}-1)*Inputs!$I${R["crown_start"] - 1})<Inputs!$D${R["crown_start"]}:$D${R["crown_start"] + 4}),'
-            f'--(($G{row}*Inputs!$I${R["crown_start"] - 1})>=Inputs!$D${R["crown_start"]}:$D${R["crown_start"] + 4}),Inputs!$E${R["crown_start"]}:$E${R["crown_start"] + 4})+'
+            f'SUMPRODUCT(--(({points_before})<Inputs!$D${R["crown_start"]}:$D${R["crown_start"] + 4}),'
+            f'--(({points_after})>=Inputs!$D${R["crown_start"]}:$D${R["crown_start"] + 4}),Inputs!$E${R["crown_start"]}:$E${R["crown_start"] + 4})+'
             f'SUMIF(Inputs!$C${R["task_start"]}:$C${R["task_start"] + 13},$F{row},Inputs!$D${R["task_start"]}:$D${R["task_start"] + 13}),0)'
         )
         task_rv = f'=IF(AND($F{row}<=$T{row},SUMIF(Inputs!$C${R["task_start"]}:$C${R["task_start"] + 13},$F{row},Inputs!$D${R["task_start"]}:$D${R["task_start"] + 13})>0),Inputs!$D${R["task_rv"]},0)'
@@ -191,11 +206,11 @@ def formulas_for_engine(row: int, phase: str) -> tuple[str, ...]:
         interstitial = "=0"
     elif phase == "分集领取":
         multiplier = (
-            f'IF(($G{row}-1)*Inputs!$I${R["crown_start"] - 1}>=Inputs!$D${R["crown_start"] + 4},Inputs!$F${R["crown_start"] + 4},'
-            f'IF(($G{row}-1)*Inputs!$I${R["crown_start"] - 1}>=Inputs!$D${R["crown_start"] + 3},Inputs!$F${R["crown_start"] + 3},'
-            f'IF(($G{row}-1)*Inputs!$I${R["crown_start"] - 1}>=Inputs!$D${R["crown_start"] + 2},Inputs!$F${R["crown_start"] + 2},'
-            f'IF(($G{row}-1)*Inputs!$I${R["crown_start"] - 1}>=Inputs!$D${R["crown_start"] + 1},Inputs!$F${R["crown_start"] + 1},'
-            f'IF(($G{row}-1)*Inputs!$I${R["crown_start"] - 1}>=Inputs!$D${R["crown_start"]},Inputs!$F${R["crown_start"]},1)))))'
+            f'IF(({points_before})>=Inputs!$D${R["crown_start"] + 4},Inputs!$F${R["crown_start"] + 4},'
+            f'IF(({points_before})>=Inputs!$D${R["crown_start"] + 3},Inputs!$F${R["crown_start"] + 3},'
+            f'IF(({points_before})>=Inputs!$D${R["crown_start"] + 2},Inputs!$F${R["crown_start"] + 2},'
+            f'IF(({points_before})>=Inputs!$D${R["crown_start"] + 1},Inputs!$F${R["crown_start"] + 1},'
+            f'IF(({points_before})>=Inputs!$D${R["crown_start"]},Inputs!$F${R["crown_start"]},1)))))'
         )
         raw = f'=IF($F{row}<=$T{row},ROUNDDOWN(Inputs!$D${R["base_episode"]}*{multiplier},0),0)'
         content_rv = f'=IF(AND($F{row}=1,$T{row}>0),Inputs!$D${R["claim_rv"]},0)'
@@ -203,10 +218,10 @@ def formulas_for_engine(row: int, phase: str) -> tuple[str, ...]:
         reward_center_rv = "=0"
         interstitial = "=0"
     elif phase == "钱包加速":
-        raw = f'=Inputs!$D${R["wallet_boost"]}*Inputs!$D${R["wallet_limit"]}'
+        raw = f'=IF({wallet_boost_count}<=Inputs!$D${R["wallet_limit"]},Inputs!$D${R["wallet_boost"]},0)'
         content_rv = "=0"
         task_rv = "=0"
-        reward_center_rv = f'=IF($H{row}>0,Inputs!$D${R["wallet_active_rv"]},0)'
+        reward_center_rv = f'=IF($H{row}>0,1,0)'
         interstitial = "=0"
     else:
         raise ValueError(phase)
@@ -214,14 +229,14 @@ def formulas_for_engine(row: int, phase: str) -> tuple[str, ...]:
 
 
 def build_readme(ws) -> None:
-    title(ws, "JoyeDrama v1.7.0.0 — 三日300美元阶梯充能广告测算模型", "公式驱动模型：仅修改 Inputs 蓝色单元格；隐藏 Engine 逐笔结算层和展示表会自动重算。", 7)
+    title(ws, "JoyeDrama v1.7.0.1 — 三日300美元阶梯充能广告测算模型", "公式驱动模型：仅修改 Inputs 蓝色单元格；隐藏 Engine 逐笔结算层和展示表会自动重算。", 7)
     section(ws, 6, "使用方法", 7)
     notes = [
         "1. 仅修改 Inputs 中蓝色单元格。当前模型将服务端 300 美元上限、三日 290 美元高参与度资格路径、皇冠之路与阻尼参数集中在该页。",
         "2. 在 Excel 中按 Ctrl+Alt+F9，或在 LibreOffice 中按 Ctrl+Shift+F9 / 保存后重新打开，确保公式重新计算。工作簿已设置为自动计算。",
         f"3. 模型预生成 {MAX_DAYS} 天 × 3 个时长情景的逐笔计算行；每日最多支持 {MAX_EPISODES_PER_DAY} 集。不要将 Inputs 的范围参数设置得更高。",
         "4. Summary 显示前 N 天累计表现；Milestones 显示达到 290 万资格目标和 300 万硬上限的时间、现金与广告数量；Ad_Points 显示广告频率；三张 Daily 表展示逐日明细。",
-        "5. Engine_* 隐藏表按“新人奖励 → 日初签到 → 每集皇冠/任务 → 日末逐集领取 → 钱包加速”顺序逐笔应用六档阻尼。它是必要计算层，请勿删除。",
+        "5. Engine_* 隐藏表按“新人奖励 → 七日循环签到 → 皇冠主动加速 → 每集皇冠/任务 → 日末逐集领取 → 钱包加速”顺序逐笔应用六档阻尼。它是必要计算层，请勿删除。",
         "6. 本模型是高参与度资格路径测算工具，不代表平均用户收益，也不构成任何对外收益承诺。服务端账本、广告回调、异常中断和地区合规限制仍以实际产品实现为准。",
     ]
     for row, note in enumerate(notes, start=7):
@@ -232,10 +247,10 @@ def build_readme(ws) -> None:
     section(ws, 15, "当前默认规则", 7)
     headers(ws, 16, ["模块", "默认规则", "与服务端口径"], 3)
     rules = [
-        ("目标", "三日高参与度路径结算 2,900,000 内部单位（US$290）；生命周期硬上限 3,000,000 单位（US$300）。", "迁移 029_v1700_300usd_three_day_curve.sql"),
+        ("目标", "三日高参与度路径结算显示 US$290.00；生命周期硬上限 3,000,000 单位（US$300）。", "迁移 030_v1701_seven_day_cycle_ten_active_boosts.sql"),
         ("新人奖励", "首日 600,000 内部单位，并统计 1 条内容流激励广告。", "welcome_rewards / market_wallet_policy"),
         ("追剧任务", "每日 1、3、6、9、12、15、18、24、30、36、42、48、54、60 集为固定金额节点；每个节点 1 条激励广告。", "reward_policy 的四档固定任务金额"),
-        ("皇冠与钱包", "皇冠按自然观看里程碑发放；钱包每日 1 次加速，每次 1,000 单位。默认不计入皇冠主动广告。", "Crown Road / wallet redpacket policy"),
+        ("皇冠与钱包", "皇冠主动加速与钱包加速均为每天 10 次；每条皇冠广告增加 1 点成长积分，钱包每条奖励 1,000 单位。", "Crown Road / wallet redpacket policy"),
         ("阻尼", "从 2,650,000 单位开始依次采用 1.00x / 0.50x / 0.25x / 0.12x / 0.06x / 0.01x，直至 3,000,000 上限。", "reward_policy gems_earned_cap 与 damping tiers"),
         ("广告", "前 3 集免费；每条解锁激励连续解锁 2 集；集包插屏系数 0.5；不在本模型中叠加播放时长计时插屏。", "用于运营频率估算，实际展示以客户端频控为准"),
     ]
@@ -248,7 +263,7 @@ def build_readme(ws) -> None:
 
 
 def build_inputs(ws) -> None:
-    title(ws, "JoyeDrama v1.7.0.0 — 三日300美元阶梯充能广告参数", "蓝色 = 可调输入；绿色 = 公式结果。修改蓝色单元格后请重新计算工作簿。", 7)
+    title(ws, "JoyeDrama v1.7.0.1 — 三日300美元阶梯充能广告参数", "蓝色 = 可调输入；绿色 = 公式结果。修改蓝色单元格后请重新计算工作簿。", 7)
     section(ws, 6, "模型范围与用户情景", 7)
     headers(ws, 8, ["参数", "当前值", "单位", "分类", "说明"], 3)
     input_row(ws, R["summary_days"], "汇总统计天数", 3, "天", "模型范围", "Summary 统计前 N 天累计表现；三日资格目标默认使用 3。")
@@ -273,7 +288,7 @@ def build_inputs(ws) -> None:
     input_row(ws, R["welcome_rv"], "新人欢迎奖励激励广告", 1, "条/首日", "广告统计", "用于统计首日内容流 RV。")
     input_row(ws, R["base_episode"], "单集基础现金奖励", model.BASE_EPISODE_REWARD, "内部单位/集", "现金奖励", "皇冠等级会影响每集原始奖励。")
     input_row(ws, R["wallet_boost"], "钱包加速单次奖励", model.WALLET_BOOST_UNITS, "内部单位/条", "现金奖励", "每日可见的钱包广告加速奖励。")
-    input_row(ws, R["wallet_limit"], "每日钱包加速上限", model.WALLET_BOOSTS_PER_DAY, "条/日", "现金奖励", "资格路径默认每天 1 次。")
+    input_row(ws, R["wallet_limit"], "每日钱包加速上限", model.WALLET_BOOSTS_PER_DAY, "条/日", "现金奖励", "资格路径默认每天 10 次。")
 
     section(ws, 34, "解锁、每日追剧任务与广告频率", 7)
     headers(ws, 35, ["参数", "当前值", "单位", "分类", "说明"], 3)
@@ -284,12 +299,12 @@ def build_inputs(ws) -> None:
     input_row(ws, R["checkin_rv"], "每日签到激励广告", 1, "条/日", "现金奖励", "完成签到奖励统计 1 条内容流 RV。")
     input_row(ws, R["checkin_rate"], "签到领取比例", 1.0, "%", "现金奖励", "100% 表示每天完整签到。", "0.0%")
     input_row(ws, R["pack_interstitial"], "每个集包的插屏展示系数", 0.5, "条/集包", "插屏广告", "0.5 表示累计两个集包展示一条完整插屏。", "0.0")
-    input_row(ws, R["crown_active_rv"], "皇冠主动激励广告", 0, "条/日", "奖励中心", "当前三日资格路径不包含可选皇冠主动广告。")
-    input_row(ws, R["wallet_active_rv"], "钱包主动激励广告", 1, "条/日", "奖励中心", "默认每天 1 次钱包加速广告。")
+    input_row(ws, R["crown_active_rv"], "皇冠主动激励广告", model.CROWN_ACTIVE_BOOSTS_PER_DAY, "条/日", "奖励中心", "资格路径每天完成 10 次，每条增加 1 点皇冠成长积分。")
+    input_row(ws, R["wallet_active_rv"], "钱包主动激励广告", model.WALLET_BOOSTS_PER_DAY, "条/日", "奖励中心", "默认每天 10 次钱包加速广告。")
 
-    section(ws, 47, "前三日签到奖励", 7)
+    section(ws, 47, "七日签到周期", 7)
     headers(ws, 48, ["天数", "奖励（内部单位）", "美元参考", "说明"], 3)
-    for offset, amount in enumerate(model.CHECKIN_UNITS):
+    for offset, amount in enumerate(model.CHECKIN_CYCLE_UNITS):
         row = R["checkin_start"] + offset
         ws.cell(row, 3, offset + 1).font = text_font()
         cell = ws.cell(row, 4, amount)
@@ -298,10 +313,10 @@ def build_inputs(ws) -> None:
         cell.number_format = "#,##0"
         ws.cell(row, 5, f"=D{row}/10000").font = formula_font()
         ws.cell(row, 5).number_format = '$#,##0.00'
-        ws.cell(row, 6, "仅作为当前三日资格路径签到奖励；之后日期不计入本模型。").font = text_font()
+        ws.cell(row, 6, "连续签到第 7 天后回到第 1 天；前三日进入资格路径测算。").font = text_font()
 
-    section(ws, 55, "每日追剧任务阶梯", 7)
-    headers(ws, 56, ["节点集数", "奖励（内部单位）", "奖励档", "领取广告", "说明"], 3)
+    section(ws, 57, "每日追剧任务阶梯", 7)
+    headers(ws, 58, ["节点集数", "奖励（内部单位）", "奖励档", "领取广告", "说明"], 3)
     for index, (episode, reward) in enumerate(model.TASK_REWARDS.items()):
         row = R["task_start"] + index
         tier = "第1档" if episode <= 3 else "第2档" if episode <= 9 else "第3档" if episode <= 15 else "第4档"
@@ -312,8 +327,8 @@ def build_inputs(ws) -> None:
                 c.fill = fill(INPUT_BLUE)
                 c.number_format = "#,##0"
 
-    section(ws, 75, "皇冠之路自然达成权益", 7)
-    headers(ws, 76, ["等级", "触发积分", "奖励（内部单位）", "单集倍率", "说明"], 3)
+    section(ws, 74, "皇冠之路等级与主动加速权益", 7)
+    headers(ws, 75, ["等级", "触发积分", "奖励（内部单位）", "单集倍率", "说明"], 3)
     labels = {"BRONZE": "青铜", "SILVER": "白银", "GOLD": "黄金", "DIAMOND": "钻石", "CROWN": "王冠"}
     for index, (code, points, reward, multiplier) in enumerate(model.CROWN_LEVELS):
         row = R["crown_start"] + index
@@ -323,14 +338,17 @@ def build_inputs(ws) -> None:
             c.fill = fill(INPUT_BLUE)
             c.font = text_font(bold=True)
             c.number_format = fmt
-        ws.cell(row, 7, "本模型只统计自然观看达到里程碑，不含皇冠主动广告。").font = text_font()
+        ws.cell(row, 7, "每集 +2 皇冠积分；每日可额外完成 10 次主动加速广告，每条 +1 积分。").font = text_font()
     # Points per episode sits next to the table for clear audit address used by the engine.
-    ws.cell(R["crown_start"] - 1, 8, "每集皇冠积分").font = text_font(bold=True)
-    ws.cell(R["crown_start"] - 1, 9, model.CROWN_EPISODE_PROGRESS_POINTS).fill = fill(INPUT_BLUE)
-    ws.cell(R["crown_start"] - 1, 9).font = text_font(bold=True)
+    ws.cell(R["crown_episode_points"], 8, "每集皇冠积分").font = text_font(bold=True)
+    ws.cell(R["crown_episode_points"], 9, model.CROWN_EPISODE_PROGRESS_POINTS).fill = fill(INPUT_BLUE)
+    ws.cell(R["crown_episode_points"], 9).font = text_font(bold=True)
+    ws.cell(R["crown_active_points"], 8, "每条皇冠主动广告积分").font = text_font(bold=True)
+    ws.cell(R["crown_active_points"], 9, model.CROWN_REWARDED_AD_PROGRESS_POINTS).fill = fill(INPUT_BLUE)
+    ws.cell(R["crown_active_points"], 9).font = text_font(bold=True)
 
-    section(ws, 86, "六档阻尼与上限", 7)
-    headers(ws, 87, ["档位", "起始累计内部单位", "阻尼倍率", "说明"], 3)
+    section(ws, 83, "六档阻尼与上限", 7)
+    headers(ws, 84, ["档位", "起始累计内部单位", "阻尼倍率", "说明"], 3)
     for index, (threshold, multiplier) in enumerate(model.DAMPING_TIERS):
         row = R["damping_start"] + index
         ws.cell(row, 3, f"第{index + 1}档").font = text_font(bold=True)
@@ -341,7 +359,7 @@ def build_inputs(ws) -> None:
             c.number_format = fmt
         ws.cell(row, 6, "按结算前累计进度选择倍率；最后一档延续至硬上限。" if index == 5 else "达到该累计进度后，后续奖励按本档倍率结算。").font = text_font()
 
-    apply_grid(ws, 8, 93, 3, 7)
+    apply_grid(ws, 8, 90, 3, 7)
     ws.freeze_panes = "C9"
     set_widths(ws, {"A": 3, "B": 3, "C": 31, "D": 18, "E": 17, "F": 17, "G": 67, "H": 16, "I": 16})
 
@@ -353,15 +371,16 @@ def build_engine(ws, scenario_label: str, hours_input_row: int) -> None:
     index = 1
     for day in range(1, MAX_DAYS + 1):
         phase_rows: list[tuple[str, int]] = [("欢迎奖励", 0), ("日初签到", 0)]
+        phase_rows.extend(("皇冠主动加速", 0) for _ in range(MAX_CROWN_ACTIVE_ADS_PER_DAY))
         phase_rows.extend(("皇冠/任务", episode) for episode in range(1, MAX_EPISODES_PER_DAY + 1))
         phase_rows.extend(("分集领取", episode) for episode in range(1, MAX_EPISODES_PER_DAY + 1))
-        phase_rows.append(("钱包加速", 0))
+        phase_rows.extend(("钱包加速", 0) for _ in range(MAX_WALLET_BOOSTS_PER_DAY))
         for phase, episode in phase_rows:
             ws.cell(row, 3, index).font = formula_font()
             ws.cell(row, 4, day).font = formula_font()
             phase_cell = ws.cell(row, 5, phase)
             phase_cell.font = text_font()
-            phase_cell.fill = fill(PALE_YELLOW if phase in ("欢迎奖励", "日初签到", "钱包加速") else PALE_BLUE)
+            phase_cell.fill = fill(PALE_YELLOW if phase in ("欢迎奖励", "日初签到", "皇冠主动加速", "钱包加速") else PALE_BLUE)
             ws.cell(row, 6, episode).font = formula_font()
             # daily episodes: fixed time scenario / average episode time, limited to model capacity and model range.
             ws.cell(row, 20, f'=IF($B{row}<=Inputs!$D${R["milestone_days"]},MIN(Inputs!$D${R["max_episodes"]},ROUNDDOWN(Inputs!$D${hours_input_row}*60/Inputs!$D${R["episode_minutes"]},0)),0)').font = formula_font()
@@ -489,8 +508,8 @@ def build_summary(ws) -> None:
     notes = [
         "蓝色 Inputs 修改后，奖励、广告量、阻尼进度、美元钱包、任务线和里程碑会联动。逐笔计算层为隐藏工作表 Engine_*；如需审计，可在 Excel 中取消隐藏。",
         f"三种情景均预生成 {MAX_DAYS} 天、每天最多 {MAX_EPISODES_PER_DAY} 集。Inputs 中范围参数不得超过该上限。",
-        "广告频率为运营测算：内容流 RV 包含新人、签到、任务、日末领取与解锁；奖励中心 RV 包含钱包加速；实际广告填充和客户端频控以生产逻辑为准。",
-        "1.5h 情景默认 60 集/日，三日完整参与路径应达到 2,900,000 内部单位 / US$290；硬上限为 3,000,000 内部单位 / US$300。",
+        "广告频率为运营测算：内容流 RV 包含新人、签到、任务、日末领取与解锁；奖励中心 RV 包含每日 10 次皇冠主动加速与 10 次钱包加速；实际广告填充和客户端频控以生产逻辑为准。",
+        "1.5h 情景默认 60 集/日；完整路径含七日循环签到、每日各 10 次皇冠与钱包加速，三日结算显示 US$290.00；硬上限为 US$300。",
     ]
     for row, note in enumerate(notes, start=25):
         ws.merge_cells(start_row=row, start_column=3, end_row=row, end_column=6)
@@ -553,7 +572,7 @@ def build_milestones(ws) -> None:
     section(ws, 20, "说明", 8)
     notes = [
         "目标与硬上限均按日末累计进度识别。隐藏 Engine 层在每笔事件上应用阻尼，避免按天统一套用阻尼倍率。",
-        "“290万时累计内容流RV”包含新人、签到、解锁、任务和日末领取；“奖励中心RV”包含钱包加速。未达到的情景会显示“未达到”。",
+        "“290万时累计内容流RV”包含新人、签到、解锁、任务和日末领取；“奖励中心RV”包含皇冠主动加速与钱包加速。未达到的情景会显示“未达到”。",
         "模型默认 1.5h 情景在第 3 天达到 290 万资格目标；由于第三天进入阻尼区间，部分原始奖励按阻尼后实际入账。",
     ]
     for row, note in enumerate(notes, start=21):
@@ -575,7 +594,7 @@ def build_ad_points(ws) -> None:
         ("追剧任务领取广告", "是", f'=Inputs!$D${R["task_rv"]}&" 条 / 节点"', "—", "是", "每天任务重置；最高 60 集共 14 个固定金额节点。"),
         ("签到广告", "是", f'=Inputs!$D${R["checkin_rv"]}&" 条 / 日"', "—", "是", "按签到领取比例计入前三日资格路径。"),
         ("钱包主动广告", "是", f'=Inputs!$D${R["wallet_active_rv"]}&" 条 / 日"', "—", "否", "钱包加速广告，计入奖励中心 RV。"),
-        ("皇冠主动广告", "条件", f'=Inputs!$D${R["crown_active_rv"]}&" 条 / 日"', "—", "否", "当前资格路径默认不纳入该可选广告。"),
+        ("皇冠主动广告", "是", f'=Inputs!$D${R["crown_active_rv"]}&" 条 / 日"', "—", "否", "每日最多 10 条；每条增加 1 点皇冠成长积分，按日初先完成的资格路径计入。"),
         ("集包插屏", "是", f'=Inputs!$D${R["pack_interstitial"]}&" 条 / 集包"', "P2", "否", "系数 0.5 表示累计两个集包展示一条完整插屏。"),
         ("激励加载失败 / 拒绝", "条件触发", "本模型默认 0", "P1", "否", "实际客户端按广告回调处理；本模型不叠加例外候选。"),
     ]
@@ -583,7 +602,7 @@ def build_ad_points(ws) -> None:
         for col, value in enumerate(values, start=3):
             cell = ws.cell(row, col, value)
             cell.font = formula_font() if isinstance(value, str) and value.startswith("=") else text_font(bold=col == 3)
-    section(ws, 19, "基础频率（不含皇冠主动广告）", 9)
+    section(ws, 19, "基础频率（含皇冠与钱包主动加速）", 9)
     headers(ws, 20, ["每日观看时长", "有效观看集/日", "内容流RV/小时", "集包插屏/小时", "奖励中心RV/小时", "全部插屏/小时"], 3)
     for row, (_, daily, _, hours_row) in enumerate(SCENARIOS, start=21):
         ws.cell(row, 3, f'=Inputs!$D${hours_row}').font = formula_font()
