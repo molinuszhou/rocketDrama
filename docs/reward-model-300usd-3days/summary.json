@@ -1,0 +1,48 @@
+{
+  "model": "v1.7.0.0-three-day-usd300",
+  "assumptions": {
+    "days": 3,
+    "episodes_per_day": 60,
+    "welcome_reward_units": 600000,
+    "daily_checkin_units": [
+      10000,
+      20000,
+      30000
+    ],
+    "wallet_boosts_per_day": 1,
+    "wallet_boost_units": 1000,
+    "crown_road_ads": 0,
+    "unit_to_usd": "10,000 internal units = US$1.00"
+  },
+  "day_end_units": {
+    "1": 1472000,
+    "2": 2494000,
+    "3": 2900000
+  },
+  "day_end_usd": {
+    "1": "147.20",
+    "2": "249.40",
+    "3": "290.00"
+  },
+  "raw_units": 3540000,
+  "raw_usd": "354.00",
+  "credited_units": 2900000,
+  "credited_usd": "290.00",
+  "cap_units": 3000000,
+  "cap_usd": "300.00",
+  "headroom_units": 100000,
+  "headroom_usd": "10.00",
+  "credited_by_source_units": {
+    "checkin": 60000,
+    "crown": 104000,
+    "episode_claim": 1323880,
+    "wallet_boost": 2120,
+    "watch_task": 810000,
+    "welcome": 600000
+  },
+  "raw_by_day_units": {
+    "1": 1472000,
+    "2": 1022000,
+    "3": 1046000
+  }
+}
