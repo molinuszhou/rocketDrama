@@ -146,44 +146,49 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
                 }
                 addView(boostSlot, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)))
             }, matchParams(top = 16, bottom = 18))
-            val threshold = rewardsSnapshot?.withdrawal?.threshold?.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO
             val balance = wallet.cashWallet.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO
-            if (threshold > java.math.BigDecimal.ZERO) {
-                val usdBalance = wallet.availableBalanceUsdReference.toBigDecimalOrNull()
-                    ?: wallet.cashWalletUsdReference.toBigDecimalOrNull()
-                    ?: balance
-                val thresholdUsdLabel = rewardsSnapshot?.withdrawal?.thresholdUsdReference?.toBigDecimalOrNull()?.let {
-                    "US$${it.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString()}"
-                } ?: formatCurrencyAmount(wallet, threshold.toPlainString(), null, false)
-                val firstTargetUsd = rewardsSnapshot?.withdrawal?.thresholdUsdReference?.toBigDecimalOrNull()
-                    ?: java.math.BigDecimal("200")
-                // Keep the original target proportions (200:500:800:1000) while taking
-                // the first target from the server-issued withdrawal policy.
-                val cashoutTargetsUsd = listOf(
-                    firstTargetUsd,
-                    firstTargetUsd.multiply(java.math.BigDecimal("2.5")),
-                    firstTargetUsd.multiply(java.math.BigDecimal("4")),
-                    firstTargetUsd.multiply(java.math.BigDecimal("5")),
-                )
-                cashoutTargetsUsd.forEachIndexed { index, targetUsd ->
-                    addView(TextView(this@createWithdrawalPage).apply {
-                        val targetLabel = "US$${targetUsd.toPlainString()}"
-                        text = targetLabel
-                        textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(if (index == 0) COLOR_SUNSET else COLOR_AQUA); setPadding(0, if (index == 0) dp(4) else dp(16), 0, dp(8))
-                    })
-                    addView(ProgressBar(this@createWithdrawalPage, null, android.R.attr.progressBarStyleHorizontal).apply {
-                        max = 100; progress = usdBalance.multiply(java.math.BigDecimal(100)).divide(targetUsd, 0, java.math.RoundingMode.DOWN).toInt().coerceIn(0, 100)
-                        progressTintList = ColorStateList.valueOf(if (index == 0) COLOR_SUNSET else COLOR_AQUA); backgroundTintList = ColorStateList.valueOf(0x44FFFFFF)
-                    }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(6)).apply { topMargin = dp(2); bottomMargin = dp(3) })
-                }
-                addView(TextView(this@createWithdrawalPage).apply {
-                    text = t("cashout_step_request_dynamic", thresholdUsdLabel)
-                    textSize = 13f
-                    gravity = Gravity.CENTER
-                    setTextColor(COLOR_TEXT_MUTED)
-                    setPadding(dp(4), dp(12), dp(4), dp(2))
-                })
-            }
+            val usdBalance = wallet.availableBalanceUsdReference.toBigDecimalOrNull()
+                ?: wallet.cashWalletUsdReference.toBigDecimalOrNull()
+                ?: balance
+            // The reward model has a single US$300 ceiling. Showing additional $750/$1,200
+            // milestones contradicted that model and diluted the primary goal.
+            val goalUsd = java.math.BigDecimal("300.00")
+            val remainingUsd = goalUsd.subtract(usdBalance).coerceAtLeast(java.math.BigDecimal.ZERO)
+            addView(TextView(this@createWithdrawalPage).apply {
+                text = t("cashout_goal_cap")
+                textSize = 13f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(0xCCFFFFFF.toInt())
+                setPadding(0, dp(4), 0, dp(4))
+            })
+            addView(TextView(this@createWithdrawalPage).apply {
+                text = "US$300"
+                textSize = 30f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(COLOR_SUNSET)
+                includeFontPadding = false
+            })
+            addView(ProgressBar(this@createWithdrawalPage, null, android.R.attr.progressBarStyleHorizontal).apply {
+                max = 100
+                progress = usdBalance.multiply(java.math.BigDecimal(100)).divide(goalUsd, 0, java.math.RoundingMode.DOWN).toInt().coerceIn(0, 100)
+                progressTintList = ColorStateList.valueOf(COLOR_SUNSET)
+                backgroundTintList = ColorStateList.valueOf(0x44FFFFFF)
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(7)).apply { topMargin = dp(8); bottomMargin = dp(7) })
+            addView(TextView(this@createWithdrawalPage).apply {
+                text = t("cashout_goal_progress", "US$300", "US$${remainingUsd.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString()}")
+                textSize = 12f
+                setTextColor(0xCCFFFFFF.toInt())
+            })
+            addView(TextView(this@createWithdrawalPage).apply {
+                text = t("cashout_watch_action")
+                textSize = 14f
+                typeface = Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER
+                setTextColor(COLOR_TEXT_PRIMARY)
+                background = roundedDrawable(COLOR_SURFACE, 15)
+                isClickable = true
+                setOnClickListener { activeTab = MainTab.HOME; renderActiveTab() }
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)).apply { topMargin = dp(14) })
         }, matchParams(bottom = 14))
     }
 

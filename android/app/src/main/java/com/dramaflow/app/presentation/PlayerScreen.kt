@@ -164,15 +164,38 @@ internal fun DramaAppActivity.showPlayer(drama: LocalDrama, startIndex: Int, res
         root.addView(playerView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         root.addView(createPlayerChrome(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         if (!BuildConfig.WHITE_PACK) {
-            root.addView(createFloatingRewardWheel(compact = true), FrameLayout.LayoutParams(dp(130), dp(104), Gravity.END or Gravity.CENTER_VERTICAL).apply {
-                marginEnd = -dp(14)
-                topMargin = dp(42)
+            root.addView(createFloatingRewardWheel(compact = true), FrameLayout.LayoutParams(dp(112), dp(96), Gravity.END or Gravity.BOTTOM).apply {
+                marginEnd = dp(12)
+                bottomMargin = dp(166)
             })
         }
         selectEpisode(currentEpisodeIndex)
+        showPlayerGestureHintOnce()
         progressHandler.removeCallbacks(progressTicker)
         progressHandler.post(progressTicker)
     }
+
+internal fun DramaAppActivity.showPlayerGestureHintOnce() {
+    val preferences = getSharedPreferences("joyedrama_player_hint", Context.MODE_PRIVATE)
+    if (preferences.getBoolean("gesture_hint_seen", false)) return
+    preferences.edit().putBoolean("gesture_hint_seen", true).apply()
+    val hint = TextView(this).apply {
+        text = t("player_gesture_hint_short")
+        textSize = 12f
+        typeface = Typeface.DEFAULT_BOLD
+        gravity = Gravity.CENTER
+        setTextColor(Color.WHITE)
+        setPadding(dp(15), dp(9), dp(15), dp(9))
+        background = roundedDrawable(0xDC1D1D22.toInt(), 18)
+        alpha = 0f
+    }
+    root.addView(hint, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM).apply {
+        bottomMargin = dp(148)
+    })
+    hint.animate().alpha(1f).setStartDelay(520L).setDuration(240L).withEndAction {
+        hint.postDelayed({ hint.animate().alpha(0f).setDuration(300L).withEndAction { (hint.parent as? ViewGroup)?.removeView(hint) }.start() }, 3_300L)
+    }.start()
+}
 
 private fun Int?.orZero(): Int = this ?: 0
 

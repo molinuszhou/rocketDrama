@@ -280,33 +280,60 @@ internal fun DramaAppActivity.showWelcomeRewardDialog(snapshot: RewardsApiClient
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(30), dp(20), dp(30), dp(20))
+            setPadding(dp(30), dp(18), dp(30), dp(18))
         }
-        val gem = ImageView(this@showWelcomeRewardDialog).apply {
-            setImageResource(R.drawable.wallet_money)
+        val rewardIcon = ImageView(this@showWelcomeRewardDialog).apply {
+            setImageResource(R.drawable.ic_cash_reward)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
         }
-        content.addView(gem, LinearLayout.LayoutParams(dp(154), dp(154)))
+        content.addView(rewardIcon, LinearLayout.LayoutParams(dp(112), dp(112)))
         content.addView(TextView(this@showWelcomeRewardDialog).apply {
-            text = t("welcome_title"); textSize = 30f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_PRIMARY); setPadding(0, dp(6), 0, 0)
+            text = t("welcome_title")
+            textSize = 17f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(COLOR_TEXT_MUTED)
+            setPadding(0, dp(5), 0, dp(2))
         })
         content.addView(TextView(this@showWelcomeRewardDialog).apply {
-            text = t("welcome_subtitle"); textSize = 15f; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(8), 0, dp(16))
+            text = formatWelcomeRewardCashValue(snapshot) ?: "—"
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(COLOR_SUNSET)
+            includeFontPadding = false
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            setAutoSizeTextTypeUniformWithConfiguration(34, 58, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
+            setPadding(dp(8), dp(4), dp(8), dp(4))
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(68)))
+        content.addView(TextView(this@showWelcomeRewardDialog).apply {
+            text = t("welcome_value_label")
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setTextColor(COLOR_TEXT_MUTED)
+            setPadding(0, 0, 0, dp(18))
         })
         content.addView(TextView(this@showWelcomeRewardDialog).apply {
-            text = formatWelcomeRewardCashValue(snapshot) ?: "—"; textSize = 48f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_CORAL); includeFontPadding = false
-            background = roundedDrawable(COLOR_SURFACE, 20); setPadding(dp(22), dp(10), dp(22), dp(10))
-        })
-        content.addView(TextView(this@showWelcomeRewardDialog).apply {
-            text = t("watch_ad_claim"); textSize = 17f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
-            background = gradientDrawable(intArrayOf(COLOR_CORAL, COLOR_SUNSET), 18); setPadding(dp(18), dp(15), dp(18), dp(15)); isClickable = true
+            text = t("watch_ad_claim")
+            textSize = 17f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            background = gradientDrawable(intArrayOf(COLOR_CORAL, COLOR_SUNSET), 18)
+            setPadding(dp(18), dp(15), dp(18), dp(15))
+            isClickable = true
+            contentDescription = t("welcome_claim_hint")
             setOnClickListener { dialog.dismiss(); claimWelcomeBonus { onFinished() } }
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)))
         content.addView(TextView(this@showWelcomeRewardDialog).apply {
-            text = t("later"); textSize = 14f; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(18), 0, 0); isClickable = true
+            text = t("later")
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setTextColor(COLOR_TEXT_MUTED)
+            setPadding(0, dp(16), 0, 0)
+            isClickable = true
             setOnClickListener { dialog.dismiss(); onFinished() }
         })
-        content.translationY = -dp(18).toFloat()
         page.addView(content, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
         dialog.setContentView(page)
         dialog.setCanceledOnTouchOutside(false)
@@ -318,8 +345,8 @@ internal fun DramaAppActivity.showWelcomeRewardDialog(snapshot: RewardsApiClient
             setGravity(Gravity.CENTER)
             attributes = attributes.apply { dimAmount = 0f }
         }
-        gem.animate().scaleX(1.18f).scaleY(1.18f).setDuration(520L).setInterpolator(AccelerateDecelerateInterpolator()).withEndAction {
-            gem.animate().scaleX(1f).scaleY(1f).setDuration(420L).start()
+        rewardIcon.animate().scaleX(1.14f).scaleY(1.14f).setDuration(440L).setInterpolator(AccelerateDecelerateInterpolator()).withEndAction {
+            rewardIcon.animate().scaleX(1f).scaleY(1f).setDuration(360L).start()
         }.start()
     }
 
@@ -373,12 +400,10 @@ internal fun DramaAppActivity.showCheckinRewardDialog(snapshot: RewardsApiClient
             setTextColor(COLOR_TEXT_PRIMARY)
         })
         content.addView(TextView(this).apply {
-            val sevenDayTotal = snapshot?.checkinRewardTiers?.take(7)?.sumOf { it.toLong() } ?: 0L
-            text = if (snapshot == null) t("checkin_syncing") else t("checkin_seven_day_total", formatRewardUnitsAsCash(snapshot, sevenDayTotal))
-            textSize = 15f
+            text = if (snapshot == null) t("checkin_syncing") else t("checkin_next_days")
+            textSize = 14f
             gravity = Gravity.CENTER
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(COLOR_SUNSET)
+            setTextColor(COLOR_TEXT_MUTED)
             setPadding(0, dp(5), 0, dp(8))
         })
         content.addView(TextView(this).apply {
@@ -387,7 +412,7 @@ internal fun DramaAppActivity.showCheckinRewardDialog(snapshot: RewardsApiClient
                 snapshot.checkinSignedToday -> t("checkin_done_message", snapshot.checkinStreak)
                 else -> t("checkin_day_cash", snapshot.checkinTodayIndex, formatRewardUnitsAsCash(snapshot, snapshot.checkinNextRewardCoins.toLong()))
             }
-            textSize = 24f
+            textSize = 28f
             gravity = Gravity.CENTER
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(COLOR_CORAL)
@@ -451,67 +476,62 @@ internal fun DramaAppActivity.showCheckinRewardDialog(snapshot: RewardsApiClient
      * 奖励数据只提供“连续天数”和“今日是否已签”；具体宝石列表来自服务端动态规则。超过七天时保持最高奖励档。
      */
 internal fun DramaAppActivity.createCheckinTierStrip(snapshot: RewardsApiClient.Snapshot?): View {
-        // Always reserve seven slots. If an older server sends fewer tiers, repeat its
-        // final value so the seven-day promise remains visible without inventing a new amount.
-        val serverTiers = snapshot?.checkinRewardTiers?.take(7).orEmpty()
-        val tiers = if (serverTiers.isEmpty()) {
-            List(7) { 0 }
-        } else {
-            serverTiers + List(7 - serverTiers.size) { serverTiers.last() }
-        }
-        // checkinStreak 是已经完成的天数：首日未签到时为 0，必须突出“今日第 1 天”而非打勾。
-        val completedDays = snapshot?.checkinStreak ?: 0
-        val signedToday = snapshot?.checkinSignedToday == true
-        val maxTierIndex = tiers.lastIndex
-        val todayIndex = ((snapshot?.checkinTodayIndex ?: 1).coerceAtLeast(1) - 1).coerceAtMost(maxTierIndex)
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            tiers.forEachIndexed { index, coins ->
-                val isToday = snapshot != null && index == todayIndex
-                val isDone = snapshot != null && index < completedDays.coerceAtMost(tiers.size)
-                addView(LinearLayout(this@createCheckinTierStrip).apply {
-                    orientation = LinearLayout.VERTICAL
+    val serverTiers = snapshot?.checkinRewardTiers?.take(7).orEmpty()
+    val tiers = if (serverTiers.isEmpty()) List(7) { 0 } else serverTiers + List(7 - serverTiers.size) { serverTiers.last() }
+    val completedDays = snapshot?.checkinStreak ?: 0
+    val signedToday = snapshot?.checkinSignedToday == true
+    val todayIndex = ((snapshot?.checkinTodayIndex ?: 1).coerceAtLeast(1) - 1).coerceAtMost(tiers.lastIndex)
+    val start = when {
+        todayIndex <= 0 -> 0
+        todayIndex >= tiers.lastIndex -> (tiers.lastIndex - 2).coerceAtLeast(0)
+        else -> todayIndex - 1
+    }
+    val visibleIndices = (start until minOf(start + 3, tiers.size)).toList()
+    return LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER
+        visibleIndices.forEachIndexed { slot, index ->
+            val isToday = snapshot != null && index == todayIndex
+            val isDone = snapshot != null && index < completedDays.coerceAtMost(tiers.size)
+            addView(LinearLayout(this@createCheckinTierStrip).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                setPadding(dp(6), dp(8), dp(6), dp(8))
+                background = roundedDrawable(
+                    when {
+                        isToday -> COLOR_CORAL
+                        isDone -> 0xFF2E473F.toInt()
+                        else -> COLOR_SURFACE
+                    },
+                    15,
+                )
+                addView(TextView(this@createCheckinTierStrip).apply {
+                    text = when {
+                        isToday && !signedToday -> t("today")
+                        isDone -> t("checkin_complete_short")
+                        else -> t("checkin_day_short", index + 1)
+                    }
+                    textSize = 11f
+                    typeface = Typeface.DEFAULT_BOLD
                     gravity = Gravity.CENTER
-                    setPadding(dp(2), dp(9), dp(2), dp(9))
-                    background = roundedDrawable(
-                        when {
-                            isToday -> COLOR_ACCENT
-                            isDone -> COLOR_PURPLE
-                            else -> 0xFF34343C.toInt()
-                        },
-                        12,
-                    )
-                    addView(TextView(this@createCheckinTierStrip).apply {
-                        text = if (isToday && !signedToday) t("today") else t("day_number", index + 1)
-                        textSize = 10f
-                        gravity = Gravity.CENTER
-                        maxLines = 1
-                        ellipsize = android.text.TextUtils.TruncateAt.END
-                        setTextColor(if (isToday || isDone) Color.WHITE else COLOR_TEXT_MUTED)
-                    })
-                    addView(TextView(this@createCheckinTierStrip).apply {
-                        text = if (isDone) "✓" else if (isToday) t("claim_short") else "○"
-                        textSize = 18f
-                        gravity = Gravity.CENTER
-                        setTextColor(if (isToday || isDone) 0xFFFFDB6A.toInt() else COLOR_TEXT_MUTED)
-                        setPadding(0, dp(3), 0, dp(2))
-                    })
-                    addView(TextView(this@createCheckinTierStrip).apply {
-                        text = if (snapshot == null) t("syncing") else formatRewardUnitsAsCash(snapshot, coins.toLong())
-                        textSize = if (isToday) 13f else 10f
-                        typeface = if (isToday) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-                        gravity = Gravity.CENTER
-                        maxLines = 1
-                        ellipsize = android.text.TextUtils.TruncateAt.END
-                        setTextColor(if (isToday || isDone) Color.WHITE else COLOR_TEXT_MUTED)
-                    })
-                }, LinearLayout.LayoutParams(0, dp(98), 1f).apply {
-                    if (index > 0) marginStart = dp(3)
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                    setTextColor(if (isToday || isDone) Color.WHITE else COLOR_TEXT_MUTED)
                 })
-            }
+                addView(TextView(this@createCheckinTierStrip).apply {
+                    text = if (snapshot == null) t("syncing") else formatRewardUnitsAsCash(snapshot, tiers[index].toLong())
+                    textSize = 16f
+                    typeface = Typeface.DEFAULT_BOLD
+                    gravity = Gravity.CENTER
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                    setTextColor(if (isToday) Color.WHITE else if (isDone) 0xFFFFDB6A.toInt() else COLOR_TEXT_PRIMARY)
+                    setPadding(0, dp(5), 0, 0)
+                })
+            }, LinearLayout.LayoutParams(0, dp(72), 1f).apply { if (slot > 0) marginStart = dp(7) })
         }
     }
+}
 
 internal fun DramaAppActivity.completeDailyCheckin() {
         requestRewardedAction("rv_checkin_complete", onSettled = { action ->

@@ -69,22 +69,25 @@ import java.util.UUID
 import kotlin.random.Random
 
 internal fun DramaAppActivity.createHomePage(): View = scrollPage { content ->
-        val filtered = filteredCatalogItems()
-        val recommended = recommendedCatalogItems()
-        val primaryItems = if (selectedCatalogGenre == null) recommended else filtered
-        content.addView(createPageTitle(t("home"), t("home_greeting")), matchParams(bottom = 14))
-        content.addView(createSearchPrompt(), matchParams(bottom = 12))
-        content.addView(createCategoryTabs(), matchParams(bottom = 14))
-        primaryItems.firstOrNull()?.let { content.addView(createHeroBanner(it), matchParams(bottom = 18)) }
+    val filtered = filteredCatalogItems()
+    val recommended = recommendedCatalogItems()
+    val primaryItems = if (selectedCatalogGenre == null) recommended else filtered
+    content.addView(createPageTitle(t("home"), t("home_greeting")), matchParams(bottom = 12))
+    content.addView(createSearchPrompt(), matchParams(bottom = 12))
+    content.addView(createCategoryTabs(), matchParams(bottom = 14))
+    val featured = primaryItems.firstOrNull()
+    featured?.let { content.addView(createHeroBanner(it), matchParams(bottom = 18)) }
+    val shelf = primaryItems.filter { it.id != featured?.id }.take(SHELF_ITEM_LIMIT)
+    if (shelf.isNotEmpty()) {
         content.addView(createSectionHeader(
-            if (selectedCatalogGenre == null) t("recommended_for_you") else "$selectedCatalogGenre ${t("discover")}",
             if (hasCatalogPreferenceSignals()) t("continue_watching") else t("popular_this_week"),
+            t("recommended_for_you"),
         ), matchParams(bottom = 10))
-        if (primaryItems.isNotEmpty()) content.addView(createHorizontalDramaShelf(primaryItems.take(SHELF_ITEM_LIMIT)), matchParams(bottom = 20))
-        else content.addView(createInlineNotice(t("home_greeting")), matchParams(bottom = 20))
-        content.addView(createSectionHeader(t("all_dramas"), t("discover_subtitle")), matchParams(bottom = 10))
-        addDramaGrid(content, filtered)
+        content.addView(createHorizontalDramaShelf(shelf), matchParams(bottom = 20))
     }
+    content.addView(createSectionHeader(t("all_dramas"), t("discover_subtitle")), matchParams(bottom = 10))
+    addDramaGrid(content, filtered)
+}
 
 internal fun DramaAppActivity.createDiscoverPage(): View = scrollPage { content ->
         val recommended = recommendedCatalogItems()
@@ -227,7 +230,7 @@ internal fun DramaAppActivity.recommendedCatalogItems(): List<LocalDrama> {
     }
 
 internal fun DramaAppActivity.createHeroBanner(drama: LocalDrama): View = FrameLayout(this).apply {
-        minimumHeight = dp(254)
+        minimumHeight = dp(282)
         clipToOutline = true
         background = roundedDrawable(COLOR_INK, 26)
         isClickable = true
@@ -247,7 +250,7 @@ internal fun DramaAppActivity.createHeroBanner(drama: LocalDrama): View = FrameL
         val play = LinearLayout(this@createHeroBanner).apply {
             gravity = Gravity.CENTER_VERTICAL; background = roundedDrawable(0xE81D1D22.toInt(), 24); setPadding(dp(4), dp(4), dp(12), dp(4))
             addView(ImageView(this@createHeroBanner).apply { setImageResource(R.drawable.ic_play_coral); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(42), dp(42)))
-            addView(TextView(this@createHeroBanner).apply { text = t("episodes_count", drama.total.coerceAtLeast(1)); textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(dp(5), 0, 0, 0) })
+            addView(TextView(this@createHeroBanner).apply { text = t("watch_now"); textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(dp(5), 0, 0, 0) })
         }
         addView(play, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(50), Gravity.BOTTOM or Gravity.END).apply { rightMargin = dp(14); bottomMargin = dp(14) })
     }

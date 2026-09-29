@@ -897,6 +897,11 @@ internal fun DramaAppActivity.showAdNetworkAuditLog() {
     ).apply { cornerRadius = dp(10).toFloat() }
 
     internal fun showLanguageSettings() {
+        // A delayed startup reward prompt is an onboarding event, never a consequence of opening language settings.
+        if (startupCheckinPromptRequested && !startupCheckinPromptShown) {
+            startupCheckinPromptRequested = false
+            startupCheckinPromptShown = true
+        }
         val options = AppLanguage.options
         val selected = options.indexOfFirst { it.tag == AppLanguage.tag(this) }.coerceAtLeast(0)
         showBrandedOptionsDialog(t("language"), options.map { it.label }, selected) { which ->

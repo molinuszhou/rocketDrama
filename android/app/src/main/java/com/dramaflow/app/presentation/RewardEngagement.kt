@@ -68,11 +68,11 @@ import java.util.UUID
 import kotlin.random.Random
 
 internal fun DramaAppActivity.createFloatingRewardWheel(compact: Boolean = false): View {
-        val gemSize = if (compact) dp(62) else dp(68)
+        val gemSize = if (compact) dp(52) else dp(58)
         val gem = ImageView(this).apply {
-            setImageResource(R.drawable.savings_jar)
+            setImageResource(R.drawable.ic_cash_reward)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            alpha = 0.84f
+            alpha = 0.96f
             contentDescription = t("claim_all")
             isClickable = true
             setOnClickListener {
@@ -85,9 +85,9 @@ internal fun DramaAppActivity.createFloatingRewardWheel(compact: Boolean = false
             duration = 1_700L; repeatCount = ObjectAnimator.INFINITE; interpolator = AccelerateDecelerateInterpolator(); start()
         }
         val label = TextView(this).apply {
-            gravity = Gravity.CENTER; textSize = if (compact) 10f else 11f; typeface = Typeface.DEFAULT_BOLD
-            setTextColor(0xFFFFF3BF.toInt()); setPadding(dp(10), dp(5), dp(10), dp(5)); background = gradientDrawable(intArrayOf(0xDB6B8D30.toInt(), 0xD0244B1F.toInt()), 14)
-            alpha = 0.84f
+            gravity = Gravity.CENTER; textSize = if (compact) 11f else 12f; typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE); setPadding(dp(10), dp(5), dp(10), dp(5)); background = gradientDrawable(intArrayOf(0xDE292027.toInt(), 0xC81D1D22.toInt()), 14)
+            alpha = 0.96f
             isClickable = true; setOnClickListener { gem.performClick() }
         }
         floatingWheelLabels.add(label); updateFloatingRewardWheel(label)
@@ -97,7 +97,7 @@ internal fun DramaAppActivity.createFloatingRewardWheel(compact: Boolean = false
                 clipChildren = false; clipToPadding = false
                 addView(gem, FrameLayout.LayoutParams(gemSize, gemSize, Gravity.CENTER))
             }, LinearLayout.LayoutParams(gemSize, gemSize))
-            addView(label, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(26)).apply { topMargin = dp(2) })
+            addView(label, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(25)).apply { topMargin = dp(1) })
             if (playerShown && rewardsSnapshot?.unlock?.episodeRewardBoostEnabled == true) {
                 val boostButton = TextView(this@createFloatingRewardWheel).apply { textSize = 11f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setPadding(dp(10), dp(6), dp(10), dp(6)) }
                 floatingBoostButtons.add(boostButton); updateFloatingRewardBoostButton(boostButton)
