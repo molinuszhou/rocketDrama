@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reproduce the v1.7.0.0 US$300 reward-curve qualification model.
+"""Reproduce the v1.7.0.2 US$300 reward-curve qualification model.
 
 The model mirrors the settlement ordering in RewardsService._credit_gems:
 settlement uses the user's credited total immediately before each event to pick
@@ -33,13 +33,15 @@ WALLET_BOOSTS_PER_DAY = 10
 CROWN_ACTIVE_BOOSTS_PER_DAY = 10
 CROWN_REWARDED_AD_PROGRESS_POINTS = 1
 
-# Mirrors services/rewards/sql/029_v1700_300usd_three_day_curve.sql.
+# Mirrors services/rewards/sql/031_v1702_damping_starts_after_290usd.sql.
+# US$290 is settled at the full rate. The 0.50x attenuation starts from the
+# next settlement after the balance reaches 2,900,000 internal units.
 DAMPING_TIERS: tuple[tuple[int, Decimal], ...] = (
-    (2_650_000, Decimal("1.00")),
-    (2_780_000, Decimal("0.50")),
-    (2_860_000, Decimal("0.25")),
-    (2_920_000, Decimal("0.12")),
-    (2_970_000, Decimal("0.06")),
+    (2_900_000, Decimal("1.00")),
+    (2_950_000, Decimal("0.50")),
+    (2_975_000, Decimal("0.25")),
+    (2_990_000, Decimal("0.12")),
+    (2_998_000, Decimal("0.06")),
     (3_000_000, Decimal("0.01")),
 )
 TASK_REWARDS = {
@@ -65,9 +67,10 @@ CROWN_LEVELS = (
     ("DIAMOND", 500, 80_000, Decimal("2.00")),
     ("CROWN", 800, 100_000, Decimal("2.50")),
 )
-# Calibrated against the server's event-by-event damping: the complete
-# three-day path rounds to US$290.00 while retaining the US$300 hard ceiling.
-BASE_EPISODE_REWARD = 7_784
+# Calibrated against the server's event-by-event settlement: the complete
+# three-day path reaches 2,899,980 units, displayed as US$290.00 while
+# retaining the US$300 hard ceiling and avoiding pre-US$290 attenuation.
+BASE_EPISODE_REWARD = 5_093
 CROWN_EPISODE_PROGRESS_POINTS = 2
 TARGET_UNITS = 2_900_000
 TARGET_TOLERANCE_UNITS = 100  # sub-cent settlement rounding allowance
@@ -201,7 +204,7 @@ def summary(settlements: list[Settlement]) -> dict[str, object]:
         raw_by_day[item.day] += item.raw_units
     final_units = settlements[-1].cumulative_units
     return {
-        "model": "v1.7.0.1-seven-day-checkin-ten-boosts",
+        "model": "v1.7.0.2-damping-after-290usd",
         "assumptions": {
             "days": DAYS,
             "episodes_per_day": EPISODES_PER_DAY,
@@ -213,6 +216,8 @@ def summary(settlements: list[Settlement]) -> dict[str, object]:
             "wallet_boost_units": WALLET_BOOST_UNITS,
             "crown_active_boosts_per_day": CROWN_ACTIVE_BOOSTS_PER_DAY,
             "crown_active_ad_progress_points": CROWN_REWARDED_AD_PROGRESS_POINTS,
+            "damping_starts_after_units": 2_900_000,
+            "damping_starts_after_usd": "290.00",
             "unit_to_usd": "10,000 internal units = US$1.00",
         },
         "day_end_units": {str(day): credited_by_day[day] for day in range(1, DAYS + 1)},
@@ -277,7 +282,7 @@ def write_chart(settlements: list[Settlement], path: Path) -> None:
     axis.set_xticks(x, [f"第{day}天" for day in x])
     axis.set_ylabel("默认 USD 市场钱包累计")
     fig.suptitle("JoyeDrama 三日 290 美元奖励路径", x=0.12, y=0.985, ha="left", fontsize=22, fontweight="bold", color="#17263A")
-    fig.text(0.12, 0.90, "高参与度路径：每天 60 集、七日循环签到、每日各 10 次皇冠与钱包加速", color="#5A687A", fontsize=12)
+    fig.text(0.12, 0.90, "高参与度路径：每天 60 集、七日循环签到、每日各 10 次皇冠与钱包加速；US$290 前全额结算", color="#5A687A", fontsize=12)
     for day, value in zip(x, day_end):
         axis.annotate(f"${Decimal(value) / UNITS_PER_USD:.2f}", (day, value / float(UNITS_PER_USD)), xytext=(0, 14), textcoords="offset points", ha="center", fontsize=12, fontweight="bold", color="#17263A")
     axis.grid(axis="y", alpha=0.35)
@@ -294,6 +299,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output-dir", type=Path, default=Path("docs/reward-model-300usd-3days"))
     args = parser.parse_args()
+    if multiplier_for(2_899_999) != Decimal("1.00") or multiplier_for(2_900_000) != Decimal("0.50"):
+        raise SystemExit("invalid damping boundary: attenuation must start after US$290.00")
     settlements = run_model()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     write_csv(settlements, args.output_dir / "settlements.csv")
