@@ -29,7 +29,7 @@
 
 模型的已结算来源构成为：新人奖励 600,000 单位，签到 60,000 单位，皇冠自然达成奖励 104,000 单位，逐集领取奖励 1,323,880 单位，追剧任务 810,000 单位，以及钱包加速 2,120 单位。由于第三天进入阻尼区间，追剧任务与钱包加速的实际入账金额低于其原始面额。
 
-原始逐笔结算记录保存在 [settlements.csv](settlements.csv)，摘要保存在 [summary.json](summary.json)。默认的公式化可编辑工作簿为中文版本 [JoyeDrama_奖励模型_USD300_三日.xlsx](JoyeDrama_奖励模型_USD300_三日.xlsx)，包含参数输入、逐笔结算、每日汇总、来源构成和审计检查；保留英文参考版本 [JoyeDrama_Reward_Model_USD300_3Days.xlsx](JoyeDrama_Reward_Model_USD300_3Days.xlsx)。计算逻辑由仓库中的 [model_300usd_three_day.py](../../services/rewards/tools/model_300usd_three_day.py) 固化，可在修改参数后重复执行。
+原始逐笔结算记录保存在 [settlements.csv](settlements.csv)，摘要保存在 [summary.json](summary.json)。默认的公式化可编辑工作簿为中文阶梯充能广告版本 [JoyeDrama_三日300美元_阶梯充能广告测算模型.xlsx](JoyeDrama_三日300美元_阶梯充能广告测算模型.xlsx)：它沿用旧版模型的 **蓝色 Inputs → 隐藏 Engine → 三情景 Daily → Summary / Milestones / Ad_Points** 结构，并将规则更新为当前 300 美元上限和三日资格路径。精简版本 [JoyeDrama_奖励模型_USD300_三日.xlsx](JoyeDrama_奖励模型_USD300_三日.xlsx) 与英文参考版本 [JoyeDrama_Reward_Model_USD300_3Days.xlsx](JoyeDrama_Reward_Model_USD300_3Days.xlsx) 仍保留。计算逻辑由仓库中的 [model_300usd_three_day.py](../../services/rewards/tools/model_300usd_three_day.py) 固化，可在修改参数后重复执行。
 
 ## 服务端参数调整
 
@@ -49,7 +49,7 @@
 
 ## 广告参与量与商业含义
 
-模型本身包含每人每天 14 次任务领取激励广告、1 次签到广告、1 次聚合分集奖励领取广告以及 1 次钱包加速广告。若每天 60 集均来自新的锁定内容，且前三集免费、每次激励广告连续解锁两集，则还需约 29 次解锁广告。这样单日约为 46 次激励广告，三日约为 138 次，不包含皇冠之路广告。
+模型本身包含每人每天 14 次任务领取激励广告、1 次签到广告、1 次聚合分集奖励领取广告以及 1 次钱包加速广告。若每天 60 集均来自新的锁定内容，且前三集免费、每次激励广告连续解锁两集，则每天需 29 次解锁广告。默认 Inputs 下，第 1 天另含 1 次新人奖励广告，因此内容流 RV 为 46 / 45 / 45（共 136）；再加 3 次钱包加速广告，三日全部 RV 为 **139**，不包含皇冠之路主动广告。
 
 因此，三日 290 美元路径的广告密度很高。它可作为内部经济曲线和产品资格路径，但在放量前必须以真实的 TopOn paid-impression 数据、广告填充率、完成率、留存和作弊率重新检验单位经济。当前客户端广告运营事件仅为收入估算，财务结算应以广告平台后台报表为准。[5]
 
