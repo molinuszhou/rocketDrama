@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from copy import copy
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_DOWN
 from pathlib import Path
@@ -17,15 +18,17 @@ from typing import Callable
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.chart import BarChart, LineChart, Reference
+from openpyxl.drawing.image import Image as ExcelImage
 from openpyxl.formatting.rule import DataBarRule
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+from PIL import Image as PILImage, ImageDraw, ImageFont
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import model_300usd_three_day as model  # noqa: E402
 
 
-OUTPUT_DEFAULT = Path("docs/reward-model-300usd-3days/JoyeDrama_Reward_Model_USD300_3Days.xlsx")
+OUTPUT_DEFAULT = Path("docs/reward-model-300usd-3days/JoyeDrama_奖励模型_USD300_三日.xlsx")
 
 NAVY = "172B4D"
 BLUE = "2F75B5"
@@ -602,26 +605,370 @@ def build_workbook(output: Path) -> None:
     wb.save(output)
 
 
-def validate_output(output: Path) -> None:
+def _chinese_font(size: int) -> ImageFont.FreeTypeFont:
+    return ImageFont.truetype("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", size, index=0)
+
+
+def _draw_chinese_snapshot_charts() -> tuple[Path, Path]:
+    """Create predictable Chinese chart snapshots for broad Excel/Calc compatibility.
+
+    LibreOffice drops native chart ranges when formula-bearing sheets are renamed.
+    The underlying calculation tables remain editable; these embedded visuals are
+    deliberately labelled as default-parameter snapshots.
+    """
+    output_dir = Path("/tmp/joyedrama_excel_chart_snapshots")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    line_path = output_dir / "daily_summary_cn.png"
+    source_path = output_dir / "source_mix_cn.png"
+    navy = "#172B4D"
+    blue = "#2F75B5"
+    coral = "#E9836D"
+    grey = "#6B7280"
+    light = "#EAF2F8"
+    title_font = _chinese_font(28)
+    label_font = _chinese_font(19)
+    small_font = _chinese_font(16)
+
+    canvas = PILImage.new("RGB", (1080, 560), "white")
+    draw = ImageDraw.Draw(canvas)
+    draw.text((35, 24), "累计美元结算曲线", font=title_font, fill=navy)
+    left, top, right, bottom = 95, 100, 1000, 430
+    for value in (0, 100, 200, 300):
+        y = bottom - (value / 300) * (bottom - top)
+        draw.line((left, y, right, y), fill="#D9E1F2", width=2)
+        draw.text((15, y - 12), f"${value}", font=small_font, fill=grey)
+    draw.line((left, top, left, bottom), fill=navy, width=3)
+    draw.line((left, bottom, right, bottom), fill=navy, width=3)
+    day_values = [147.20, 249.40, 290.00]
+    points: list[tuple[int, int]] = []
+    for index, amount in enumerate(day_values, start=1):
+        x = left + (index - 1) * (right - left) // 2
+        y = int(bottom - (amount / 300) * (bottom - top))
+        points.append((x, y))
+        draw.text((x - 26, bottom + 18), f"第 {index} 天", font=label_font, fill=grey)
+        draw.text((x - 46, y - 35), f"${amount:.2f}", font=small_font, fill=navy)
+    draw.line(points, fill=blue, width=6)
+    for x, y in points:
+        draw.ellipse((x - 9, y - 9, x + 9, y + 9), fill=coral, outline="white", width=3)
+    draw.text((35, 488), "默认参数快照；修改黄色参数后请以“每日汇总”表格公式结果为准。", font=small_font, fill=grey)
+    canvas.save(line_path)
+
+    canvas = PILImage.new("RGB", (1080, 620), "white")
+    draw = ImageDraw.Draw(canvas)
+    draw.text((35, 24), "按奖励来源的入账美元", font=title_font, fill=navy)
+    source_values = [
+        ("单集奖励", 132.388, blue),
+        ("追剧任务", 81.00, coral),
+        ("新人奖励", 60.00, "#70AD47"),
+        ("皇冠奖励", 10.40, "#8064A2"),
+        ("签到", 6.00, "#FFC000"),
+        ("钱包加速", 0.212, "#A5A5A5"),
+    ]
+    left, top, right, bottom = 210, 105, 1000, 520
+    maximum = 140.0
+    for tick in range(0, 141, 20):
+        x = left + int((tick / maximum) * (right - left))
+        draw.line((x, top, x, bottom), fill="#E7EDF4", width=1)
+        draw.text((x - 12, bottom + 15), f"${tick}", font=small_font, fill=grey)
+    row_height = 61
+    for index, (label, amount, color) in enumerate(source_values):
+        y = top + index * row_height
+        draw.text((35, y + 8), label, font=label_font, fill=navy)
+        width = max(2, int((amount / maximum) * (right - left)))
+        draw.rounded_rectangle((left, y + 4, left + width, y + 38), radius=8, fill=color)
+        draw.text((left + width + 14, y + 7), f"${amount:.2f}", font=small_font, fill=grey)
+    draw.text((35, 565), "默认参数快照；来源构成和金额以“来源构成”表中的公式汇总为准。", font=small_font, fill=grey)
+    canvas.save(source_path)
+    return line_path, source_path
+
+
+def localize_chinese(output: Path) -> None:
+    """Translate labels, notes, charts and formula sheet references to Simplified Chinese."""
     wb = load_workbook(output, data_only=False)
-    expected_sheets = ["Read Me", "Inputs", "Settlement", "Daily Summary", "Source Mix", "Audit"]
+    sheet_names = {
+        "Read Me": "使用说明",
+        "Inputs": "参数输入",
+        "Settlement": "结算明细",
+        "Daily Summary": "每日汇总",
+        "Source Mix": "来源构成",
+        "Audit": "审计检查",
+    }
+    formula_replacements = {
+        "Inputs!": "'参数输入'!",
+        "Settlement!": "'结算明细'!",
+        "'Daily Summary'!": "'每日汇总'!",
+        '"PASS"': '"通过"',
+        '"CHECK"': '"需检查"',
+    }
+    direct = {
+        "JoyeDrama · US$300 / 3-day reward model": "JoyeDrama · 300 美元 / 三日奖励模型",
+        "Editable review workbook. The model is a high-engagement qualification path, not an expected or promised user earning.": "可编辑复核工作簿。本模型为高参与度资格路径，不代表用户平均收益或任何收益承诺。",
+        "How to use": "使用方法",
+        "1": "1",
+        "2": "2",
+        "3": "3",
+        "4": "4",
+        "Edit yellow cells only on the Inputs sheet.": "仅编辑“参数输入”页的黄色单元格。",
+        "Review the formula-backed settlement order and damping in the Settlement sheet.": "在“结算明细”页复核按公式计算的结算顺序与阻尼。",
+        "Use Daily Summary and Source Mix for management review; both sheets calculate from Settlement.": "管理复核请使用“每日汇总”和“来源构成”；两者均由“结算明细”计算。",
+        "For changes to crown threshold timing or task counts, rerun the paired Python exporter to rebuild event rows.": "如修改皇冠触发时点或任务数量，请重新运行配套 Python 导出器以重建事件行。",
+        "Review the formula-backed settlement\norder and damping in the Settlement\nsheet.": "在“结算明细”页复核按公式计算的结算顺序与阻尼。",
+        "Use Daily Summary and Source Mix for\nmanagement review; both sheets\ncalculate from Settlement.": "管理复核请使用“每日汇总”和“来源构成”；两者均由“结算明细”计算。",
+        "For changes to crown threshold timing\nor task counts, rerun the paired Python\nexporter to rebuild event rows.": "如修改皇冠触发时点或任务数量，请重新运行配套 Python 导出器以重建事件行。",
+        "Model boundary": "模型边界",
+        "This workbook mirrors the v1.7.0.0 server settlement order: reward events use the cumulative credited balance immediately before settlement to determine the damping multiplier, floor the credited units, and apply the 3,000,000-unit hard cap. The path assumes three consecutive days, 60 completed episodes per day, all configured watch tasks, daily check-in and one wallet boost each day. It excludes optional Crown Road ads.": "本工作簿复刻 v1.7.0.0 服务端结算顺序：每笔奖励在结算前按累计已入账余额确定阻尼系数，对结果向下取整后再应用 3,000,000 内部单位硬上限。该路径假设连续活跃三天、每日完成 60 集、完成全部配置的追剧任务、每日签到，并每天使用 1 次钱包加速；不包含可选的皇冠之路广告。",
+        "Expected default result": "默认预期结果",
+        "Final credited amount": "最终入账金额",
+        "Lifetime cap": "生命周期上限",
+        "Headroom": "上限余量",
+        "Inputs · yellow cells are editable": "参数输入 · 黄色单元格可编辑",
+        "All values mirror services/rewards/sql/029_v1700_300usd_three_day_curve.sql as of 2026-09-29.": "所有数值与 services/rewards/sql/029_v1700_300usd_three_day_curve.sql（截至 2026-09-29）保持一致。",
+        "Core policy input": "核心策略参数",
+        "Value": "数值",
+        "Internal units per US$": "每 1 美元对应内部单位",
+        "Hard cap (units)": "硬上限（内部单位）",
+        "Qualification target (units)": "资格路径目标（内部单位）",
+        "Welcome reward (units)": "新人奖励（内部单位）",
+        "Model days": "模型天数",
+        "Episodes per day": "每日剧集数",
+        "Base episode reward (units)": "单集基础奖励（内部单位）",
+        "Crown points per episode": "每集皇冠积分",
+        "Wallet boost reward (units)": "钱包加速奖励（内部单位）",
+        "Wallet boosts per day": "每日钱包加速次数",
+        "10,000 internal units = US$1.00": "10,000 内部单位 = 1.00 美元",
+        "All reward sources share this lifetime cap": "所有奖励来源共享此生命周期上限",
+        "Expected high-engagement result on day 3": "高参与度路径在第 3 天的预期结果",
+        "One-time reward; displayed value derives from the current market rate": "一次性奖励；展示金额按当前市场兑换率计算",
+        "Three consecutive active days": "连续活跃三天",
+        "Qualification path assumption": "资格路径假设",
+        "Before Crown Road multiplier": "皇冠之路倍率生效前",
+        "Used to detect Crown Road thresholds": "用于判断皇冠之路触发阈值",
+        "One rewarded wallet boost": "一次激励广告钱包加速",
+        "Policy default = one": "策略默认值为 1 次",
+        "Daily check-in rewards": "每日签到奖励",
+        "Day": "天数",
+        "Units": "内部单位",
+        "USD equivalent": "美元等值",
+        "Damping curve": "阻尼曲线",
+        "Threshold (units)": "阈值（内部单位）",
+        "Multiplier": "倍率",
+        "Crown Road": "皇冠之路",
+        "Trigger points": "触发积分",
+        "Reward (units)": "奖励（内部单位）",
+        "Episode multiplier": "单集倍率",
+        "Watch-task episode": "追剧任务集数",
+        "Settlement schedule": "结算明细",
+        "Formula-backed event-level settlement; blue headers are outputs and yellow inputs live on the Inputs tab.": "按公式计算的逐事件结算表；蓝色为输出字段，黄色可编辑参数位于“参数输入”页。",
+        "Row": "行号",
+        "Source group": "奖励来源",
+        "Event": "事件",
+        "Episode in day": "当日剧集",
+        "Lifetime episode": "累计剧集",
+        "Raw units": "原始单位",
+        "Prior credited units": "结算前累计",
+        "Damping": "阻尼",
+        "Potential units": "阻尼后金额",
+        "Cap remaining": "剩余上限",
+        "Credited units": "实际入账",
+        "Cumulative units": "累计入账",
+        "Cumulative USD": "累计美元",
+        "Notes": "说明",
+        "Static verification snapshot": "静态核对快照",
+        "Raw": "原始",
+        "Prior": "结算前",
+        "Potential": "阻尼后",
+        "Cap remaining": "剩余上限",
+        "Credited": "入账",
+        "Cumulative": "累计",
+        "USD": "美元",
+        "Daily outcome": "每日结果",
+        "The summary uses Settlement formulas and therefore updates when editable Inputs change.": "本页由“结算明细”公式汇总；修改可编辑参数后会随之更新。",
+        "Raw units": "原始单位",
+        "Credited units": "实际入账",
+        "End-of-day units": "日末累计",
+        "End-of-day USD": "日末累计美元",
+        "Target completion": "目标完成度",
+        "Daily credited USD": "当日入账美元",
+        "Required actions": "所需动作",
+        "Result note": "结果说明",
+        "Final credited units": "最终入账单位",
+        "Final credited USD": "最终入账美元",
+        "US$300 cap headroom": "300 美元上限余量",
+        "Headroom in USD": "美元余量",
+        "Validation": "校验",
+        "Formula": "公式结果",
+        "Target result": "目标结果",
+        "Hard cap": "硬上限",
+        "Result below cap": "结果低于上限",
+        "Cumulative USD settlement": "累计美元结算曲线",
+        "US$": "美元",
+        "Reward source mix": "奖励来源构成",
+        "Credited source contribution is calculated from the event-level settlement schedule.": "各奖励来源的实际贡献由逐事件结算明细汇总计算。",
+        "Credited USD": "入账美元",
+        "Share of credited units": "实际入账占比",
+        "Interpretation": "说明",
+        "Total": "合计",
+        "Credited USD by reward source": "按奖励来源的入账美元",
+        "Reward source": "奖励来源",
+        "Welcome reward": "新人奖励",
+        "One-time welcome reward": "一次性新人奖励",
+        "Daily sign-in reward": "每日签到奖励",
+        "Model audit": "模型审计",
+        "Formula checks and direct reproduction checks. Green values must read PASS under the default inputs.": "公式检查与直接复刻检查。默认参数下绿色结果必须显示“通过”。",
+        "Control": "检查项",
+        "Formula result": "公式结果",
+        "Expected static result": "静态预期结果",
+        "Purpose": "用途",
+        "Final USD": "最终美元",
+        "Cap units": "上限单位",
+        "Headroom units": "余量单位",
+        "Target test": "目标测试",
+        "Hard-cap test": "硬上限测试",
+        "Workbook/formula scope": "工作簿 / 公式范围",
+        "Settlement formulas are fully auditable for cap, damping, input amounts, check-ins, tasks and episode multipliers. Crown crossing rows are included for every episode, so changing Crown thresholds or values recalculates in-place. If the number of days, episodes per day or task milestones changes, rerun export_300usd_three_day_xlsx.py to rebuild the schedule.": "结算公式可完整审计硬上限、阻尼、输入金额、签到、追剧任务和单集倍率。每一集均包含皇冠条件检查行，因此修改皇冠阈值或奖励值后可在表内重新计算。如需调整模型天数、每日剧集数或任务里程碑，请重新运行 export_300usd_three_day_xlsx.py 重建结算明细。",
+        "welcome": "新人奖励",
+        "checkin": "签到",
+        "crown": "皇冠奖励",
+        "watch_task": "追剧任务",
+        "episode_claim": "单集奖励",
+        "wallet_boost": "钱包加速",
+        "Tier 1": "第 1 档",
+        "Tier 2": "第 2 档",
+        "Tier 3": "第 3 档",
+        "Tier 4": "第 4 档",
+        "Tier 5": "第 5 档",
+        "Tier 6": "第 6 档",
+        "BRONZE": "青铜",
+        "SILVER": "白银",
+        "GOLD": "黄金",
+        "DIAMOND": "钻石",
+        "CROWN": "王冠",
+        "One-time onboarding reward": "一次性新人引导奖励",
+        "Daily active-day reward": "每日活跃奖励",
+        "Natural Crown Road milestones; no optional Crown ads": "自然达成的皇冠之路里程碑；不含可选皇冠广告",
+        "Daily episode task milestones": "每日剧集任务里程碑",
+        "Aggregated episode watching reward": "聚合领取的剧集观看奖励",
+        "One optional wallet acceleration per active day": "每个活跃日 1 次可选钱包加速",
+        "Matches the agreed high-engagement qualification result": "与已确认的高参与度资格路径结果一致",
+        "Uses 10,000 internal units per US$1.00": "按 10,000 内部单位 = 1.00 美元换算",
+        "Hard lifetime reward ceiling": "生命周期奖励硬上限",
+        "Room below the US$300 cap": "距离 300 美元上限的余量",
+        "Model target reconciliation": "模型目标对账",
+        "No settlement exceeds the configured cap": "所有结算均未超过配置上限",
+        "PASS": "通过",
+        "CHECK": "需检查",
+        "Un-damped": "未进入阻尼",
+        "Damping begins above 2,650,000 units": "超过 2,650,000 单位后开始进入阻尼",
+        "60 episodes · 14 task milestones · 1 check-in · 1 wallet boost": "60 集 · 14 个任务里程碑 · 1 次签到 · 1 次钱包加速",
+    }
+    crown_names = {
+        "BRONZE": "青铜",
+        "SILVER": "白银",
+        "GOLD": "黄金",
+        "DIAMOND": "钻石",
+        "CROWN": "王冠",
+    }
+    for worksheet in wb.worksheets:
+        for row in worksheet.iter_rows():
+            for cell in row:
+                if isinstance(cell.value, str):
+                    if cell.value.startswith("="):
+                        formula = cell.value
+                        for source, target in formula_replacements.items():
+                            formula = formula.replace(source, target)
+                        cell.value = formula
+                    else:
+                        value = direct.get(cell.value, cell.value)
+                        if value.startswith("Daily check-in · day "):
+                            value = "每日签到 · 第 " + value.rsplit(" ", 1)[-1] + " 天"
+                        elif value.startswith("Crown check · "):
+                            code = value.rsplit(" · ", 1)[-1]
+                            value = "皇冠条件检查 · " + crown_names.get(code, code)
+                        elif value.startswith("Watch task · episode "):
+                            value = "追剧任务 · 第 " + value.rsplit(" ", 1)[-1] + " 集"
+                        elif value.startswith("Episode claim · episode "):
+                            value = "单集奖励 · 第 " + value.rsplit(" ", 1)[-1] + " 集"
+                        elif value.startswith("Wallet ad boost · "):
+                            value = "钱包广告加速 · 第 " + value.rsplit(" · ", 1)[-1] + " 次"
+                        elif value == "Awards when the crown threshold is crossed":
+                            value = "达到皇冠积分阈值时发放奖励"
+                        elif value == "Task milestone reward; zero outside milestones":
+                            value = "追剧任务里程碑奖励；非里程碑时为零"
+                        elif value == "Daily aggregated episode reward claim":
+                            value = "每日聚合领取的单集观看奖励"
+                        elif value == "One wallet boost per active day":
+                            value = "每个活跃日 1 次钱包加速"
+                        cell.value = value
+                if cell.font and cell.font.name != "Noto Sans CJK SC":
+                    font = copy(cell.font)
+                    font.name = "Noto Sans CJK SC"
+                    cell.font = font
+    for old, new in sheet_names.items():
+        wb[old].title = new
+    for worksheet in wb.worksheets:
+        for chart in getattr(worksheet, "_charts", []):
+            if chart.title and chart.title.tx and chart.title.tx.rich:
+                for paragraph in chart.title.tx.rich.p:
+                    for run in paragraph.r:
+                        if run.t in direct:
+                            run.t = direct[run.t]
+            if chart.x_axis.title and chart.x_axis.title.tx and chart.x_axis.title.tx.rich:
+                for paragraph in chart.x_axis.title.tx.rich.p:
+                    for run in paragraph.r:
+                        if run.t in direct:
+                            run.t = direct[run.t]
+            if chart.y_axis.title and chart.y_axis.title.tx and chart.y_axis.title.tx.rich:
+                for paragraph in chart.y_axis.title.tx.rich.p:
+                    for run in paragraph.r:
+                        if run.t in direct:
+                            run.t = direct[run.t]
+    daily_snapshot, source_snapshot = _draw_chinese_snapshot_charts()
+    daily = wb["每日汇总"]
+    source = wb["来源构成"]
+    daily._charts = []
+    source._charts = []
+    daily_image = ExcelImage(str(daily_snapshot))
+    daily_image.width = 520
+    daily_image.height = 270
+    daily.add_image(daily_image, "A16")
+    source_image = ExcelImage(str(source_snapshot))
+    source_image.width = 520
+    source_image.height = 300
+    source.add_image(source_image, "A15")
+    wb.calculation.fullCalcOnLoad = True
+    wb.calculation.forceFullCalc = True
+    wb.calculation.calcMode = "auto"
+    wb.save(output)
+
+
+def validate_output(output: Path, locale: str) -> None:
+    wb = load_workbook(output, data_only=False)
+    expected_sheets = (
+        ["使用说明", "参数输入", "结算明细", "每日汇总", "来源构成", "审计检查"]
+        if locale == "zh-CN"
+        else ["Read Me", "Inputs", "Settlement", "Daily Summary", "Source Mix", "Audit"]
+    )
     if wb.sheetnames != expected_sheets:
         raise RuntimeError(f"Unexpected sheets: {wb.sheetnames}")
-    settlement = wb["Settlement"]
+    settlement = wb["结算明细" if locale == "zh-CN" else "Settlement"]
     if settlement.max_row < 1_000:
         raise RuntimeError("Settlement schedule is unexpectedly short")
     if settlement["M1271"].value is None:
         raise RuntimeError("Settlement cumulative formula is missing")
-    if wb["Daily Summary"]["B10"].value != "=D7":
+    summary = wb["每日汇总" if locale == "zh-CN" else "Daily Summary"]
+    if summary["B10"].value != "=D7":
         raise RuntimeError("Daily Summary final-unit formula is missing")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, default=OUTPUT_DEFAULT)
+    parser.add_argument("--locale", choices=("en", "zh-CN"), default="zh-CN")
     args = parser.parse_args()
     build_workbook(args.output)
-    validate_output(args.output)
+    if args.locale == "zh-CN":
+        localize_chinese(args.output)
+    validate_output(args.output, args.locale)
     print(args.output.resolve())
 
 

@@ -29,7 +29,7 @@
 
 模型的已结算来源构成为：新人奖励 600,000 单位，签到 60,000 单位，皇冠自然达成奖励 104,000 单位，逐集领取奖励 1,323,880 单位，追剧任务 810,000 单位，以及钱包加速 2,120 单位。由于第三天进入阻尼区间，追剧任务与钱包加速的实际入账金额低于其原始面额。
 
-原始逐笔结算记录保存在 [settlements.csv](settlements.csv)，摘要保存在 [summary.json](summary.json)。公式化的可编辑工作簿为 [JoyeDrama_Reward_Model_USD300_3Days.xlsx](JoyeDrama_Reward_Model_USD300_3Days.xlsx)，包含输入参数、逐笔结算、日度摘要、来源构成和审计检查。计算逻辑由仓库中的 [model_300usd_three_day.py](../../services/rewards/tools/model_300usd_three_day.py) 固化，可在修改参数后重复执行。
+原始逐笔结算记录保存在 [settlements.csv](settlements.csv)，摘要保存在 [summary.json](summary.json)。默认的公式化可编辑工作簿为中文版本 [JoyeDrama_奖励模型_USD300_三日.xlsx](JoyeDrama_奖励模型_USD300_三日.xlsx)，包含参数输入、逐笔结算、每日汇总、来源构成和审计检查；保留英文参考版本 [JoyeDrama_Reward_Model_USD300_3Days.xlsx](JoyeDrama_Reward_Model_USD300_3Days.xlsx)。计算逻辑由仓库中的 [model_300usd_three_day.py](../../services/rewards/tools/model_300usd_three_day.py) 固化，可在修改参数后重复执行。
 
 ## 服务端参数调整
 
