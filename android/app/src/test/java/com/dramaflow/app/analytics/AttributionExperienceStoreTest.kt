@@ -16,4 +16,20 @@ class AttributionExperienceStoreTest {
         assertEquals(MonetizationExperience.ATTRIBUTED_B, AttributionExperienceStore.select("Non-organic"))
         assertEquals(MonetizationExperience.ATTRIBUTED_B, AttributionExperienceStore.select("non-organic"))
     }
+
+    @Test
+    fun `conversion record keeps the minimal server attribution fields`() {
+        val record = AttributionExperienceStore.recordFor(
+            mapOf(
+                "af_status" to "Non-organic",
+                "media_source" to "facebook",
+                "campaign" to "launch-campaign",
+                "af_channel" to "paid-social",
+            ),
+        )
+        assertEquals(MonetizationExperience.ATTRIBUTED_B, record.experience)
+        assertEquals("facebook", record.mediaSource)
+        assertEquals("launch-campaign", record.campaign)
+        assertEquals("paid-social", record.channel)
+    }
 }

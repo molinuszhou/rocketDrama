@@ -12,6 +12,7 @@ from app.migrations import apply_runtime_migrations
 from app.schemas import (
     ApiEnvelope,
     AdMediationEventRequest,
+    AttributionUpdateRequest,
     BootstrapRequest,
     CheckinRequest,
     ClaimAllEpisodeRewardsRequest,
@@ -65,7 +66,29 @@ def health() -> dict:
 
 @app.post("/v2/bootstrap", response_model=ApiEnvelope)
 def bootstrap(payload: BootstrapRequest) -> dict:
-    return {"code": 0, "data": service.bootstrap(payload.user_id, payload.region)}
+    return {
+        "code": 0,
+        "data": service.bootstrap(
+            payload.user_id,
+            payload.region,
+            attribution=payload.attribution.model_dump() if payload.attribution else None,
+        ),
+    }
+
+
+@app.post("/v2/attribution", response_model=ApiEnvelope)
+def update_attribution(payload: AttributionUpdateRequest) -> dict:
+    return {
+        "code": 0,
+        "data": service.update_attribution(
+            user_id=payload.user_id,
+            appsflyer_uid=payload.appsflyer_uid,
+            af_status=payload.af_status,
+            media_source=payload.media_source,
+            campaign=payload.campaign,
+            channel=payload.channel,
+        ),
+    }
 
 
 @app.post("/v2/ads/rewarded/complete", response_model=ApiEnvelope)

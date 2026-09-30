@@ -17,6 +17,14 @@ enum class MonetizationExperience(val wireValue: String) {
 class AttributionExperienceStore private constructor(context: Context) {
     private val preferences = context.applicationContext.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
 
+    data class AttributionRecord(
+        val afStatus: String,
+        val mediaSource: String?,
+        val campaign: String?,
+        val channel: String?,
+        val experience: MonetizationExperience,
+    )
+
     fun current(): MonetizationExperience = when (preferences.getString(EXPERIENCE_KEY, MonetizationExperience.ORGANIC_A.wireValue)) {
         MonetizationExperience.ATTRIBUTED_B.wireValue -> MonetizationExperience.ATTRIBUTED_B
         else -> MonetizationExperience.ORGANIC_A
@@ -24,15 +32,28 @@ class AttributionExperienceStore private constructor(context: Context) {
 
     /** Updates the surface only from the documented AppsFlyer `af_status` conversion field. */
     fun applyConversionData(conversionData: Map<String, Any>?): MonetizationExperience {
-        val afStatus = conversionData?.get(AF_STATUS_KEY)?.toString()?.trim().orEmpty()
-        val mediaSource = conversionData?.get(MEDIA_SOURCE_KEY)?.toString()?.trim().orEmpty()
-        val experience = select(afStatus)
+        val record = recordFor(conversionData)
         preferences.edit()
-            .putString(EXPERIENCE_KEY, experience.wireValue)
-            .putString(LAST_AF_STATUS_KEY, afStatus.take(MAX_DIAGNOSTIC_LENGTH))
-            .putString(LAST_MEDIA_SOURCE_KEY, mediaSource.take(MAX_DIAGNOSTIC_LENGTH))
+            .putString(EXPERIENCE_KEY, record.experience.wireValue)
+            .putString(LAST_AF_STATUS_KEY, record.afStatus)
+            .putString(LAST_MEDIA_SOURCE_KEY, record.mediaSource.orEmpty())
+            .putString(LAST_CAMPAIGN_KEY, record.campaign.orEmpty())
+            .putString(LAST_CHANNEL_KEY, record.channel.orEmpty())
             .apply()
-        return experience
+        return record.experience
+    }
+
+    /** Returns the current minimal record for Rewards syncing; unresolved installs return null. */
+    fun currentRecord(): AttributionRecord? {
+        val status = preferences.getString(LAST_AF_STATUS_KEY, "").orEmpty().trim()
+        if (status.isBlank()) return null
+        return AttributionRecord(
+            afStatus = status,
+            mediaSource = preferences.getString(LAST_MEDIA_SOURCE_KEY, "").orEmpty().ifBlank { null },
+            campaign = preferences.getString(LAST_CAMPAIGN_KEY, "").orEmpty().ifBlank { null },
+            channel = preferences.getString(LAST_CHANNEL_KEY, "").orEmpty().ifBlank { null },
+            experience = current(),
+        )
     }
 
     fun diagnosticSummary(): String {
@@ -48,8 +69,12 @@ class AttributionExperienceStore private constructor(context: Context) {
         private const val EXPERIENCE_KEY = "experience"
         private const val LAST_AF_STATUS_KEY = "last_af_status"
         private const val LAST_MEDIA_SOURCE_KEY = "last_media_source"
+        private const val LAST_CAMPAIGN_KEY = "last_campaign"
+        private const val LAST_CHANNEL_KEY = "last_channel"
         private const val AF_STATUS_KEY = "af_status"
         private const val MEDIA_SOURCE_KEY = "media_source"
+        private const val CAMPAIGN_KEY = "campaign"
+        private const val CHANNEL_KEY = "af_channel"
         private const val NON_ORGANIC = "Non-organic"
         private const val MAX_DIAGNOSTIC_LENGTH = 120
 
@@ -67,5 +92,19 @@ class AttributionExperienceStore private constructor(context: Context) {
                 // Organic and unresolved conversion data share the low-risk A surface.
                 MonetizationExperience.ORGANIC_A
             }
+
+        internal fun recordFor(conversionData: Map<String, Any>?): AttributionRecord {
+            fun value(key: String): String? = conversionData?.get(key)?.toString()?.trim()
+                ?.take(MAX_DIAGNOSTIC_LENGTH)
+                ?.ifBlank { null }
+            val afStatus = value(AF_STATUS_KEY).orEmpty()
+            return AttributionRecord(
+                afStatus = afStatus,
+                mediaSource = value(MEDIA_SOURCE_KEY),
+                campaign = value(CAMPAIGN_KEY),
+                channel = value(CHANNEL_KEY),
+                experience = select(afStatus),
+            )
+        }
     }
 }

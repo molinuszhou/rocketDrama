@@ -5,6 +5,10 @@ import android.util.Log
 import com.dramaflow.app.ads.TopOnSettings
 import com.dramaflow.app.analytics.EngagementAnalytics
 import com.dramaflow.app.content.ShortDramaSdkManager
+import com.dramaflow.app.presentation.INSTALLATION_KEY
+import com.dramaflow.app.presentation.PREFERENCES
+import com.dramaflow.app.rewards.RewardsApiClient
+import java.util.UUID
 
 /**
  * 正式应用级入口。
@@ -17,7 +21,17 @@ class DramaFlowApplication : Application() {
         // Attribution and analytics are reporting services rather than TopOn SDK initialization.
         // Starting them here preserves AppsFlyer install/open attribution while TopOn still waits
         // for an eligible, consented ad request.
-        EngagementAnalytics.get(this).initialize()
+        val rewardsApi = RewardsApiClient(baseUrlProvider = { BuildConfig.REWARDS_API_BASE_URL })
+        EngagementAnalytics.get(this).apply {
+            setAttributionSyncListener { attribution ->
+                if (rewardsApi.isConfigured) {
+                    rewardsApi.syncAttribution(anonymousInstallationId(), attribution) { error ->
+                        Log.w(TAG, "AppsFlyer attribution sync will retry on the next Rewards bootstrap: $error")
+                    }
+                }
+            }
+            initialize()
+        }
         val settings = TopOnSettings.fromBuildConfig()
         if (settings.isConfigured) {
             val mode = if (settings.isDemoMode) "official-demo" else "configured-network"
@@ -40,4 +54,10 @@ class DramaFlowApplication : Application() {
     private companion object {
         const val TAG = "DramaFlowApplication"
     }
+
+    private fun anonymousInstallationId(): String =
+        getSharedPreferences(PREFERENCES, MODE_PRIVATE).getString(INSTALLATION_KEY, null)
+            ?: UUID.randomUUID().toString().also {
+                getSharedPreferences(PREFERENCES, MODE_PRIVATE).edit().putString(INSTALLATION_KEY, it).apply()
+            }
 }

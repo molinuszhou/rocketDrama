@@ -26,6 +26,15 @@ class RewardsApiClient(
         .readTimeout(12, TimeUnit.SECONDS)
         .build(),
 ) {
+    /** Minimal AppsFlyer install-attribution record retained with the anonymous Rewards user. */
+    data class AttributionPayload(
+        val appsFlyerUid: String?,
+        val afStatus: String,
+        val mediaSource: String?,
+        val campaign: String?,
+        val channel: String?,
+    )
+
     data class EpisodeReward(
         val episodeId: String,
         val rewardCoins: Int,
@@ -301,9 +310,25 @@ class RewardsApiClient(
     val isConfigured: Boolean
         get() = normalisedBaseUrl()?.let { it.startsWith("http://") || it.startsWith("https://") } == true
 
-    fun bootstrap(userId: String, region: String, onSuccess: (Snapshot) -> Unit, onFailure: (String) -> Unit) {
-        post("/v2/bootstrap", JSONObject().put("user_id", userId).put("region", region), { onSuccess(parseSnapshot(it)) }, onFailure)
+    fun bootstrap(
+        userId: String,
+        region: String,
+        attribution: AttributionPayload? = null,
+        onSuccess: (Snapshot) -> Unit,
+        onFailure: (String) -> Unit,
+    ) {
+        post("/v2/bootstrap", JSONObject().put("user_id", userId).put("region", region).also { payload ->
+            attribution?.let { payload.put("attribution", it.toJson()) }
+        }, { onSuccess(parseSnapshot(it)) }, onFailure)
     }
+
+    /** Best-effort out-of-band sync immediately after AppsFlyer resolves install attribution. */
+    fun syncAttribution(userId: String, attribution: AttributionPayload, onFailure: (String) -> Unit = {}) = post(
+        "/v2/attribution",
+        attribution.toJson().put("user_id", userId),
+        onSuccess = {},
+        onFailure = onFailure,
+    )
 
     fun recordWatchEvent(
         userId: String,
@@ -501,6 +526,13 @@ class RewardsApiClient(
     }
 
     private fun normalisedBaseUrl(): String? = baseUrlProvider().trim().trimEnd('/').takeIf { it.startsWith("http://") || it.startsWith("https://") }
+
+    private fun AttributionPayload.toJson(): JSONObject = JSONObject()
+        .put("appsflyer_uid", appsFlyerUid)
+        .put("af_status", afStatus)
+        .put("media_source", mediaSource)
+        .put("campaign", campaign)
+        .put("channel", channel)
 
     private fun parseSnapshot(json: JSONObject): Snapshot {
         val walletJson = json.getJSONObject("wallet")

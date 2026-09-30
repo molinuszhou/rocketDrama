@@ -58,6 +58,7 @@ import com.dramaflow.app.ads.AdConsent
 import com.dramaflow.app.ads.AdConsentStore
 import com.dramaflow.app.ads.TopOnAdsManager
 import com.dramaflow.app.ads.TopOnSettings
+import com.dramaflow.app.analytics.EngagementAnalytics
 import com.dramaflow.app.content.ShortDramaSdkManager
 import com.dramaflow.app.local.LocalDrama
 import com.dramaflow.app.local.LocalEpisode
@@ -72,7 +73,11 @@ internal fun DramaAppActivity.refreshRewardsSnapshot() {
         rewardsLoading = true
         val endpoint = rewardsBaseUrl()
         logStatus("正在同步奖励服务：$endpoint")
-        rewardsApi.bootstrap(anonymousInstallationId(), rewardsMarketCode(), { snapshot ->
+        rewardsApi.bootstrap(
+            userId = anonymousInstallationId(),
+            region = rewardsMarketCode(),
+            attribution = EngagementAnalytics.get(applicationContext).currentAttributionForRewards(),
+            onSuccess = { snapshot ->
             runOnUiThread {
                 rewardsLoading = false
                 if (!startupContentInitializationStarted) {
@@ -83,10 +88,10 @@ internal fun DramaAppActivity.refreshRewardsSnapshot() {
                 if (!startupContentInitializationStarted) completeStartupWhenReady()
                 else showStartupCheckinWhenReady()
             }
-        }, { message ->
+        }, onFailure = { error ->
             runOnUiThread {
                 rewardsLoading = false
-                logStatus("奖励服务同步失败（$endpoint）：$message")
+                logStatus("奖励服务同步失败（$endpoint）：$error")
                 if (!startupContentInitializationStarted) {
                     startupRewardsFinished = true
                     updateStartupProgress(computeStartupProgress(), t("startup_content_ready"))

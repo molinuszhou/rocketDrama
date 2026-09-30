@@ -44,11 +44,43 @@ class RewardsService:
                 cursor.fetchone()
         return {"status": "ok", "database": "ok", "environment": self.settings.environment, "now": self._now()}
 
-    def bootstrap(self, user_id: str, region: str | None = None) -> dict[str, Any]:
+    def bootstrap(self, user_id: str, region: str | None = None, attribution: dict[str, Any] | None = None) -> dict[str, Any]:
         with self._transaction() as connection:
             self._ensure_user(connection, user_id, region)
+            if attribution:
+                self._update_attribution(connection, user_id=user_id, **attribution)
             self._ensure_random_chests(connection, user_id, self._business_date(), self._policy(connection))
             return self._snapshot(connection, user_id)
+
+    def update_attribution(
+        self,
+        *,
+        user_id: str,
+        appsflyer_uid: str | None,
+        af_status: str,
+        media_source: str | None,
+        campaign: str | None,
+        channel: str | None,
+    ) -> dict[str, Any]:
+        """Persist the minimal AppsFlyer install-attribution result for an anonymous user.
+
+        The client sends this only from AppsFlyer's conversion callback. The server derives
+        the A/B surface from ``af_status`` rather than trusting a client-selected surface;
+        optional blank values never erase a previously received attribution value.
+        """
+        with self._transaction() as connection:
+            self._ensure_user(connection, user_id)
+            self._update_attribution(
+                connection,
+                user_id=user_id,
+                appsflyer_uid=appsflyer_uid,
+                af_status=af_status,
+                media_source=media_source,
+                campaign=campaign,
+                channel=channel,
+            )
+            user = self._one(connection, "SELECT * FROM users WHERE user_id = %s", (user_id,))
+            return {"attribution": self._attribution_payload(user)}
 
     def complete_rewarded_ad(
         self,
@@ -1928,7 +1960,12 @@ class RewardsService:
         task_rows = self._episode_task_progress(connection, user_id, business_date, int(counters["episode_count"]), wallet_policy)
         return {
             "business_date": business_date.isoformat(),
-            "user": {"geo_tier": user["geo_tier"], "market_code": wallet_policy["market_code"], "lifecycle_day": lifecycle_day},
+            "user": {
+                "geo_tier": user["geo_tier"],
+                "market_code": wallet_policy["market_code"],
+                "lifecycle_day": lifecycle_day,
+                "attribution": self._attribution_payload(user),
+            },
             "wallet": {
                 "gems_balance": 0,
                 "cash_wallet": self._money(user["cash_wallet_micros"], wallet_policy),
@@ -2272,6 +2309,66 @@ class RewardsService:
         value = (region or "").strip().upper().replace("-", "_")
         aliases = {"BRA": "BR", "BRAZIL": "BR", "PT_BR": "BR", "IDN": "ID", "INDONESIA": "ID", "IN_ID": "ID"}
         return aliases.get(value, value if value and value != "DEFAULT" else "DEFAULT")
+
+    def _update_attribution(
+        self,
+        connection: psycopg.Connection[Any],
+        *,
+        user_id: str,
+        appsflyer_uid: str | None,
+        af_status: str,
+        media_source: str | None,
+        campaign: str | None,
+        channel: str | None,
+    ) -> None:
+        status = af_status.strip()
+        if not status:
+            raise ServiceError(1400, "归因状态不能为空", 422)
+        surface = "B" if status.lower() == "non-organic" else "A"
+        self._execute(
+            connection,
+            """
+            UPDATE users
+            SET appsflyer_uid = COALESCE(NULLIF(%s, ''), appsflyer_uid),
+                attribution_status = %s,
+                attribution_media_source = COALESCE(NULLIF(%s, ''), attribution_media_source),
+                attribution_campaign = COALESCE(NULLIF(%s, ''), attribution_campaign),
+                attribution_channel = COALESCE(NULLIF(%s, ''), attribution_channel),
+                attribution_surface = %s,
+                attribution_first_recorded_at = COALESCE(attribution_first_recorded_at, NOW()),
+                attribution_updated_at = NOW(),
+                updated_at = NOW()
+            WHERE user_id = %s
+            """,
+            (
+                self._attribution_value(appsflyer_uid),
+                self._attribution_value(status),
+                self._attribution_value(media_source),
+                self._attribution_value(campaign),
+                self._attribution_value(channel),
+                surface,
+                user_id,
+            ),
+        )
+
+    @staticmethod
+    def _attribution_value(value: str | None) -> str:
+        return (value or "").strip()[:160]
+
+    @staticmethod
+    def _attribution_payload(user: dict[str, Any]) -> dict[str, Any] | None:
+        status = (user.get("attribution_status") or "").strip()
+        if not status:
+            return None
+        return {
+            "af_status": status,
+            "media_source": user.get("attribution_media_source") or "",
+            "campaign": user.get("attribution_campaign") or "",
+            "channel": user.get("attribution_channel") or "",
+            "surface": user.get("attribution_surface") or "A",
+            "first_recorded_at": user["attribution_first_recorded_at"].isoformat() if user.get("attribution_first_recorded_at") else None,
+            "updated_at": user["attribution_updated_at"].isoformat() if user.get("attribution_updated_at") else None,
+        }
 
     def _active_market_or_default(self, connection: psycopg.Connection[Any], requested_market: str) -> str:
         if requested_market == "DEFAULT":

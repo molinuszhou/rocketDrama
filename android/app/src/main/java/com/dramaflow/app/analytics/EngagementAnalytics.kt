@@ -14,6 +14,7 @@ import com.dramaflow.app.ads.AdRevenueAuditValues
 import com.dramaflow.app.analytics.ReportingProvider.APPSFLYER
 import com.dramaflow.app.analytics.ReportingProvider.FIREBASE
 import com.dramaflow.app.analytics.ReportingProvider.XUANYU
+import com.dramaflow.app.rewards.RewardsApiClient
 import com.google.firebase.analytics.FirebaseAnalytics
 import com.secmtp.sdk.core.api.ATAdInfo
 import java.io.IOException
@@ -58,6 +59,9 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
     @Volatile
     private var initialized = false
 
+    @Volatile
+    private var attributionSyncListener: ((RewardsApiClient.AttributionPayload) -> Unit)? = null
+
     fun initialize() {
         if (initialized) return
         initialized = true
@@ -93,18 +97,27 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
         ?.trim()
         ?.takeIf(String::isNotBlank)
 
+    fun currentAttributionForRewards(): RewardsApiClient.AttributionPayload? =
+        attributionExperience.currentRecord()?.toRewardsPayload()
+
+    fun setAttributionSyncListener(listener: ((RewardsApiClient.AttributionPayload) -> Unit)?) {
+        attributionSyncListener = listener
+        currentAttributionForRewards()?.let { listener?.invoke(it) }
+    }
+
     private fun attributionConversionListener(): AppsFlyerConversionListener = object : AppsFlyerConversionListener {
         override fun onConversionDataSuccess(conversionData: MutableMap<String, Any>?) {
             val experience = attributionExperience.applyConversionData(conversionData)
-            // Debug builds keep only the attribution decision and media-source label in a local
-            // diagnostic file. Release has a no-op sink; campaign IDs, click IDs, and raw
-            // conversion payload values are never retained locally.
+            // Retain only the minimal normalized attribution fields needed to retry Rewards
+            // synchronization: status, media source, campaign and channel. Click/site IDs and
+            // the raw AppsFlyer conversion payload are never saved locally or sent to Rewards.
             reportingAudit.recordProvider(
                 APPSFLYER,
                 "attribution_surface",
                 ReportingStatus.SUCCESS,
                 detail = "${attributionExperience.diagnosticSummary()}; selected=${experience.wireValue}",
             )
+            currentAttributionForRewards()?.let { attributionSyncListener?.invoke(it) }
             Log.i(TAG, "AppsFlyer attribution selected release surface ${experience.wireValue}")
         }
 
@@ -385,6 +398,15 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
     private fun debug(message: String) {
         if (BuildConfig.DEBUG || BuildConfig.ANALYTICS_DEBUG) Log.d(TAG, message)
     }
+
+    private fun AttributionExperienceStore.AttributionRecord.toRewardsPayload(): RewardsApiClient.AttributionPayload =
+        RewardsApiClient.AttributionPayload(
+            appsFlyerUid = appsFlyerUid(),
+            afStatus = afStatus,
+            mediaSource = mediaSource,
+            campaign = campaign,
+            channel = channel,
+        )
 
     private fun recordAllDisabled(eventName: String, placement: String, adUnitId: String) {
         reportingAudit.recordProvider(APPSFLYER, eventName, ReportingStatus.SKIPPED_DISABLED, placement, adUnitId)

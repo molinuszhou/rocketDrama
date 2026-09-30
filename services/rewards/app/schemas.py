@@ -37,11 +37,26 @@ InterstitialPlacement = Literal[
 ]
 
 
+class AttributionPayload(BaseModel):
+    """Minimal install-attribution fields supplied after AppsFlyer conversion succeeds."""
+
+    appsflyer_uid: str | None = Field(default=None, max_length=160)
+    af_status: str = Field(min_length=1, max_length=64)
+    media_source: str | None = Field(default=None, max_length=160)
+    campaign: str | None = Field(default=None, max_length=160)
+    channel: str | None = Field(default=None, max_length=160)
+
+
 class BootstrapRequest(BaseModel):
     user_id: str = Field(min_length=1, max_length=128)
     # Android 已随 bootstrap 发送该字段；服务端将 BR、ID 映射到本币策略，其他地区回退 DEFAULT/USD。
     region: str | None = Field(default=None, min_length=2, max_length=32)
     device_id: str | None = Field(default=None, max_length=256)
+    attribution: AttributionPayload | None = None
+
+
+class AttributionUpdateRequest(AttributionPayload):
+    user_id: str = Field(min_length=1, max_length=128)
 
 
 class RewardedCompleteRequest(BaseModel):

@@ -164,6 +164,14 @@ TOPON_REWARDED_LOAD_TIMEOUT_MS=10000
 
 正式 Release 固定使用 Pangle/PSSDK 短剧内容，不请求旧的本地 Content 服务；正式包名为 `com.feather.joyelledrama`。
 
+### 用户归因保存
+
+Rewards 服务从 Android 的 AppsFlyer 转化回调接收最小归因记录，并绑定至匿名 `user_id`：`af_status`、媒体来源、campaign、channel、AppsFlyer UID、服务端派生的 A/B 面，以及首次/最近同步时间。不会保存点击 ID、site ID 或完整原始回传载荷。
+
+- `af_status=Non-organic` 时服务端派生并保存 B 面；其他有效状态保存 A 面。
+- 回调同步失败时，客户端会在下一次 `/v2/bootstrap` 补发当前最小归因记录。
+- 新增的 `036_v1707_user_attribution.sql` 由服务启动时自动迁移；既有数据库无需重建。
+
 ## 五、生产安全要求
 
 生产环境会拒绝 `ALLOW_DEBUG_AD_PROOF=true`。激励广告成功后由客户端调用 Rewards 服务；服务端按 `ad_event_id` 记录广告奖励账本并做幂等去重，客户端重复请求不会重复入账。
@@ -208,7 +216,7 @@ docker compose -p joyedrama-rewards \
   --env-file .env.production \
   -f docker-compose.production.yml down -v
 
-# 首次创建空卷时执行 001_init.sql；Rewards API 启动后会依次补跑 002–035 迁移。
+# 首次创建空卷时执行 001_init.sql；Rewards API 启动后会依次补跑 002–036 迁移。
 docker compose -p joyedrama-rewards \
   --env-file .env.production \
   -f docker-compose.production.yml up -d --build

@@ -79,6 +79,7 @@ def run() -> None:
     assert initial["wallet"]["exchange_rate_gems"] > 0
     assert initial["wallet"]["currency"]["code"] == "USD"
     assert float(initial["withdrawal"]["threshold"]) > 0
+    assert initial["user"]["attribution"] is None
     assert initial["gem_damping"]["cap"] > 0
     assert initial["gem_damping"]["tier1_threshold"] < initial["gem_damping"]["cap"]
     assert initial["gem_damping"]["tier1_threshold"] <= initial["gem_damping"]["tier2_threshold"] <= initial["gem_damping"]["tier3_threshold"]
@@ -132,6 +133,32 @@ def run() -> None:
     ] == [1.0, 0.2, 0.04, 0.001, 0.0001, 0.00001]
     assert gold_reward is not None and gold_reward["reward_gems"] == 67_000
     assert silver_multiplier is not None and float(silver_multiplier["episode_reward_multiplier"]) == 1.20
+
+    # Attribution is stored with the anonymous Rewards user. The backend derives B
+    # only from AppsFlyer's Non-organic status, and later partial callbacks preserve
+    # the previously supplied media/campaign information.
+    attribution = service.update_attribution(
+        user_id=user_id,
+        appsflyer_uid="af-smoke-user",
+        af_status="Non-organic",
+        media_source="facebook",
+        campaign="smoke-campaign",
+        channel="paid-social",
+    )["attribution"]
+    assert attribution["surface"] == "B"
+    assert attribution["media_source"] == "facebook"
+    service.update_attribution(
+        user_id=user_id,
+        appsflyer_uid=None,
+        af_status="Organic",
+        media_source=None,
+        campaign=None,
+        channel=None,
+    )
+    refreshed_attribution = service.bootstrap(user_id)["user"]["attribution"]
+    assert refreshed_attribution["surface"] == "A"
+    assert refreshed_attribution["media_source"] == "facebook"
+    assert refreshed_attribution["campaign"] == "smoke-campaign"
 
     # Advertising operations telemetry stores only an installation hash, de-duplicates
     # client retries and separates shown counts from paid-impression revenue.

@@ -101,6 +101,32 @@ def run() -> None:
         assert data["interstitial"]["mid_episode_trigger_seconds"] == 180
         assert data["interstitial"]["mid_episode_repeat_seconds"] == 360
 
+        attribution_user = f"v1707-http-attribution-{uuid.uuid4()}"
+        attribution_response = client.post(
+            "/v2/attribution",
+            json={
+                "user_id": attribution_user,
+                "appsflyer_uid": "af-http-smoke",
+                "af_status": "Non-organic",
+                "media_source": "googleadwords_int",
+                "campaign": "launch",
+                "channel": "paid-search",
+            },
+        )
+        assert attribution_response.status_code == 200
+        assert attribution_response.json()["data"]["attribution"]["surface"] == "B"
+        bootstrap_with_attribution = client.post(
+            "/v2/bootstrap",
+            json={
+                "user_id": attribution_user,
+                "attribution": {"af_status": "Organic", "media_source": "af_organic"},
+            },
+        )
+        assert bootstrap_with_attribution.status_code == 200
+        stored = bootstrap_with_attribution.json()["data"]["user"]["attribution"]
+        assert stored["surface"] == "A"
+        assert stored["campaign"] == "launch"
+
     print("PostgreSQL v1.6.6.2 runtime-upgrade smoke test passed; welcome consolidation, fallback settlement and 60-second charge cooldowns verified")
 
 
