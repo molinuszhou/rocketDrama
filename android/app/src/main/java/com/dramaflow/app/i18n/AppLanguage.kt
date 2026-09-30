@@ -216,7 +216,7 @@ object AppLanguage {
         "reward_doubled" to all("Reward doubled", "Recompensa dobrada", "Recompensa duplicada", "Récompense doublée", "Hadiah digandakan", "本集已翻倍", "本集已翻倍"),
         "checkin_rewards" to all("Check-in rewards", "Recompensas de check-in", "Recompensas de registro", "Récompenses de connexion", "Hadiah check-in", "连续签到奖励", "連續簽到獎勵"),
         "checkin_seven_day_total" to all("7-day check-in total: %1\$s", "Total do check-in de 7 dias: %1\$s", "Total del registro de 7 días: %1\$s", "Total de connexion sur 7 jours : %1\$s", "Total check-in 7 hari: %1\$s", "连续签到7天总奖励：%1\$s", "連續簽到7天總獎勵：%1\$s"),
-        "checkin_seven_day_earn" to all("Earn in 7 days", "Ganhe em 7 dias", "Gana en 7 días", "Gagnez en 7 jours", "Dapatkan dalam 7 hari", "连续7天签到可得：", "連續7天簽到可得："),
+        "checkin_seven_day_earn" to all("Earn in 7 days", "Ganhe em 7 dias", "Gana en 7 días", "Gagnez en 7 jours", "7 Hari", "7日可得", "7日可得"),
         "daily_checkin_cash" to all("Daily check-in for cash", "Check-in diário para ganhar dinheiro", "Registro diario para ganar efectivo", "Connexion quotidienne pour gagner de l'argent", "Check-in harian dapat uang", "每日签到得现金", "每日簽到得現金"),
         "daily_checkin_amount" to all("Today's cash: %1\$s", "Dinheiro de hoje: %1\$s", "Efectivo de hoy: %1\$s", "Espèces du jour : %1\$s", "Uang hari ini: %1\$s", "今日现金奖励：%1\$s", "今日現金獎勵：%1\$s"),
         "calendar_reminder_action" to all("Set calendar reminder", "Definir lembrete no calendário", "Configurar recordatorio de calendario", "Définir un rappel calendrier", "Atur pengingat kalender", "设置日历提醒", "設定日曆提醒"),
