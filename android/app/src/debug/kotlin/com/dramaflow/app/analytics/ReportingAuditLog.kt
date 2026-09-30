@@ -10,6 +10,7 @@ import java.time.format.DateTimeFormatter
 /** Local, shareable audit trail for AppsFlyer, Firebase and Xuanyu reporting. */
 class ReportingAuditLog private constructor(context: Context) {
     private val appContext = context.applicationContext
+    private val deliveryReporter = ReportingDeliveryEventReporter(appContext)
     private val lock = Any()
     private val directory = File(appContext.filesDir, DIRECTORY_NAME)
     private val file = File(directory, FILE_NAME)
@@ -26,6 +27,7 @@ class ReportingAuditLog private constructor(context: Context) {
         revenue: AdRevenueAuditValues = AdRevenueAuditValues(),
         detail: String = "",
     ) {
+        deliveryReporter.record(provider, eventName, status, placement, adUnitId, errorCode, revenue)
         synchronized(lock) {
             ensureHeaderLocked()
             val row = listOf(

@@ -50,6 +50,7 @@ def apply_runtime_migrations(settings: Settings) -> None:
             ("034_v1705_high_episode_wallet_rewards", sql_directory / "034_v1705_high_episode_wallet_rewards.sql"),
             ("035_v1706_regional_caps_and_precision_damping", sql_directory / "035_v1706_regional_caps_and_precision_damping.sql"),
             ("036_v1707_user_attribution", sql_directory / "036_v1707_user_attribution.sql"),
+            ("037_v1708_reporting_delivery_events", sql_directory / "037_v1708_reporting_delivery_events.sql"),
         )
     with psycopg.connect(settings.database_url, autocommit=True) as connection:
         with connection.cursor() as cursor:

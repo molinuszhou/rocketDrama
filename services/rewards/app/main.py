@@ -29,6 +29,7 @@ from app.schemas import (
     RewardedFallbackSettlementRequest,
     RewardPolicyUpdateRequest,
     RewardedSkippedRequest,
+    ReportingDeliveryEventRequest,
     TenRoundClaimRequest,
     WelcomeBonusRequest,
     WatchEventRequest,
@@ -253,6 +254,14 @@ def record_ad_mediation_event(payload: AdMediationEventRequest) -> dict:
     }
 
 
+@app.post("/v2/operations/reporting-delivery-events", response_model=ApiEnvelope)
+def record_reporting_delivery_event(payload: ReportingDeliveryEventRequest) -> dict:
+    return {
+        "code": 0,
+        "data": service.record_reporting_delivery_event(**payload.model_dump()),
+    }
+
+
 @app.get("/v2/admin/operations/ad-mediation-daily", response_model=ApiEnvelope)
 def admin_ad_mediation_daily(
     authorization: str | None = Header(default=None),
@@ -262,6 +271,41 @@ def admin_ad_mediation_daily(
     return {
         "code": 0,
         "data": service.admin_ad_mediation_daily_metrics(authorization, start_date, end_date),
+    }
+
+
+@app.get("/v2/admin/users", response_model=ApiEnvelope)
+def admin_users(
+    authorization: str | None = Header(default=None),
+    query: str = "",
+    market_code: str = "",
+    attribution_surface: str = "",
+    limit: int = 50,
+    offset: int = 0,
+) -> dict:
+    return {
+        "code": 0,
+        "data": service.admin_users(
+            authorization,
+            query=query,
+            market_code=market_code,
+            attribution_surface=attribution_surface,
+            limit=limit,
+            offset=offset,
+        ),
+    }
+
+
+@app.get("/v2/admin/operations/reporting-delivery", response_model=ApiEnvelope)
+def admin_reporting_delivery(
+    authorization: str | None = Header(default=None),
+    start_date: date | None = None,
+    end_date: date | None = None,
+    limit: int = 100,
+) -> dict:
+    return {
+        "code": 0,
+        "data": service.admin_reporting_delivery_metrics(authorization, start_date, end_date, limit),
     }
 
 

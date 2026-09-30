@@ -127,6 +127,65 @@ def run() -> None:
         assert stored["surface"] == "A"
         assert stored["campaign"] == "launch"
 
+        admin_headers = {"Authorization": "Bearer smoke-admin-token"}
+        user_rows = client.get(
+            "/v2/admin/users",
+            params={"query": attribution_user, "attribution_surface": "A"},
+            headers=admin_headers,
+        )
+        assert user_rows.status_code == 200
+        rows_payload = user_rows.json()["data"]
+        assert rows_payload["total"] == 1
+        assert rows_payload["rows"][0]["attribution"]["campaign"] == "launch"
+
+        reporting_event = client.post(
+            "/v2/operations/reporting-delivery-events",
+            json={
+                "client_event_id": f"reporting-http-{uuid.uuid4()}",
+                "install_id_hash": "e" * 64,
+                "provider": "AppsFlyer",
+                "event_name": "ad_impression",
+                "status": "SUCCESS",
+                "logical_placement": "int_episode_midroll",
+                "ad_unit_id": "topon-placement",
+                "currency": "USD",
+                "ecpm": 12.5,
+                "value": 0.0125,
+                "occurred_at_ms": int(__import__("time").time() * 1000),
+            },
+        )
+        assert reporting_event.status_code == 200
+        reporting_rows = client.get(
+            "/v2/admin/operations/reporting-delivery",
+            headers=admin_headers,
+        )
+        assert reporting_rows.status_code == 200
+        report_payload = reporting_rows.json()["data"]
+        assert report_payload["totals"]["success_count"] >= 1
+        assert any(row["provider"] == "AppsFlyer" for row in report_payload["rows"])
+
+        ad_event = client.post(
+            "/v2/operations/ad-mediation-events",
+            json={
+                "client_event_id": f"mediation-http-{uuid.uuid4()}",
+                "install_id_hash": "f" * 64,
+                "event_type": "PAID_REVENUE",
+                "logical_placement": "int_episode_midroll",
+                "topon_placement_id": "topon-placement",
+                "ad_format": "interstitial",
+                "ad_network": "MAX > Google AdMob",
+                "ad_source_id": "admob-unit",
+                "app_version": "1.7.1.16",
+                "currency": "USD",
+                "ecpm": 12.5,
+                "occurred_at_ms": int(__import__("time").time() * 1000),
+            },
+        )
+        assert ad_event.status_code == 200
+        ad_rows = client.get("/v2/admin/operations/ad-mediation-daily", headers=admin_headers)
+        assert ad_rows.status_code == 200
+        assert any(row["event_type"] == "PAID_REVENUE" for row in ad_rows.json()["data"]["recent_events"])
+
     print("PostgreSQL v1.6.6.2 runtime-upgrade smoke test passed; welcome consolidation, fallback settlement and 60-second charge cooldowns verified")
 
 

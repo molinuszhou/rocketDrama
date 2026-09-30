@@ -6,10 +6,12 @@ import com.dramaflow.app.ads.AdRevenueAuditValues
 /**
  * Release source set deliberately has no device-local AppsFlyer/Firebase/Xuanyu audit trail.
  *
- * Third-party reporting remains active in [EngagementAnalytics]. This no-op only removes the
- * internal CSV reconciliation record and its export surface from the production package.
+ * Third-party reporting remains active in [EngagementAnalytics]. A privacy-minimised delivery
+ * outcome can be mirrored to the Rewards server for protected operations review, but this class
+ * never creates a device CSV, exporter, share intent, or any local reconciliation record.
  */
-class ReportingAuditLog private constructor() {
+class ReportingAuditLog private constructor(context: Context) {
+    private val deliveryReporter = ReportingDeliveryEventReporter(context.applicationContext)
     data class Summary(val eventCount: Int, val lastRecordedAtUtc: String?)
 
     fun record(
@@ -21,14 +23,16 @@ class ReportingAuditLog private constructor() {
         errorCode: String = "",
         revenue: AdRevenueAuditValues = AdRevenueAuditValues(),
         detail: String = "",
-    ) = Unit
+    ) = deliveryReporter.record(provider, eventName, status, placement, adUnitId, errorCode, revenue)
 
     fun summary(): Summary = Summary(eventCount = 0, lastRecordedAtUtc = null)
 
     companion object {
-        private val instance = ReportingAuditLog()
+        @Volatile private var instance: ReportingAuditLog? = null
 
-        fun get(context: Context): ReportingAuditLog = instance
+        fun get(context: Context): ReportingAuditLog = instance ?: synchronized(this) {
+            instance ?: ReportingAuditLog(context).also { instance = it }
+        }
     }
 }
 

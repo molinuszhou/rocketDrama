@@ -253,6 +253,26 @@ class AdMediationEventRequest(BaseModel):
     occurred_at_ms: int = Field(ge=0, le=4_102_444_800_000)
 
 
+class ReportingDeliveryEventRequest(BaseModel):
+    """Minimal server-side record of an AppsFlyer, Firebase or Xuanyu client callback."""
+
+    client_event_id: str = Field(min_length=8, max_length=160)
+    install_id_hash: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    provider: Literal["AppsFlyer", "Firebase", "Xuanyu"]
+    event_name: str = Field(min_length=1, max_length=120)
+    status: Literal[
+        "SKIPPED_DISABLED", "SKIPPED_NOT_CONFIGURED", "STARTED", "QUEUED",
+        "SUCCESS", "RETRYING", "FAILED", "FINAL_FAILED",
+    ]
+    logical_placement: str = Field(default="", max_length=80)
+    ad_unit_id: str = Field(default="", max_length=160)
+    error_code: str = Field(default="", max_length=40)
+    currency: str = Field(default="", max_length=3, pattern=r"^[A-Za-z]{0,3}$")
+    ecpm: float | None = Field(default=None, ge=0.0, le=10_000_000.0)
+    value: float | None = Field(default=None, ge=0.0, le=10_000_000.0)
+    occurred_at_ms: int = Field(ge=0, le=4_102_444_800_000)
+
+
 class WithdrawalPreflightRequest(BaseModel):
     user_id: str = Field(min_length=1, max_length=128)
 

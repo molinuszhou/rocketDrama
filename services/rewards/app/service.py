@@ -1000,6 +1000,20 @@ class RewardsService:
                 """,
                 (actual_start, actual_end),
             ) or {}
+            recent_events = self._all(
+                connection,
+                """
+                SELECT client_event_id, event_type, logical_placement, topon_placement_id,
+                       ad_format, ad_network, ad_source_id, app_version, currency, ecpm,
+                       impression_value, client_occurred_at, accepted_at
+                FROM ad_mediation_events
+                WHERE client_occurred_at >= %s
+                  AND client_occurred_at < (%s::date + INTERVAL '1 day')
+                ORDER BY client_occurred_at DESC, accepted_at DESC
+                LIMIT 200
+                """,
+                (actual_start, actual_end),
+            )
         def serialize(row: dict[str, Any]) -> dict[str, Any]:
             return {
                 **row,
@@ -1007,6 +1021,15 @@ class RewardsService:
                 "currency": row["currency"].strip(),
                 "revenue_value": format(Decimal(str(row["revenue_value"])), "f"),
                 "updated_at": row["updated_at"].isoformat(),
+            }
+        def serialize_event(row: dict[str, Any]) -> dict[str, Any]:
+            return {
+                **row,
+                "currency": row["currency"].strip(),
+                "ecpm": format(Decimal(str(row["ecpm"])), "f") if row["ecpm"] is not None else "",
+                "impression_value": format(Decimal(str(row["impression_value"])), "f"),
+                "client_occurred_at": row["client_occurred_at"].isoformat(),
+                "accepted_at": row["accepted_at"].isoformat(),
             }
         return {
             "start_date": actual_start.isoformat(),
@@ -1017,7 +1040,241 @@ class RewardsService:
                 "revenue_value": format(Decimal(str(totals.get("revenue_value", 0))), "f"),
             },
             "rows": [serialize(row) for row in rows],
+            "recent_events": [serialize_event(row) for row in recent_events],
             "disclaimer": "收入值为客户端 TopOn paid-impression 回调的 eCPM/1000 估算，仅用于运营对账；TopOn/MAX 后台结算报表为财务事实来源。",
+        }
+
+    def record_reporting_delivery_event(
+        self,
+        *,
+        client_event_id: str,
+        install_id_hash: str,
+        provider: str,
+        event_name: str,
+        status: str,
+        logical_placement: str,
+        ad_unit_id: str,
+        error_code: str,
+        currency: str,
+        ecpm: float | None,
+        value: float | None,
+        occurred_at_ms: int,
+    ) -> dict[str, Any]:
+        """Persist a privacy-minimised reporting delivery outcome for operations review."""
+
+        occurred_at = datetime.fromtimestamp(occurred_at_ms / 1_000, UTC)
+        if abs((datetime.now(UTC) - occurred_at).total_seconds()) > 31 * 24 * 60 * 60:
+            raise ServiceError(2311, "上报记录时间超出允许范围", 422)
+        normalized_currency = currency.strip().upper()
+        normalized_ecpm = Decimal(str(ecpm)) if ecpm is not None else None
+        reported_value = Decimal(str(value)) if value is not None else Decimal("0")
+        with self._transaction() as connection:
+            existing = self._one(
+                connection,
+                "SELECT client_event_id FROM reporting_delivery_events WHERE client_event_id = %s",
+                (client_event_id,),
+            )
+            if existing:
+                return {"idempotent": True, "accepted": True, "client_event_id": client_event_id}
+            self._execute(
+                connection,
+                """
+                INSERT INTO reporting_delivery_events (
+                    client_event_id, install_id_hash, provider, event_name, status,
+                    logical_placement, ad_unit_id, error_code, currency, ecpm,
+                    reported_value, client_occurred_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    client_event_id, install_id_hash, provider, event_name, status,
+                    logical_placement, ad_unit_id, error_code, normalized_currency, normalized_ecpm,
+                    reported_value, occurred_at,
+                ),
+            )
+            self._execute(
+                connection,
+                "DELETE FROM reporting_delivery_events WHERE accepted_at < NOW() - INTERVAL '90 days'",
+            )
+        return {"idempotent": False, "accepted": True, "client_event_id": client_event_id}
+
+    def admin_users(
+        self,
+        authorization: str | None,
+        *,
+        query: str = "",
+        market_code: str = "",
+        attribution_surface: str = "",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        """Return a bounded, token-protected operational view of anonymous Rewards users."""
+
+        self._verify_admin_token(authorization)
+        actual_limit = min(max(int(limit), 1), 100)
+        actual_offset = max(int(offset), 0)
+        clauses: list[str] = []
+        params: list[Any] = []
+        normalized_query = query.strip()
+        normalized_market = market_code.strip().upper()
+        normalized_surface = attribution_surface.strip().upper()
+        if normalized_query:
+            clauses.append(
+                "(u.user_id ILIKE %s OR u.appsflyer_uid ILIKE %s OR u.attribution_media_source ILIKE %s OR u.attribution_campaign ILIKE %s)"
+            )
+            wildcard = f"%{normalized_query[:160]}%"
+            params.extend([wildcard, wildcard, wildcard, wildcard])
+        if normalized_market:
+            clauses.append("u.market_code = %s")
+            params.append(normalized_market)
+        if normalized_surface:
+            if normalized_surface not in {"A", "B"}:
+                raise ServiceError(2312, "归因面仅支持 A 或 B", 422)
+            clauses.append("u.attribution_surface = %s")
+            params.append(normalized_surface)
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self._transaction() as connection:
+            total = self._one(
+                connection,
+                f"SELECT COUNT(*) AS count FROM users u{where}",
+                tuple(params),
+            ) or {"count": 0}
+            rows = self._all(
+                connection,
+                f"""
+                SELECT
+                    u.user_id, u.market_code, u.cash_wallet_micros, u.available_balance_micros,
+                    u.total_gems_earned, u.created_at, u.updated_at,
+                    u.appsflyer_uid, u.attribution_status, u.attribution_media_source,
+                    u.attribution_campaign, u.attribution_channel, u.attribution_surface,
+                    u.attribution_first_recorded_at, u.attribution_updated_at,
+                    m.currency_code, m.currency_symbol, m.currency_fraction_digits,
+                    COALESCE(w.watch_count, 0) AS watch_count,
+                    COALESCE(r.rewarded_count, 0) AS rewarded_count,
+                    COALESCE(i.interstitial_count, 0) AS interstitial_count,
+                    COALESCE(l.ledger_count, 0) AS ledger_count
+                FROM users u
+                JOIN market_wallet_policy m ON m.market_code = COALESCE(NULLIF(u.market_code, ''), 'DEFAULT')
+                LEFT JOIN LATERAL (
+                    SELECT COUNT(*) AS watch_count FROM watch_events WHERE user_id = u.user_id
+                ) w ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT COUNT(*) AS rewarded_count FROM rewarded_ad_events WHERE user_id = u.user_id
+                ) r ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT COUNT(*) AS interstitial_count FROM interstitial_events WHERE user_id = u.user_id
+                ) i ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT COUNT(*) AS ledger_count FROM ledger_entries WHERE user_id = u.user_id
+                ) l ON TRUE
+                {where}
+                ORDER BY u.updated_at DESC, u.user_id ASC
+                LIMIT %s OFFSET %s
+                """,
+                tuple(params + [actual_limit, actual_offset]),
+            )
+        def serialize(row: dict[str, Any]) -> dict[str, Any]:
+            wallet_policy = row
+            return {
+                "user_id": row["user_id"],
+                "market_code": row["market_code"],
+                "currency": {"code": row["currency_code"], "symbol": row["currency_symbol"]},
+                "wallet": {
+                    "cash_wallet": self._money(int(row["cash_wallet_micros"]), wallet_policy),
+                    "available_balance": self._money(int(row["available_balance_micros"]), wallet_policy),
+                    "reward_progress_units": int(row["total_gems_earned"]),
+                },
+                "activity": {
+                    "watch_count": int(row["watch_count"]),
+                    "rewarded_count": int(row["rewarded_count"]),
+                    "interstitial_count": int(row["interstitial_count"]),
+                    "ledger_count": int(row["ledger_count"]),
+                },
+                "attribution": self._attribution_payload(row),
+                "created_at": row["created_at"].isoformat(),
+                "updated_at": row["updated_at"].isoformat(),
+            }
+        return {
+            "total": int(total["count"]),
+            "limit": actual_limit,
+            "offset": actual_offset,
+            "rows": [serialize(row) for row in rows],
+        }
+
+    def admin_reporting_delivery_metrics(
+        self,
+        authorization: str | None,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        """Return recent AppsFlyer/Firebase/Xuanyu delivery results retained by Rewards."""
+
+        self._verify_admin_token(authorization)
+        default_end = self._now().date()
+        actual_end = end_date or default_end
+        actual_start = start_date or actual_end - timedelta(days=6)
+        if actual_start > actual_end:
+            raise ServiceError(2313, "上报记录开始日期不能晚于结束日期", 422)
+        if actual_end - actual_start > timedelta(days=90):
+            raise ServiceError(2314, "上报记录最大查询范围为 90 天", 422)
+        actual_limit = min(max(int(limit), 1), 200)
+        with self._transaction() as connection:
+            rows = self._all(
+                connection,
+                """
+                SELECT provider, event_name, status, logical_placement, ad_unit_id,
+                       error_code, currency, ecpm, reported_value, client_occurred_at, accepted_at
+                FROM reporting_delivery_events
+                WHERE client_occurred_at >= %s
+                  AND client_occurred_at < (%s::date + INTERVAL '1 day')
+                ORDER BY client_occurred_at DESC, accepted_at DESC
+                LIMIT %s
+                """,
+                (actual_start, actual_end, actual_limit),
+            )
+            totals = self._one(
+                connection,
+                """
+                SELECT
+                    COUNT(*) AS event_count,
+                    COUNT(*) FILTER (WHERE status = 'SUCCESS') AS success_count,
+                    COUNT(*) FILTER (WHERE status IN ('FAILED', 'FINAL_FAILED')) AS failure_count,
+                    COUNT(*) FILTER (WHERE status = 'RETRYING') AS retrying_count
+                FROM reporting_delivery_events
+                WHERE client_occurred_at >= %s
+                  AND client_occurred_at < (%s::date + INTERVAL '1 day')
+                """,
+                (actual_start, actual_end),
+            ) or {}
+            breakdown = self._all(
+                connection,
+                """
+                SELECT provider, status, COUNT(*) AS event_count
+                FROM reporting_delivery_events
+                WHERE client_occurred_at >= %s
+                  AND client_occurred_at < (%s::date + INTERVAL '1 day')
+                GROUP BY provider, status
+                ORDER BY provider ASC, status ASC
+                """,
+                (actual_start, actual_end),
+            )
+        def serialize(row: dict[str, Any]) -> dict[str, Any]:
+            return {
+                **row,
+                "currency": row["currency"].strip(),
+                "ecpm": format(Decimal(str(row["ecpm"])), "f") if row["ecpm"] is not None else "",
+                "value": format(Decimal(str(row["reported_value"])), "f"),
+                "client_occurred_at": row["client_occurred_at"].isoformat(),
+                "accepted_at": row["accepted_at"].isoformat(),
+            }
+        return {
+            "start_date": actual_start.isoformat(),
+            "end_date": actual_end.isoformat(),
+            "limit": actual_limit,
+            "totals": {key: int(totals.get(key, 0)) for key in ("event_count", "success_count", "failure_count", "retrying_count")},
+            "breakdown": [dict(item) | {"event_count": int(item["event_count"])} for item in breakdown],
+            "rows": [serialize(row) for row in rows],
+            "disclaimer": "仅记录客户端回调观察到的投递状态；AppsFlyer、Firebase 与炫羽各后台仍是最终接收与归因事实来源。",
         }
 
     def settle_rewarded_fallback(

@@ -172,6 +172,22 @@ Rewards 服务从 Android 的 AppsFlyer 转化回调接收最小归因记录，�
 - 回调同步失败时，客户端会在下一次 `/v2/bootstrap` 补发当前最小归因记录。
 - 新增的 `036_v1707_user_attribution.sql` 由服务启动时自动迁移；既有数据库无需重建。
 
+### 运营后台查询范围
+
+控制台地址为：
+
+```text
+https://www.joyelleasia.com/joyedrama-rewards/admin
+```
+
+控制台在这个反向代理子路径下会自动把 API 请求发送至 `/joyedrama-rewards/v2/admin/...`，不会错误请求主站的 `/v2/...`。
+
+- **用户与归因**：查询匿名用户 ID、市场、钱包、观看/广告参与计数，以及最小 AppsFlyer 归因记录和服务端推导的 A/B 面；不提供点击 ID、site ID 或原始归因载荷。
+- **广告运营**：查询 TopOn 回调写入的原始广告运营事件（保留 90 天）和长期日汇总，含广告位、ADN、展示、paid-impression 和客户端 eCPM 估算。
+- **上报记录**：查询 AppsFlyer、Firebase、炫羽的客户端投递状态镜像（保留 90 天）。这是客户端 SDK/HTTP 回调观察结果，不取代三个渠道后台的最终接收或结算数据。
+
+新增的 `037_v1708_reporting_delivery_events.sql` 同样由服务启动时自动迁移；更新容器后无需重建数据库。
+
 ## 五、生产安全要求
 
 生产环境会拒绝 `ALLOW_DEBUG_AD_PROOF=true`。激励广告成功后由客户端调用 Rewards 服务；服务端按 `ad_event_id` 记录广告奖励账本并做幂等去重，客户端重复请求不会重复入账。
@@ -216,7 +232,7 @@ docker compose -p joyedrama-rewards \
   --env-file .env.production \
   -f docker-compose.production.yml down -v
 
-# 首次创建空卷时执行 001_init.sql；Rewards API 启动后会依次补跑 002–036 迁移。
+# 首次创建空卷时执行 001_init.sql；Rewards API 启动后会依次补跑 002–037 迁移。
 docker compose -p joyedrama-rewards \
   --env-file .env.production \
   -f docker-compose.production.yml up -d --build
