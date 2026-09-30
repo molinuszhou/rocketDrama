@@ -66,10 +66,28 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
         onEpisodeCompleted = ::onSdkEpisodeCompleted,
         onPlaybackProgress = { episodeIndex, progress, duration -> onSdkPlaybackProgress(episodeIndex, progress, duration) },
         onOverScroll = ::onSdkOverScroll,
+        onVideoTap = { runOnUiThread { if (System.currentTimeMillis() >= ignoreVideoTapsUntilMillis) togglePlaybackFromVideoTap() } },
+        onPlaybackFailure = { message -> onSdkPlaybackFailure(message) },
+        onImmersiveChanged = { entering -> runOnUiThread { if (entering) enterImmersivePlayerMode(announce = false) else exitImmersivePlayerMode() } },
+        onVideoInfoFetched = { episodeIndex, summary -> onSdkVideoInfoFetched(episodeIndex, summary) },
     )
     supportFragmentManager.beginTransaction()
         .replace(container.id, fragment, SDK_PLAYER_FRAGMENT_TAG)
         .commitNowAllowingStateLoss()
+
+    // Preload is advisory: it reduces the chance of a first-frame stall, while a provider
+    // network or entitlement failure still follows the ordinary playback error path.
+    root.post {
+        if (!sdkPlayerShown || supportFragmentManager.findFragmentByTag(SDK_PLAYER_FRAGMENT_TAG) !== fragment) return@post
+        fragment.preLoadVideo(object : PSSDK.ActionResultListener {
+            override fun onSuccess() {
+                logStatus("PSSDK 首集预加载完成")
+            }
+            override fun onFail(error: PSSDK.ErrorInfo?) {
+                logStatus("PSSDK 首集预加载未完成：${error?.code ?: -1} ${error?.msg.orEmpty()}")
+            }
+        })
+    }
 
     // PSSDK remains the actual player. These are JoyeDrama controls mapped only to public APIs.
     // Retain references and explicitly raise them after the Fragment completes its asynchronous
@@ -238,4 +256,29 @@ internal fun DramaAppActivity.dismissSdkDramaPlayerIfShown() {
     sdkPlaybackActive = false
     resumeSdkPlaybackWhenForeground = false
     sdkPlayerContainerId = View.NO_ID
+}
+
+
+/** Handles a provider playback error without falling back to an opaque SDK default dialog. */
+private fun DramaAppActivity.onSdkPlaybackFailure(message: String): Boolean {
+    sdkPlaybackActive = false
+    playerIsPaused = true
+    logStatus("PSSDK playback failed: $message")
+    runOnUiThread {
+        if (!sdkPlayerShown || isFinishing || isDestroyed) return@runOnUiThread
+        showBrandedChoiceDialog(
+            title = t("sdk_playback_unavailable_title"),
+            message = t("sdk_playback_unavailable_message", message),
+            primaryLabel = t("retry"),
+            onPrimary = { currentSdkPlayerFragment()?.startPlayIndex(currentEpisodeIndex) },
+            secondaryLabel = t("back"),
+            onSecondary = ::showCatalog,
+        )
+    }
+    return true
+}
+
+/** Captures provider readiness metadata for diagnostics without coupling reward flow to SDK internals. */
+private fun DramaAppActivity.onSdkVideoInfoFetched(episodeIndex: Int, summary: String) {
+    logStatus("PSSDK 视频信息就绪：第 ${episodeIndex + 1} 集${summary.takeIf { it.isNotBlank() }?.let { "，$it" }.orEmpty()}")
 }

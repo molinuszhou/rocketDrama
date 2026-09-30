@@ -50,6 +50,18 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
         val hasMore: Boolean = false,
     )
 
+    data class PagedCards(
+        val cards: List<DramaCard>,
+        val hasMore: Boolean,
+    )
+
+    /** PSSDK's server-side availability check: SUPPORT, NOT_SUPPORT or NETWORK_ERROR. */
+    data class PlaybackServiceStatus(
+        val checked: Boolean,
+        val supported: Boolean,
+        val reason: String,
+    )
+
     @Volatile
     private var initialized = false
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -57,6 +69,12 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
     private var initializationAttempt = 0
     private var activeInitializationAttempt = 0
     private val pendingInitializationCallbacks = mutableListOf<(Initialization) -> Unit>()
+    @Volatile
+    private var playbackServiceStatus = PlaybackServiceStatus(
+        checked = false,
+        supported = false,
+        reason = "PSSDK playback service has not been checked",
+    )
 
     /**
      * 不在 SDK 开关关闭时做任何网络或播放器初始化，确保本地视频测试完全独立于外部短剧服务。
@@ -152,12 +170,12 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
                     initialized = success
                     if (success) {
                         PSSDK.setEligibleAudience(true)
-                        PSSDK.checkPlayStatus(object : PSSDK.ServiceCheckResultListener {
-                            override fun onCheckResult(result: PSSDK.ServiceAvailableResult?) {
-                                Log.i(TAG, "短剧 SDK 播放服务检测：${result?.name ?: "UNKNOWN"}")
-                            }
-                        })
-                        deliverReady()
+                        checkPlaybackService { status ->
+                            Log.i(TAG, "短剧 SDK 播放服务检测：${status.reason}")
+                            // A provider service outage must not prevent catalogue browsing. Playback
+                            // is checked again immediately before a provider fragment is opened.
+                            deliverReady()
+                        }
                     } else {
                         deliverFailure(Initialization.Failed("短剧 SDK 初始化失败：${error?.code ?: -1} ${error?.msg.orEmpty()}"))
                     }
@@ -269,29 +287,75 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
         })
     }
 
-    /** 根据 SDK 分类 ID 读取该分类下的内容，供点击首页/发现页分类标签后调用。 */
-    fun loadCategory(
-        categoryId: Long,
-        pageSize: Int = DEFAULT_PAGE_SIZE,
-        onSuccess: (List<DramaCard>) -> Unit,
-        onFailure: (String) -> Unit,
-    ) {
-        if (!initialized && !PSSDK.hasInitialized()) {
-            onFailure("短剧 SDK 尚未初始化")
-            return
-        }
-        PSSDK.requestFeedListByCategoryIds(listOf(categoryId), emptyList(), FIRST_PAGE, pageSize, object : PSSDK.FeedListResultListener {
-            override fun onSuccess(result: PSSDK.FeedListLoadResult<ShortPlay>?) = onSuccess(result?.dataList.orEmpty().map(::toCard))
-            override fun onFail(error: PSSDK.ErrorInfo?) = onFailure("短剧分类内容读取失败：${error?.code ?: -1} ${error?.msg.orEmpty()}")
+    /** Reads provider category metadata separately; feed delivery intentionally never waits on this optional call. */
+    fun loadCategories(onSuccess: (List<Category>) -> Unit, onFailure: (String) -> Unit) {
+        if (!initialized && !PSSDK.hasInitialized()) { onFailure("Short-drama SDK is not initialized"); return }
+        PSSDK.requestCategoryList("", object : PSSDK.CategoryListResultListener {
+            override fun onSuccess(result: PSSDK.FeedListLoadResult<ShortPlay.ShortPlayCategory>?) =
+                onSuccess(result?.dataList.orEmpty().map { Category(it.id, it.name.orEmpty(), it.count) }.filter { it.name.isNotBlank() })
+            override fun onFail(error: PSSDK.ErrorInfo?) = onFailure("Short-drama category list failed: ${error?.code ?: -1} ${error?.msg.orEmpty()}")
         })
     }
 
-    /** Production search adapter. The test build uses local catalog filtering while the SDK switch is disabled. */
-    fun search(keyword: String, pageSize: Int = DEFAULT_PAGE_SIZE, onSuccess: (List<DramaCard>) -> Unit, onFailure: (String) -> Unit) {
+    /** Provider category paging is kept distinct from the all-feed cursor. */
+    fun loadCategoryPage(
+        categoryId: Long,
+        page: Int,
+        pageSize: Int = DEFAULT_PAGE_SIZE,
+        onSuccess: (PagedCards) -> Unit,
+        onFailure: (String) -> Unit,
+    ) {
         if (!initialized && !PSSDK.hasInitialized()) { onFailure("Short-drama SDK is not initialized"); return }
-        PSSDK.searchDrama(keyword.trim(), false, FIRST_PAGE, pageSize, object : PSSDK.FeedListResultListener {
-            override fun onSuccess(result: PSSDK.FeedListLoadResult<ShortPlay>?) = onSuccess(result?.dataList.orEmpty().map(::toCard))
+        PSSDK.requestFeedListByCategoryIds(listOf(categoryId), emptyList(), page.coerceAtLeast(FIRST_PAGE), pageSize, object : PSSDK.FeedListResultListener {
+            override fun onSuccess(result: PSSDK.FeedListLoadResult<ShortPlay>?) =
+                onSuccess(PagedCards(result?.dataList.orEmpty().map(::toCard), result?.hasMore == true))
+            override fun onFail(error: PSSDK.ErrorInfo?) = onFailure("Short-drama category content failed: ${error?.code ?: -1} ${error?.msg.orEmpty()}")
+        })
+    }
+
+    /** Backward-compatible first-page category helper. */
+    fun loadCategory(categoryId: Long, pageSize: Int = DEFAULT_PAGE_SIZE, onSuccess: (List<DramaCard>) -> Unit, onFailure: (String) -> Unit) =
+        loadCategoryPage(categoryId, FIRST_PAGE, pageSize, { onSuccess(it.cards) }, onFailure)
+
+    /** Paged provider search adapter. The UI owns dedupe and bottom-scroll timing. */
+    fun searchPage(
+        keyword: String,
+        page: Int,
+        pageSize: Int = DEFAULT_PAGE_SIZE,
+        onSuccess: (PagedCards) -> Unit,
+        onFailure: (String) -> Unit,
+    ) {
+        if (!initialized && !PSSDK.hasInitialized()) { onFailure("Short-drama SDK is not initialized"); return }
+        PSSDK.searchDrama(keyword.trim(), false, page.coerceAtLeast(FIRST_PAGE), pageSize, object : PSSDK.FeedListResultListener {
+            override fun onSuccess(result: PSSDK.FeedListLoadResult<ShortPlay>?) =
+                onSuccess(PagedCards(result?.dataList.orEmpty().map(::toCard), result?.hasMore == true))
             override fun onFail(error: PSSDK.ErrorInfo?) = onFailure("Short-drama search failed: ${error?.code ?: -1} ${error?.msg.orEmpty()}")
+        })
+    }
+
+    /** Backward-compatible first-page search helper. */
+    fun search(keyword: String, pageSize: Int = DEFAULT_PAGE_SIZE, onSuccess: (List<DramaCard>) -> Unit, onFailure: (String) -> Unit) =
+        searchPage(keyword, FIRST_PAGE, pageSize, { onSuccess(it.cards) }, onFailure)
+
+    fun playbackService(): PlaybackServiceStatus = playbackServiceStatus
+
+    /** Verifies playback availability before opening a provider-owned player. */
+    fun checkPlaybackService(onResult: (PlaybackServiceStatus) -> Unit) {
+        if (!initialized && !PSSDK.hasInitialized()) {
+            onResult(PlaybackServiceStatus(false, false, "PSSDK is not initialized"))
+            return
+        }
+        PSSDK.checkPlayStatus(object : PSSDK.ServiceCheckResultListener {
+            override fun onCheckResult(result: PSSDK.ServiceAvailableResult?) {
+                val status = when (result) {
+                    PSSDK.ServiceAvailableResult.SUPPORT -> PlaybackServiceStatus(true, true, "SUPPORT")
+                    PSSDK.ServiceAvailableResult.NOT_SUPPORT -> PlaybackServiceStatus(true, false, "NOT_SUPPORT")
+                    PSSDK.ServiceAvailableResult.NETWORK_ERROR -> PlaybackServiceStatus(true, false, "NETWORK_ERROR")
+                    null -> PlaybackServiceStatus(true, false, "UNKNOWN")
+                }
+                playbackServiceStatus = status
+                onResult(status)
+            }
         })
     }
 
@@ -307,6 +371,10 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
         onEpisodeCompleted: (episodeIndex: Int) -> Unit,
         onPlaybackProgress: (episodeIndex: Int, progress: Int, duration: Int) -> Unit,
         onOverScroll: (direction: Int) -> Unit,
+        onVideoTap: () -> Unit,
+        onPlaybackFailure: (String) -> Boolean,
+        onImmersiveChanged: (Boolean) -> Unit,
+        onVideoInfoFetched: (episodeIndex: Int, summary: String) -> Unit,
     ): ShortPlayFragment {
         return PSSDK.createDetailFragment(
             card.nativeShortPlay,
@@ -319,13 +387,25 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
                 // The SDK preloads and advances naturally. Completion callbacks remain wired
                 // to JoyeDrama's reward ledger but must not race a second host-side transition.
                 .enableAutoPlayNext(true)
+                // PSSDK signals idle immersive-mode changes through the listener below; the
+                // host mirrors them into its system-bar and control-chrome policy.
+                .enableImmersiveMode(2_500L)
+                // PSSDK owns the media view; intercepting a direct video tap lets the host map
+                // it to the same public pause/play action as the local player without an overlay.
+                .setVideoClickInterceptor(object : PSSDK.IClickInterceptor {
+                    override fun onInterceptClick(): Boolean {
+                        onVideoTap()
+                        return true
+                    }
+                })
                 .displayBottomExtraView(false)
                 .build(),
             object : PSSDK.ShortPlayDetailPageListener {
                 override fun onOverScroll(direction: Int) = onOverScroll(direction)
                 override fun onProgressChange(shortPlay: ShortPlay?, episodeIndex: Int, progress: Int, duration: Int) =
                     onPlaybackProgress(episodeIndex, progress, duration)
-                override fun onPlayFailed(error: PSSDK.ErrorInfo?): Boolean = false
+                override fun onPlayFailed(error: PSSDK.ErrorInfo?): Boolean =
+                    onPlaybackFailure("${error?.code ?: -1} ${error?.msg.orEmpty()}")
                 override fun onShortPlayPlayed(shortPlay: ShortPlay?, episodeIndex: Int, episode: com.bytedance.sdk.shortplay.api.EpisodeData?) {
                     onEpisodeStarted(episodeIndex, episode)
                 }
@@ -334,13 +414,15 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
                 override fun onVideoPlayCompleted(shortPlay: ShortPlay?, episodeIndex: Int) {
                     onEpisodeCompleted(episodeIndex)
                 }
-                override fun onEnterImmersiveMode() = Unit
-                override fun onExitImmersiveMode() = Unit
+                override fun onEnterImmersiveMode() = onImmersiveChanged(true)
+                override fun onExitImmersiveMode() = onImmersiveChanged(false)
                 override fun isNeedBlock(shortPlay: ShortPlay?, episodeIndex: Int): Boolean = needsEpisodeUnlock(episodeIndex)
                 override fun showAdIfNeed(shortPlay: ShortPlay?, episodeIndex: Int, listener: PSSDK.ShortPlayBlockResultListener?) {
                     requestEpisodeUnlock(episodeIndex, listener)
                 }
-                override fun onVideoInfoFetched(shortPlay: ShortPlay?, episodeIndex: Int, info: PSSDK.VideoPlayInfo?) = Unit
+                override fun onVideoInfoFetched(shortPlay: ShortPlay?, episodeIndex: Int, info: PSSDK.VideoPlayInfo?) {
+                    onVideoInfoFetched(episodeIndex, info?.toString().orEmpty())
+                }
                 override fun onObtainPlayerControlViews(): MutableList<android.view.View> = mutableListOf()
             },
         ) ?: error("PSSDK did not create a drama detail page")

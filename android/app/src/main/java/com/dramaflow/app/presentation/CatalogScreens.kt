@@ -90,7 +90,7 @@ internal fun DramaAppActivity.createHomePage(): View = scrollPage { content ->
     }
     content.addView(createSectionHeader(t("all_dramas"), t("discover_subtitle")), matchParams(bottom = 10))
     addDramaGrid(content, filtered)
-    if (selectedCatalogGenre == null && catalogHasMorePages) {
+    if ((selectedCatalogCategoryId == null && catalogHasMorePages) || (selectedCatalogCategoryId != null && categoryHasMorePages)) {
         content.addView(createCatalogLoadMoreFooter(), matchParams(top = 2, bottom = 8))
     }
 }.also { page ->
@@ -98,11 +98,11 @@ internal fun DramaAppActivity.createHomePage(): View = scrollPage { content ->
     scrollPage.setOnScrollChangeListener { scroll, _, scrollY, _, _ ->
         val scrollContainer = scroll as? ScrollView ?: return@setOnScrollChangeListener
         val contentHeight = scrollContainer.getChildAt(0)?.height ?: return@setOnScrollChangeListener
-        if (activeTab == MainTab.HOME && selectedCatalogGenre == null && catalogHasMorePages && !catalogPageLoadInFlight &&
+        val hasMore = if (selectedCatalogCategoryId == null) catalogHasMorePages else categoryHasMorePages
+        val loading = if (selectedCatalogCategoryId == null) catalogPageLoadInFlight else categoryPageLoadInFlight
+        if (activeTab == MainTab.HOME && hasMore && !loading &&
             scrollY >= (contentHeight - scrollContainer.height - dp(240)).coerceAtLeast(0)
-        ) {
-            loadNextCatalogPage(scrollY)
-        }
+        ) loadNextCatalogPage(scrollY)
     }
 }
 
@@ -148,6 +148,12 @@ internal fun DramaAppActivity.createDiscoverPage(): View = scrollPage { content 
         val recommended = recommendedCatalogItems()
         content.addView(createPageTitle(t("discover"), t("discover_subtitle")), matchParams(bottom = 16))
         content.addView(createCategoryTabs(), matchParams(bottom = 16))
+        if (selectedCatalogCategoryId != null) {
+            content.addView(createSectionHeader(selectedCatalogGenre.orEmpty(), t("discover_subtitle")), matchParams(bottom = 12))
+            if (categoryPageLoadInFlight && categoryCatalogItems.isEmpty()) content.addView(createCatalogLoadingSkeleton(), matchParams(bottom = 18))
+            else addDramaGrid(content, categoryCatalogItems)
+            return@scrollPage
+        }
         if (catalogItems.isEmpty()) {
             content.addView(createCatalogLoadingSkeleton(), matchParams(bottom = 18))
             return@scrollPage
@@ -236,15 +242,25 @@ internal fun DramaAppActivity.createCategoryTabs(): View = android.widget.Horizo
         isHorizontalScrollBarEnabled = false
         val row = LinearLayout(this@createCategoryTabs).apply { orientation = LinearLayout.HORIZONTAL }
         val allLabel = t("all_dramas")
-        (listOf(allLabel) + catalogGenreGroups().map { it.first }).forEachIndexed { index, label ->
-            val selected = if (label == allLabel) selectedCatalogGenre == null else label == selectedCatalogGenre
+        data class Tab(val label: String, val category: ShortDramaSdkManager.Category?)
+        val tabs = buildList {
+            add(Tab(allLabel, null))
+            if (sdkCatalogCategories.isNotEmpty()) sdkCatalogCategories.take(MAX_CATALOG_GENRES).forEach { add(Tab(it.name, it)) }
+            else catalogGenreGroups().forEachIndexed { index, (name, dramas) -> add(Tab(name, ShortDramaSdkManager.Category(-(index + 1L), name, dramas.size))) }
+        }
+        tabs.forEachIndexed { index, tab ->
+            val selected = if (tab.category == null) selectedCatalogCategoryId == null && selectedCatalogGenre == null else tab.category.id == selectedCatalogCategoryId || (selectedCatalogCategoryId == null && tab.label == selectedCatalogGenre)
             row.addView(TextView(this@createCategoryTabs).apply {
-                text = label; textSize = 14f; gravity = Gravity.CENTER
+                text = tab.label; textSize = 14f; gravity = Gravity.CENTER
                 setTextColor(if (selected) Color.WHITE else COLOR_TEXT_MUTED)
                 setPadding(dp(16), dp(9), dp(16), dp(9))
                 background = roundedDrawable(if (selected) COLOR_CORAL else COLOR_SURFACE, 16)
                 isClickable = true
-                setOnClickListener { selectedCatalogGenre = label.takeUnless { it == allLabel }; renderActiveTab() }
+                setOnClickListener {
+                    if (tab.category == null) selectSdkCatalogCategory(null)
+                    else if (tab.category.id < 0) { selectedCatalogCategoryId = null; selectedCatalogGenre = tab.label; renderActiveTab() }
+                    else selectSdkCatalogCategory(tab.category)
+                }
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { if (index > 0) marginStart = dp(8) })
         }
         addView(row)
@@ -259,6 +275,7 @@ internal fun DramaAppActivity.catalogGenreGroups(): List<Pair<String, List<Local
         .take(MAX_CATALOG_GENRES)
 
 internal fun DramaAppActivity.filteredCatalogItems(): List<LocalDrama> {
+        if (selectedCatalogCategoryId != null) return categoryCatalogItems
         val genre = selectedCatalogGenre ?: return catalogItems
         return catalogItems.filter { drama -> drama.genres.any { it.equals(genre, ignoreCase = true) } }
     }
@@ -332,35 +349,81 @@ internal fun DramaAppActivity.showSearchPage() {
             setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_search, 0, 0, 0); compoundDrawablePadding = dp(10)
             background = roundedDrawable(COLOR_CARD, 19); setPadding(dp(15), dp(7), dp(15), dp(7))
         }
-        fun renderResults(query: String) {
+        val scroll = ScrollView(this).apply { background = pageCanvasDrawable(); addView(content) }
+        var queryGeneration = 0
+        var activeQuery = ""
+        var sdkPage = 1
+        var sdkHasMore = false
+        var sdkLoading = false
+        var pendingInput: Runnable? = null
+        val sdkResults = mutableListOf<ShortDramaSdkManager.DramaCard>()
+
+        fun render(query: String, includeProvider: Boolean = true) {
             results.removeAllViews()
             val normalized = query.trim()
-            val filtered = if (normalized.isBlank()) catalogItems else catalogItems.filter { drama ->
+            val local = if (normalized.isBlank()) catalogItems else catalogItems.filter { drama ->
                 listOf(drama.title, drama.desc).plus(drama.genres).any { it.contains(normalized, ignoreCase = true) }
             }
-            if (filtered.isEmpty()) results.addView(createInlineNotice(t("search_empty")), matchParams(top = 16))
-            else filtered.forEach { drama -> results.addView(createDiscoverDramaCard(drama), matchParams(top = 10)) }
-            if (normalized.isNotBlank()) {
-                val requestedQuery = normalized
-                ShortDramaSdkManager.get(this).search(normalized, onSuccess = { cards -> runOnUiThread {
-                    if (input.text.toString().trim() != requestedQuery) return@runOnUiThread
-                    if (cards.isNotEmpty()) {
-                        results.addView(createSectionHeader(t("sdk_search_results"), t("sdk_search_loaded", cards.size)), matchParams(top = 18, bottom = 4))
-                        cards.forEach { card -> results.addView(createSdkSearchDramaCard(card), matchParams(top = 10)) }
-                    }
-                } }, onFailure = { message -> logStatus("PSSDK search unavailable: $message") })
+            if (local.isEmpty() && sdkResults.isEmpty() && !sdkLoading) results.addView(createInlineNotice(t("search_empty")), matchParams(top = 16))
+            else local.forEach { drama -> results.addView(createDiscoverDramaCard(drama), matchParams(top = 10)) }
+            if (sdkResults.isNotEmpty()) {
+                results.addView(createSectionHeader(t("sdk_search_results"), t("sdk_search_loaded", sdkResults.size)), matchParams(top = 18, bottom = 4))
+                sdkResults.forEach { card -> results.addView(createSdkSearchDramaCard(card), matchParams(top = 10)) }
             }
+            if (includeProvider && sdkLoading) results.addView(createInlineNotice(t("catalog_loading")), matchParams(top = 14))
+            else if (includeProvider && sdkHasMore) results.addView(createInlineNotice(t("load_more")), matchParams(top = 14))
+        }
+
+        fun requestProviderPage(reset: Boolean) {
+            val query = activeQuery
+            if (query.isBlank() || sdkLoading) return
+            if (!reset && !sdkHasMore) return
+            if (reset) { sdkPage = 1; sdkHasMore = false; sdkResults.clear() }
+            sdkLoading = true
+            render(query)
+            val generation = queryGeneration
+            ShortDramaSdkManager.get(this).searchPage(query, sdkPage, onSuccess = { page -> runOnUiThread {
+                if (generation != queryGeneration || query != activeQuery) return@runOnUiThread
+                sdkResults += page.cards.filter { it.title.isNotBlank() }
+                val unique = sdkResults.distinctBy { it.id }
+                sdkResults.clear(); sdkResults.addAll(unique)
+                sdkHasMore = page.hasMore && page.cards.isNotEmpty()
+                sdkPage += 1
+                sdkLoading = false
+                render(query)
+            } }, onFailure = { message -> runOnUiThread {
+                if (generation != queryGeneration || query != activeQuery) return@runOnUiThread
+                sdkLoading = false
+                sdkHasMore = false
+                logStatus("PSSDK search unavailable: $message")
+                render(query)
+            } })
+        }
+        fun onQueryChanged(raw: String) {
+            pendingInput?.let(root::removeCallbacks)
+            pendingInput = Runnable {
+                activeQuery = raw.trim()
+                queryGeneration += 1
+                sdkResults.clear(); sdkPage = 1; sdkHasMore = false; sdkLoading = false
+                render(activeQuery, includeProvider = false)
+                if (activeQuery.isNotBlank()) requestProviderPage(reset = true)
+            }.also { root.postDelayed(it, 260L) }
         }
         input.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = renderResults(s?.toString().orEmpty())
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = onQueryChanged(s?.toString().orEmpty())
             override fun afterTextChanged(s: Editable?) = Unit
         })
+        scroll.setOnScrollChangeListener { view, _, y, _, _ ->
+            val scrollView = view as? ScrollView ?: return@setOnScrollChangeListener
+            val childHeight = scrollView.getChildAt(0)?.height ?: return@setOnScrollChangeListener
+            if (sdkHasMore && !sdkLoading && y >= (childHeight - scrollView.height - dp(200)).coerceAtLeast(0)) requestProviderPage(reset = false)
+        }
         content.addView(input, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)))
         content.addView(results, matchParams(top = 6))
-        renderResults("")
+        render("")
         root.removeAllViews()
-        root.addView(ScrollView(this).apply { background = pageCanvasDrawable(); addView(content) }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        root.addView(scroll, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         root.addView(createPersistentAssetHeader(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(120), Gravity.TOP))
     }
 
@@ -377,9 +440,22 @@ internal fun DramaAppActivity.createSdkSearchDramaCard(card: ShortDramaSdkManage
     }
 
 internal fun DramaAppActivity.showSdkDramaPlayer(card: ShortDramaSdkManager.DramaCard) {
-        val catalogId = sdkCatalogId(card.id)
-        sdkDramaCardsByCatalogId[catalogId] = card
-        showSdkDramaPlayer(sdkCatalogDrama(card), card, startIndex = 0)
+        shortDramaSdk.checkPlaybackService { status -> runOnUiThread {
+            if (!status.supported) {
+                showBrandedChoiceDialog(
+                    title = t("sdk_playback_unavailable_title"),
+                    message = t("sdk_service_unavailable_message", status.reason),
+                    primaryLabel = t("retry"),
+                    onPrimary = { showSdkDramaPlayer(card) },
+                    secondaryLabel = t("back"),
+                    onSecondary = ::renderActiveTab,
+                )
+                return@runOnUiThread
+            }
+            val catalogId = sdkCatalogId(card.id)
+            sdkDramaCardsByCatalogId[catalogId] = card
+            showSdkDramaPlayer(sdkCatalogDrama(card), card, startIndex = 0)
+        } }
     }
 
 internal fun DramaAppActivity.createHorizontalDramaShelf(items: List<LocalDrama>): View = android.widget.HorizontalScrollView(this).apply {

@@ -180,6 +180,7 @@ private fun DramaAppActivity.preloadShortDramaSdkCatalog() {
                 catalogNextPage = 2
                 catalogHasMorePages = discovery.hasMore
                 catalogPageLoadInFlight = false
+                refreshSdkCategories()
                 updateStartupProgress(30, t("startup_content_ready"))
                 if (startupContentInitializationStarted) renderActiveTab()
                 preloadCatalogCovers(

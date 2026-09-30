@@ -619,7 +619,9 @@ internal fun DramaAppActivity.showPlaybackMoreControls() {
     }
 
 internal fun DramaAppActivity.enterImmersivePlayerMode(announce: Boolean = true) {
+        val wasImmersive = playerInImmersiveMode
         playerInImmersiveMode = true
+        if (sdkPlayerShown && !wasImmersive) currentSdkPlayerFragment()?.requestStartImmersiveMode()
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).apply {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
@@ -637,8 +639,10 @@ internal fun DramaAppActivity.enterImmersivePlayerMode(announce: Boolean = true)
     }
 
 internal fun DramaAppActivity.exitImmersivePlayerMode() {
+        val wasImmersive = playerInImmersiveMode
         WindowInsetsControllerCompat(window, root).show(WindowInsetsCompat.Type.systemBars())
         playerInImmersiveMode = false
+        if (sdkPlayerShown && wasImmersive) currentSdkPlayerFragment()?.requestStopImmersiveMode()
         if (playerShown || sdkPlayerShown) configurePlayerWindow() else configureCatalogWindow()
     }
 

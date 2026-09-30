@@ -75,6 +75,12 @@ class DramaAppActivity : FragmentActivity() {
     internal var catalogItems: List<LocalDrama> = emptyList()
     /** Pangle SDK cards are mapped into a lightweight shared catalog display model. */
     internal val sdkDramaCardsByCatalogId = mutableMapOf<String, ShortDramaSdkManager.DramaCard>()
+    internal var sdkCatalogCategories: List<ShortDramaSdkManager.Category> = emptyList()
+    internal var categoryCatalogItems: List<LocalDrama> = emptyList()
+    internal var selectedCatalogCategoryId: Long? = null
+    internal var categoryNextPage = 1
+    internal var categoryHasMorePages = false
+    internal var categoryPageLoadInFlight = false
     internal var sdkPlayerShown = false
     internal var sdkPlayerContainerId = View.NO_ID
     internal var selectedCatalogGenre: String? = null
@@ -203,6 +209,11 @@ class DramaAppActivity : FragmentActivity() {
     internal var catalogNextPage = 2
     internal var catalogHasMorePages = false
     internal var catalogPageLoadInFlight = false
+    /** The activity observes (but never consumes) PSSDK video swipes, preserving provider controls. */
+    private var pssdkSwipeDownX = 0f
+    private var pssdkSwipeDownY = 0f
+    private var pssdkSwipeCandidate = false
+    private var pssdkLastHorizontalSwipeAt = 0L
     internal val completedEpisodeKeys = mutableSetOf<String>()
     internal val rewardWatchRecordedEpisodeKeys = mutableSetOf<String>()
     internal val floatingWheelLabels = mutableSetOf<TextView>()
@@ -322,6 +333,42 @@ class DramaAppActivity : FragmentActivity() {
         }
     }
 
+    /**
+     * PSSDK consumes its own View gestures, so the host observes raw touch events at the Activity
+     * boundary without returning `true`. This safely restores left/right title switching while
+     * leaving PSSDK vertical episode scrolling, seek bars and ad taps untouched.
+     */
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        observePssdkHorizontalSwipe(event)
+        return super.dispatchTouchEvent(event)
+    }
+
+    private fun observePssdkHorizontalSwipe(event: MotionEvent) {
+        if (!sdkPlayerShown || fullscreenAdInProgress || fullscreenAdRequestInFlight) return
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                pssdkSwipeDownX = event.rawX
+                pssdkSwipeDownY = event.rawY
+                val topReserved = dp(142).toFloat()
+                val bottomReserved = (root.height - dp(150)).toFloat()
+                pssdkSwipeCandidate = event.rawY in topReserved..bottomReserved
+            }
+            MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_CANCEL -> pssdkSwipeCandidate = false
+            MotionEvent.ACTION_UP -> {
+                if (!pssdkSwipeCandidate) return
+                pssdkSwipeCandidate = false
+                val dx = event.rawX - pssdkSwipeDownX
+                val dy = event.rawY - pssdkSwipeDownY
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (kotlin.math.abs(dx) >= dp(84) && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.35f && now - pssdkLastHorizontalSwipeAt >= 650L) {
+                    pssdkLastHorizontalSwipeAt = now
+                    // Run after PSSDK receives the UP event; its current video view never loses the gesture.
+                    root.post { if (sdkPlayerShown && !fullscreenAdInProgress) switchDramaBySwipe(forward = dx < 0f) }
+                }
+            }
+        }
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -392,6 +439,7 @@ class DramaAppActivity : FragmentActivity() {
                         catalogNextPage = 2
                         catalogHasMorePages = discovery.hasMore
                         catalogPageLoadInFlight = false
+                        refreshSdkCategories()
                         if (catalogItems.isEmpty()) renderFailure(t("catalog_empty")) else renderActiveTab()
                     } },
                     onFailure = { message -> runOnUiThread { renderFailure(t("catalog_load_failed", message)) } },
@@ -404,6 +452,11 @@ class DramaAppActivity : FragmentActivity() {
     }
 
     internal fun loadNextCatalogPage(restoreScrollY: Int) {
+        val categoryId = selectedCatalogCategoryId
+        if (categoryId != null) {
+            loadNextSdkCategoryPage(categoryId, restoreScrollY)
+            return
+        }
         if (catalogPageLoadInFlight || !catalogHasMorePages || activeTab != MainTab.HOME) return
         catalogPageLoadInFlight = true
         shortDramaSdk.loadDiscoveryPage(catalogNextPage, onSuccess = { discovery -> runOnUiThread {
@@ -418,12 +471,71 @@ class DramaAppActivity : FragmentActivity() {
             (catalogPage as? ScrollView)?.post { (catalogPage as? ScrollView)?.scrollTo(0, restoreScrollY) }
         } }, onFailure = { message -> runOnUiThread {
             catalogPageLoadInFlight = false
-            // Treat an unavailable next page as the end of the feed. The already visible catalogue remains usable.
             catalogHasMorePages = false
             logStatus("PSSDK next catalog page unavailable: $message")
             renderActiveTab()
             (catalogPage as? ScrollView)?.post { (catalogPage as? ScrollView)?.scrollTo(0, restoreScrollY) }
         } })
+    }
+
+    internal fun selectSdkCatalogCategory(category: ShortDramaSdkManager.Category?) {
+        selectedCatalogCategoryId = category?.id
+        selectedCatalogGenre = category?.name
+        categoryCatalogItems = emptyList()
+        categoryNextPage = 1
+        categoryHasMorePages = false
+        categoryPageLoadInFlight = false
+        if (category == null) {
+            renderActiveTab()
+            return
+        }
+        categoryPageLoadInFlight = true
+        renderActiveTab()
+        shortDramaSdk.loadCategoryPage(category.id, categoryNextPage, onSuccess = { page -> runOnUiThread {
+            if (selectedCatalogCategoryId != category.id) return@runOnUiThread
+            page.cards.forEach { sdkDramaCardsByCatalogId[sdkCatalogId(it.id)] = it }
+            categoryCatalogItems = page.cards.distinctBy { it.id }.map(::sdkCatalogDrama)
+            categoryHasMorePages = page.hasMore && page.cards.isNotEmpty()
+            categoryNextPage = 2
+            categoryPageLoadInFlight = false
+            renderActiveTab()
+        } }, onFailure = { message -> runOnUiThread {
+            if (selectedCatalogCategoryId != category.id) return@runOnUiThread
+            categoryPageLoadInFlight = false
+            categoryHasMorePages = false
+            logStatus("PSSDK category page unavailable: $message")
+            renderActiveTab()
+        } })
+    }
+
+    private fun loadNextSdkCategoryPage(categoryId: Long, restoreScrollY: Int) {
+        if (categoryPageLoadInFlight || !categoryHasMorePages || activeTab != MainTab.HOME) return
+        categoryPageLoadInFlight = true
+        shortDramaSdk.loadCategoryPage(categoryId, categoryNextPage, onSuccess = { page -> runOnUiThread {
+            if (selectedCatalogCategoryId != categoryId) return@runOnUiThread
+            val incoming = page.cards.filter { it.title.isNotBlank() }
+            incoming.forEach { sdkDramaCardsByCatalogId[sdkCatalogId(it.id)] = it }
+            categoryCatalogItems = (categoryCatalogItems + incoming.map(::sdkCatalogDrama)).distinctBy { it.id }
+            categoryHasMorePages = page.hasMore && incoming.isNotEmpty()
+            categoryNextPage += 1
+            categoryPageLoadInFlight = false
+            renderActiveTab()
+            (catalogPage as? ScrollView)?.post { (catalogPage as? ScrollView)?.scrollTo(0, restoreScrollY) }
+        } }, onFailure = { message -> runOnUiThread {
+            if (selectedCatalogCategoryId != categoryId) return@runOnUiThread
+            categoryPageLoadInFlight = false
+            categoryHasMorePages = false
+            logStatus("PSSDK next category page unavailable: $message")
+            renderActiveTab()
+            (catalogPage as? ScrollView)?.post { (catalogPage as? ScrollView)?.scrollTo(0, restoreScrollY) }
+        } })
+    }
+
+    internal fun refreshSdkCategories() {
+        shortDramaSdk.loadCategories(onSuccess = { categories -> runOnUiThread {
+            sdkCatalogCategories = categories
+            if (startupContentInitializationStarted && (activeTab == MainTab.HOME || activeTab == MainTab.DISCOVER)) renderActiveTab()
+        } }, onFailure = { message -> logStatus("PSSDK categories unavailable: $message") })
     }
 
     internal fun sdkCatalogId(shortPlayId: Long): String = "pssdk-$shortPlayId"
