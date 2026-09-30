@@ -130,17 +130,17 @@ android {
     // Source namespace remains stable for existing Activity and resource references. Google Play,
     // Firebase, AppsFlyer and TopOn identify the shipped app by applicationId below.
     namespace = "com.dramaflow.app"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         // Formal Play distribution package. Firebase, AppsFlyer and TopOn production settings must
         // all be registered against this same identifier.
         applicationId = formalApplicationId
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         // Android 客户端每次代码改动递增补丁版本；服务端/文档单独改动不变更此版本。
-        versionCode = 71
-        versionName = "1.7.1.17"
+        versionCode = 72
+        versionName = "1.7.1.18"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
