@@ -677,31 +677,27 @@ class DramaAppActivity : FragmentActivity() {
             setTextColor(COLOR_TEXT_PRIMARY)
         }
         column.addView(startupProgressLabel)
-        startupProgressPercentLabel = TextView(this).apply {
-            text = "0%"
-            textSize = 34f
-            typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
-            setTextColor(COLOR_CORAL)
-            setPadding(0, dp(8), 0, 0)
+        // Resource and ad callbacks finish independently; a numeric percentage can legitimately
+        // move backwards when a late gate starts. Use a true indeterminate loader instead of a
+        // misleading synthetic progress value.
+        startupProgressPercentLabel = null
+        startupProgressBar = ProgressBar(this).apply {
+            isIndeterminate = true
+            indeterminateTintList = ColorStateList.valueOf(COLOR_CORAL)
+            contentDescription = t("startup_loading")
         }
-        column.addView(startupProgressPercentLabel)
-        startupProgressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-            max = 100
-            progress = 0
-            progressTintList = ColorStateList.valueOf(COLOR_CORAL)
-            progressBackgroundTintList = ColorStateList.valueOf(0x22FF8A62)
-        }
-        column.addView(startupProgressBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(7)).apply {
+        column.addView(startupProgressBar, LinearLayout.LayoutParams(dp(42), dp(42)).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
             topMargin = dp(18)
         })
         root.addView(column, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
     }
 
     internal fun updateStartupProgress(progress: Int, label: String) {
-        val safe = progress.coerceIn(0, 100)
-        startupProgressBar?.progress = safe
-        startupProgressPercentLabel?.text = "$safe%"
+        // Keep the diagnostic label available to accessibility and logs, but never expose a
+        // percentage whose independent asynchronous gates can visually rewind.
+        startupProgressBar?.contentDescription = label
+        startupProgressLabel?.text = t("startup_loading")
         startupProgressLabel?.contentDescription = label
     }
 
@@ -731,7 +727,20 @@ class DramaAppActivity : FragmentActivity() {
             isAppearanceLightStatusBars = false
             isAppearanceLightNavigationBars = false
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            if (playerInImmersiveMode) hide(WindowInsetsCompat.Type.systemBars()) else show(WindowInsetsCompat.Type.systemBars())
+            if (playerInImmersiveMode) {
+                hide(WindowInsetsCompat.Type.systemBars())
+            } else {
+                // Keep the status area available for the back and balance chrome, but hide the
+                // persistent Android gesture handle under the player controls. A swipe still
+                // reveals it transiently when the user needs system navigation.
+                show(WindowInsetsCompat.Type.statusBars())
+                hide(WindowInsetsCompat.Type.navigationBars())
+            }
+        }
+        root.post {
+            if ((playerShown || sdkPlayerShown) && !playerInImmersiveMode) {
+                WindowInsetsControllerCompat(window, window.decorView).hide(WindowInsetsCompat.Type.navigationBars())
+            }
         }
         root.requestLayout()
         ViewCompat.requestApplyInsets(root)

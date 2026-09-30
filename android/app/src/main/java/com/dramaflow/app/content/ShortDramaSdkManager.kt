@@ -398,6 +398,9 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
                         return true
                     }
                 })
+                // JoyeDrama renders the single authoritative progress slider in its host dock.
+                // Hiding PSSDK's duplicate bottom bar removes the unexplained thin white line.
+                .displayProgressBar(false)
                 .displayBottomExtraView(false)
                 .build(),
             object : PSSDK.ShortPlayDetailPageListener {

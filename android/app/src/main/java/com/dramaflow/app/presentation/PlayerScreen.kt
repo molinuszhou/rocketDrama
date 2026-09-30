@@ -297,10 +297,12 @@ internal fun DramaAppActivity.createPlayerTopBar(): View {
         shell.addView(assets, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(50), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(2) })
         ViewCompat.setOnApplyWindowInsetsListener(shell) { _, insets ->
             val safeTop = insets.getInsets(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()).top
-            // Keep the controls inside the cutout-safe area but lift their baseline by 10dp.
+            // Keep the back control inside the cutout-safe area. The wallet / extra-reward strip
+            // sits 5dp higher so its heavier lower edge aligns optically with the back button.
             val alignedTop = (safeTop - dp(8)).coerceAtLeast(dp(2))
+            val assetsTop = (alignedTop - dp(5)).coerceAtLeast(0)
             (back.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = alignedTop; back.layoutParams = params }
-            (assets.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = alignedTop; assets.layoutParams = params }
+            (assets.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = assetsTop; assets.layoutParams = params }
             insets
         }
         ViewCompat.requestApplyInsets(shell)

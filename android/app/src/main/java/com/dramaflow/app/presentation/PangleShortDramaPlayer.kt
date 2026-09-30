@@ -74,6 +74,12 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
     supportFragmentManager.beginTransaction()
         .replace(container.id, fragment, SDK_PLAYER_FRAGMENT_TAG)
         .commitNowAllowingStateLoss()
+    // The provider view can restore system navigation during its own asynchronous initialization.
+    // Re-apply the host window policy after that work settles so the gesture handle does not sit
+    // beneath JoyeDrama's bottom dock.
+    root.postDelayed({
+        if (sdkPlayerShown && !playerInImmersiveMode) configurePlayerWindow()
+    }, 180L)
 
     // Preload is advisory: it reduces the chance of a first-frame stall, while a provider
     // network or entitlement failure still follows the ordinary playback error path.
@@ -125,7 +131,7 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
     }
 }
 
-/** A small host-owned dock; PSSDK's own progress presentation is still retained underneath. */
+/** A small host-owned dock with the single authoritative player progress presentation. */
 private fun DramaAppActivity.createSdkPlayerControlDock(): View = LinearLayout(this).apply {
     orientation = LinearLayout.VERTICAL
     setPadding(dp(10), dp(4), dp(10), dp(6))

@@ -429,15 +429,18 @@ internal fun DramaAppActivity.createDailyBenefitsPanel(snapshot: RewardsApiClien
         text = t("checkin_seven_day_earn")
         textSize = 18f
         typeface = Typeface.DEFAULT_BOLD
+        gravity = Gravity.START or Gravity.CENTER_VERTICAL
         setTextColor(COLOR_TEXT_PRIMARY)
+        includeFontPadding = false
         maxLines = 1
         ellipsize = android.text.TextUtils.TruncateAt.END
-    }, LinearLayout.LayoutParams(0, dp(42), 1f))
+    }, LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginEnd = dp(6) })
     header.addView(TextView(this@createDailyBenefitsPanel).apply {
         text = snapshot?.let(::formatSevenDayCheckinTotal) ?: "—"
         typeface = Typeface.DEFAULT_BOLD
         setTextColor(COLOR_SUNSET)
         gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        includeFontPadding = false
         maxLines = 1
         setAutoSizeTextTypeUniformWithConfiguration(18, 28, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
     }, LinearLayout.LayoutParams(dp(128), dp(42)))
@@ -455,8 +458,8 @@ internal fun DramaAppActivity.createDailyBenefitsPanel(snapshot: RewardsApiClien
         textSize = 14f
         typeface = Typeface.DEFAULT_BOLD
         gravity = Gravity.CENTER
-        setTextColor(if (snapshot?.checkinSignedToday == true) COLOR_TEXT_PRIMARY else Color.WHITE)
-        background = roundedDrawable(if (snapshot?.checkinSignedToday == true) COLOR_SURFACE else COLOR_CORAL, 16)
+        setTextColor(Color.WHITE)
+        background = roundedDrawable(COLOR_CORAL, 16)
         isClickable = snapshot != null
         setOnClickListener {
             if (snapshot?.checkinSignedToday == true) showCheckinCalendarReminderPrompt() else completeDailyCheckin()
