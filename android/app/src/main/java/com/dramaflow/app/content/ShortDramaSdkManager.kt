@@ -244,6 +244,8 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
         requestEpisodeUnlock: (episodeIndex: Int, listener: PSSDK.ShortPlayBlockResultListener?) -> Unit,
         onEpisodeStarted: (episodeIndex: Int, episode: com.bytedance.sdk.shortplay.api.EpisodeData?) -> Unit,
         onEpisodeCompleted: (episodeIndex: Int) -> Unit,
+        onPlaybackProgress: (episodeIndex: Int, progress: Int, duration: Int) -> Unit,
+        onOverScroll: (direction: Int) -> Unit,
     ): ShortPlayFragment {
         return PSSDK.createDetailFragment(
             card.nativeShortPlay,
@@ -251,12 +253,14 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
                 .hideLeftTopCloseAndTitle(true, object : PSSDK.ShortPlayDetailPageCloseListener {
                     override fun onCloseClicked(): Boolean { onClose(); return true }
                 })
-                .enableAutoPlayNext(true)
+                // JoyeDrama advances only after the shared reward/ad policy settles.
+                .enableAutoPlayNext(false)
                 .displayBottomExtraView(false)
                 .build(),
             object : PSSDK.ShortPlayDetailPageListener {
-                override fun onOverScroll(direction: Int) = Unit
-                override fun onProgressChange(shortPlay: ShortPlay?, episodeIndex: Int, progress: Int, duration: Int) = Unit
+                override fun onOverScroll(direction: Int) = onOverScroll(direction)
+                override fun onProgressChange(shortPlay: ShortPlay?, episodeIndex: Int, progress: Int, duration: Int) =
+                    onPlaybackProgress(episodeIndex, progress, duration)
                 override fun onPlayFailed(error: PSSDK.ErrorInfo?): Boolean = false
                 override fun onShortPlayPlayed(shortPlay: ShortPlay?, episodeIndex: Int, episode: com.bytedance.sdk.shortplay.api.EpisodeData?) {
                     onEpisodeStarted(episodeIndex, episode)

@@ -170,7 +170,7 @@ android {
         targetSdk = 35
         // Android 客户端每次代码改动递增补丁版本；服务端/文档单独改动不变更此版本。
         versionCode = 67
-        versionName = "1.8.3"
+        versionName = "1.7.1.13"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }

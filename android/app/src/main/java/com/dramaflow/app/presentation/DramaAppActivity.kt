@@ -105,6 +105,8 @@ class DramaAppActivity : FragmentActivity() {
     internal var startupCatalogFinished = false
     internal var startupPosterPreloadFinished = false
     internal var startupRewardsFinished = false
+    /** Keeps the branded loading view visible long enough to avoid a home-page flash. */
+    internal var startupMinimumVisualFinished = false
     internal var startupPosterPreloadPercent = 0
     internal var startupCatalogFailure: String? = null
     /** PSSDK can fail its first remote bootstrap on a cold network; retries never block navigation. */
@@ -120,6 +122,9 @@ class DramaAppActivity : FragmentActivity() {
     internal var startupProgressLabel: TextView? = null
     internal var startupProgressPercentLabel: TextView? = null
     internal var resumePlaybackWhenForeground = false
+    /** Mirrors the foreground policy for the provider-owned PSSDK player. */
+    internal var resumeSdkPlaybackWhenForeground = false
+    internal var sdkPlaybackActive = false
     internal var restorePlayerAfterCatalog = false
     /** Prevents a second app-open ad while recovering from an ad click's external destination. */
     internal var restoringExternalAdReturn = false
@@ -299,6 +304,12 @@ class DramaAppActivity : FragmentActivity() {
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             resumePlaybackWhenForeground = false
         }
+        if (resumeSdkPlaybackWhenForeground && sdkPlayerShown && !fullscreenAdInProgress) {
+            currentSdkPlayerFragment()?.startPlay()
+            playerIsPaused = false
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            resumeSdkPlaybackWhenForeground = false
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -307,7 +318,7 @@ class DramaAppActivity : FragmentActivity() {
         // Google Play may relaunch the launcher route after an ad click. LauncherActivity forwards
         // that intent to this single-task Activity with CLEAR_TOP/SINGLE_TOP, so retain the
         // existing player rather than starting a fresh loading experience.
-        if (playerShown) {
+        if (playerShown || sdkPlayerShown) {
             logStatus("已复用现有播放器 Activity 处理外部返回")
             if (fullscreenAdInProgress || fullscreenAdRequestInFlight) {
                 // Returning via a fresh launcher intent can remove the mediation Activity without
@@ -326,12 +337,14 @@ class DramaAppActivity : FragmentActivity() {
         if (fullscreenAdInProgress || fullscreenAdRequestInFlight) saveExternalAdReturnCheckpoint()
         resumePlaybackWhenForeground = playerShown && exoPlayer?.isPlaying == true && !fullscreenAdInProgress
         if (resumePlaybackWhenForeground) exoPlayer?.pause()
+        resumeSdkPlaybackWhenForeground = sdkPlayerShown && sdkPlaybackActive && !fullscreenAdInProgress
+        if (resumeSdkPlaybackWhenForeground) currentSdkPlayerFragment()?.pausePlay()
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         super.onStop()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
-        outState.putBoolean(STATE_PLAYER_VISIBLE, playerShown)
+        outState.putBoolean(STATE_PLAYER_VISIBLE, playerShown || sdkPlayerShown)
         outState.putString(STATE_DRAMA_ID, selectedDrama?.id)
         outState.putInt(STATE_EPISODE_INDEX, currentEpisodeIndex)
         outState.putInt(STATE_POSITION_SECONDS, exoPlayer?.currentPosition?.div(1_000L)?.toInt() ?: playerProgressSeconds)

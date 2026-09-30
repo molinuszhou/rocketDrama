@@ -75,6 +75,7 @@ internal fun DramaAppActivity.beginStartupExperience() {
         startupCatalogFailure = null
         startupPosterPreloadFinished = false
         startupRewardsFinished = !rewardsApi.isConfigured
+        startupMinimumVisualFinished = false
         startupPosterPreloadPercent = 0
         shortDramaRetryAttempt = 0
         shortDramaRetryScheduled = false
@@ -86,6 +87,12 @@ internal fun DramaAppActivity.beginStartupExperience() {
         shortDramaDiagnosticDialog = null
         renderStartupLoading()
         updateStartupProgress(0, t("startup_preparing"))
+        // Keep a real, short loading phase on fast devices. Slow provider work remains background
+        // work; the main page uses an inline catalogue loading state instead of holding launch.
+        root.postDelayed({
+            startupMinimumVisualFinished = true
+            completeStartupWhenReady()
+        }, MINIMUM_STARTUP_VISUAL_MS)
         if (rewardsApi.isConfigured) refreshRewardsSnapshot() else completeStartupWhenReady()
         preloadCatalog()
         // 等待 onPostResume 后再发起开屏请求，确保窗口已就绪；目录和开屏并行预热。
@@ -328,7 +335,7 @@ internal fun DramaAppActivity.completeStartupWhenReady() {
         // PSSDK catalogue and Rewards data are provider/network work, not launch prerequisites.
         // Requiring them here is valid for main's local content service but leaves formal builds
         // permanently at 35% when the provider's first catalogue callback is delayed.
-        if (startupContentInitializationStarted || !startupAdFinished || isFinishing || isDestroyed) return
+        if (startupContentInitializationStarted || !startupAdFinished || !startupMinimumVisualFinished || isFinishing || isDestroyed) return
         startupContentInitializationStarted = true
         updateStartupProgress(100, t("startup_ready"))
         if (restorePlayerAfterCatalog) {
@@ -346,6 +353,7 @@ internal fun DramaAppActivity.completeStartupWhenReady() {
     }
 
 private const val MAX_SHORT_DRAMA_RETRY_ATTEMPTS = 3
+private const val MINIMUM_STARTUP_VISUAL_MS = 1_200L
 private val SHORT_DRAMA_RETRY_DELAYS_MS = longArrayOf(3_000L, 6_000L, 12_000L)
 private const val MAX_SHORT_DRAMA_DIAGNOSTIC_LENGTH = 1_000
 private const val SHORT_DRAMA_DIAGNOSTIC_GRACE_MS = 8_000L

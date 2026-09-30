@@ -293,13 +293,13 @@ internal fun DramaAppActivity.createPlayerTopBar(): View {
         val assets = createPlayerAssetStrip()
         // Both controls share the true system safe inset. This avoids the fixed 14dp
         // offset that could overlap a notch/status region on first opening the player.
-        shell.addView(back, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.TOP or Gravity.START).apply { topMargin = dp(8); marginStart = dp(8) })
-        shell.addView(assets, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(50), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(26) })
+        shell.addView(back, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.TOP or Gravity.START).apply { topMargin = dp(2); marginStart = dp(8) })
+        shell.addView(assets, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(50), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(8) })
         ViewCompat.setOnApplyWindowInsetsListener(shell) { _, insets ->
             val safeTop = insets.getInsets(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()).top
-            val margin = safeTop + dp(8)
+            val margin = safeTop + dp(2)
             (back.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = margin; back.layoutParams = params }
-            (assets.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = margin + dp(18); assets.layoutParams = params }
+            (assets.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = margin + dp(6); assets.layoutParams = params }
             insets
         }
         ViewCompat.requestApplyInsets(shell)
@@ -371,7 +371,7 @@ internal fun DramaAppActivity.switchDramaBySwipe(forward: Boolean = true) {
 internal fun DramaAppActivity.requestMidEpisodeInterstitialIfEligible(positionSeconds: Int) {
         val snapshot = rewardsSnapshot ?: return
         val policy = snapshot.interstitial
-        if (!playerShown || playerIsPaused || fullscreenAdInProgress || !policy.midEpisodeEnabled) return
+        if ((!playerShown && !sdkPlayerShown) || playerIsPaused || fullscreenAdInProgress || !policy.midEpisodeEnabled) return
         val previousPosition = lastMidrollSamplePositionSeconds
         lastMidrollSamplePositionSeconds = positionSeconds
         if (previousPosition < 0) return
@@ -404,6 +404,17 @@ internal fun DramaAppActivity.requestMidEpisodeInterstitialIfEligible(positionSe
     }
 
 internal fun DramaAppActivity.completeSeekAndResume(targetSeconds: Int) {
+        if (sdkPlayerShown) {
+            currentSdkPlayerFragment()?.let { fragment ->
+                fragment.setCurrentPlayTimeSeconds(targetSeconds.coerceAtLeast(0))
+                fragment.startPlay()
+                playerProgressSeconds = targetSeconds.coerceAtLeast(0)
+                playerIsSeeking = false
+                playerIsPaused = false
+                window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                return
+            }
+        }
         val player = exoPlayer
         if (player == null || player.playbackState != Player.STATE_READY) {
             playerIsSeeking = false
@@ -505,6 +516,13 @@ internal fun DramaAppActivity.updatePauseOverlayVisibility(visible: Boolean) {
     }
 
 internal fun DramaAppActivity.resumePlaybackFromPauseOverlay() {
+        if (sdkPlayerShown) {
+            currentSdkPlayerFragment()?.startPlay()
+            playerIsPaused = false
+            updatePauseOverlayVisibility(false)
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            return
+        }
         val player = exoPlayer ?: return
         if (player.playbackState == Player.STATE_IDLE) {
             selectEpisode(currentEpisodeIndex)
@@ -517,6 +535,18 @@ internal fun DramaAppActivity.resumePlaybackFromPauseOverlay() {
     }
 
 internal fun DramaAppActivity.togglePlaybackFromVideoTap() {
+        if (sdkPlayerShown) {
+            if (playerIsPaused) {
+                currentSdkPlayerFragment()?.startPlay()
+                playerIsPaused = false
+                updatePauseOverlayVisibility(false)
+            } else {
+                currentSdkPlayerFragment()?.pausePlay()
+                playerIsPaused = true
+                updatePauseOverlayVisibility(true)
+            }
+            return
+        }
         val player = exoPlayer ?: return
         if (player.isPlaying) {
             player.pause()
@@ -551,7 +581,8 @@ internal fun DramaAppActivity.showPlaybackSpeedPicker() {
         showBrandedOptionsDialog(t("playback_speed"), labels, selected) { which ->
             val applySpeed = {
                 playerSpeed = speeds[which]
-                exoPlayer?.setPlaybackSpeed(playerSpeed)
+                if (sdkPlayerShown) currentSdkPlayerFragment()?.setVideoSpeed(playerSpeed)
+                else exoPlayer?.setPlaybackSpeed(playerSpeed)
                 speedButton?.text = labels[which]
                 resumeAfterFullscreenAdIfNeeded()
             }
@@ -565,11 +596,16 @@ internal fun DramaAppActivity.showPlaybackMoreControls() {
         val options = listOf(muteLabel, t("increase_brightness"), t("restore_brightness"), t("immersive_mode"), t("reload_episode"))
         showBrandedOptionsDialog(t("playback_settings"), options) { which ->
             when (which) {
-                0 -> { playerMuted = !playerMuted; exoPlayer?.volume = if (playerMuted) 0f else 1f; toast(if (playerMuted) t("muted") else t("sound_restored")) }
+                0 -> {
+                    playerMuted = !playerMuted
+                    if (sdkPlayerShown) currentSdkPlayerFragment()?.setMuted(playerMuted)
+                    else exoPlayer?.volume = if (playerMuted) 0f else 1f
+                    toast(if (playerMuted) t("muted") else t("sound_restored"))
+                }
                 1 -> { window.attributes = window.attributes.apply { screenBrightness = 1f }; toast(t("brightness_increased")) }
                 2 -> { window.attributes = window.attributes.apply { screenBrightness = -1f }; toast(t("brightness_restored")) }
                 3 -> enterImmersivePlayerMode()
-                4 -> selectEpisode(currentEpisodeIndex)
+                4 -> if (sdkPlayerShown) playSdkEpisodeAt(currentEpisodeIndex) else selectEpisode(currentEpisodeIndex)
             }
         }
     }
@@ -588,7 +624,7 @@ internal fun DramaAppActivity.enterImmersivePlayerMode(announce: Boolean = true)
 internal fun DramaAppActivity.exitImmersivePlayerMode() {
         WindowInsetsControllerCompat(window, root).show(WindowInsetsCompat.Type.systemBars())
         playerInImmersiveMode = false
-        if (playerShown) configurePlayerWindow() else configureCatalogWindow()
+        if (playerShown || sdkPlayerShown) configurePlayerWindow() else configureCatalogWindow()
     }
 
 internal fun DramaAppActivity.updatePlayerProgress(progressSeconds: Int, durationSeconds: Int) {

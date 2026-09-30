@@ -339,10 +339,14 @@ internal fun DramaAppActivity.pauseForFullscreenAd() {
         resumeAfterFullscreenAd = exoPlayer?.isPlaying == true
         // 第三方广告关闭按钮由广告网络渲染，不能由宿主移动或覆盖。展示前退出沉浸模式，
         // 并让广告 SDK 以有系统栏的安全窗口展示，避免弧形屏顶部边缘难以点击关闭按钮。
-        restoreImmersiveAfterFullscreenAd = playerShown && playerInImmersiveMode
+        restoreImmersiveAfterFullscreenAd = (playerShown || sdkPlayerShown) && playerInImmersiveMode
         if (playerInImmersiveMode) exitImmersivePlayerMode()
         navigationBackCallback?.isEnabled = false
         exoPlayer?.pause()
+        if (sdkPlayerShown && sdkPlaybackActive) {
+            resumeSdkPlaybackWhenForeground = true
+            currentSdkPlayerFragment()?.pausePlay()
+        }
         playerIsPaused = true
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
@@ -355,7 +359,13 @@ internal fun DramaAppActivity.resumeAfterFullscreenAdIfNeeded() {
             playerIsPaused = false
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
-        if (restoreImmersiveAfterFullscreenAd && !isFinishing && !isDestroyed && playerShown) {
+        if (resumeSdkPlaybackWhenForeground && sdkPlayerShown && !isFinishing && !isDestroyed) {
+            currentSdkPlayerFragment()?.startPlay()
+            playerIsPaused = false
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            resumeSdkPlaybackWhenForeground = false
+        }
+        if (restoreImmersiveAfterFullscreenAd && !isFinishing && !isDestroyed && (playerShown || sdkPlayerShown)) {
             enterImmersivePlayerMode(announce = false)
         }
         restoreImmersiveAfterFullscreenAd = false
@@ -364,10 +374,10 @@ internal fun DramaAppActivity.resumeAfterFullscreenAdIfNeeded() {
         // now-stale checkpoint instead of the user's normal catalog entry.
         clearExternalAdReturnCheckpoint()
         if (!isFinishing && !isDestroyed) {
-            if (playerShown) configurePlayerWindow() else configureCatalogWindow()
+            if (playerShown || sdkPlayerShown) configurePlayerWindow() else configureCatalogWindow()
             root.post {
                 if (!isFinishing && !isDestroyed) {
-                    if (playerShown) configurePlayerWindow() else configureCatalogWindow()
+                    if (playerShown || sdkPlayerShown) configurePlayerWindow() else configureCatalogWindow()
                 }
             }
         }

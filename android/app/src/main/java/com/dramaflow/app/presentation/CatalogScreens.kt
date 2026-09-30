@@ -75,7 +75,8 @@ internal fun DramaAppActivity.createHomePage(): View = scrollPage { content ->
     content.addView(createSearchPrompt(), matchParams(bottom = 12))
     content.addView(createCategoryTabs(), matchParams(bottom = 14))
     if (catalogItems.isEmpty()) {
-        content.addView(createInlineNotice(t("catalog_loading_hint")), matchParams(bottom = 18))
+        content.addView(createCatalogLoadingSkeleton(), matchParams(bottom = 18))
+        return@scrollPage
     }
     val featured = primaryItems.firstOrNull()
     featured?.let { content.addView(createHeroBanner(it), matchParams(bottom = 18)) }
@@ -91,12 +92,37 @@ internal fun DramaAppActivity.createHomePage(): View = scrollPage { content ->
     addDramaGrid(content, filtered)
 }
 
+/** Avoids an empty home page while PSSDK finishes the first remote catalogue request. */
+internal fun DramaAppActivity.createCatalogLoadingSkeleton(): View = LinearLayout(this).apply {
+    orientation = LinearLayout.VERTICAL
+    setPadding(dp(16), dp(20), dp(16), dp(22))
+    background = roundedDrawable(COLOR_CARD, 20)
+    addView(ProgressBar(this@createCatalogLoadingSkeleton).apply {
+        indeterminateTintList = ColorStateList.valueOf(COLOR_CORAL)
+    }, LinearLayout.LayoutParams(dp(30), dp(30)).apply { gravity = Gravity.CENTER_HORIZONTAL })
+    addView(TextView(this@createCatalogLoadingSkeleton).apply {
+        text = t("catalog_loading")
+        textSize = 17f
+        typeface = Typeface.DEFAULT_BOLD
+        gravity = Gravity.CENTER
+        setTextColor(COLOR_TEXT_PRIMARY)
+        setPadding(0, dp(12), 0, dp(5))
+    })
+    addView(TextView(this@createCatalogLoadingSkeleton).apply {
+        text = t("catalog_loading_hint")
+        textSize = 13f
+        gravity = Gravity.CENTER
+        setTextColor(COLOR_TEXT_MUTED)
+    })
+}
+
 internal fun DramaAppActivity.createDiscoverPage(): View = scrollPage { content ->
         val recommended = recommendedCatalogItems()
         content.addView(createPageTitle(t("discover"), t("discover_subtitle")), matchParams(bottom = 16))
         content.addView(createCategoryTabs(), matchParams(bottom = 16))
         if (catalogItems.isEmpty()) {
-            content.addView(createInlineNotice(t("catalog_loading_hint")), matchParams(bottom = 18))
+            content.addView(createCatalogLoadingSkeleton(), matchParams(bottom = 18))
+            return@scrollPage
         }
         primaryFeaturedDrama(recommended)?.let { content.addView(createHeroBanner(it), matchParams(bottom = 22)) }
         content.addView(createSectionHeader(t("popular_this_week"), t("recommended_for_you")), matchParams(bottom = 12))

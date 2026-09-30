@@ -567,49 +567,6 @@ internal fun DramaAppActivity.showWalletRulesDialog(wallet: RewardsApiClient.Wal
         showBrandedChoiceDialog(t("cashout_rules"), t("wallet_rules_message", rewardsSnapshot?.walletEligibilityCopy.orEmpty()), t("done"))
     }
 
-internal fun DramaAppActivity.createChestCard(snapshot: RewardsApiClient.Snapshot): View = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        setPadding(dp(18), dp(16), dp(18), dp(16))
-        background = roundedDrawable(COLOR_CARD, 18)
-        addView(TextView(this@createChestCard).apply { text = t("chest_title"); textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
-        addView(TextView(this@createChestCard).apply {
-            text = when {
-                snapshot.chest.availableCount > 0 -> t("chest_available_detail", snapshot.chest.availableCount, formatCurrencyAmount(snapshot.wallet, snapshot.chest.minCash, null, false))
-                snapshot.chest.episodesToNextChest > 0 -> t("chest_progress_detail", snapshot.chest.episodesPerChest, snapshot.chest.episodesToNextChest)
-                else -> t("chest_empty_detail", snapshot.chest.episodesPerChest)
-            }
-            textSize = 13f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(6), 0, dp(12))
-        })
-        addView(TextView(this@createChestCard).apply {
-            text = if (snapshot.chest.availableCount > 0) t("chest_open_one") else t("chest_empty_short")
-            textSize = 14f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_PRIMARY)
-            background = roundedDrawable(if (snapshot.chest.availableCount > 0) COLOR_ACCENT else COLOR_SURFACE, 14)
-            setPadding(dp(14), dp(10), dp(14), dp(10)); isClickable = true
-            setOnClickListener {
-                if (snapshot.chest.availableCount > 0) requestRandomChestOpen() else {
-                    activeTab = MainTab.HOME
-                    renderActiveTab()
-                }
-            }
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)))
-    }
-
-internal fun DramaAppActivity.requestRandomChestOpen(onFinished: () -> Unit = {}) {
-        requestRewardedAction(
-            placementId = "rv_random_chest_open",
-            onSettled = { action ->
-                resumeAfterFullscreenAdIfNeeded()
-                onFinished()
-            },
-            onSettlementUnavailable = { message ->
-                resumeAfterFullscreenAdIfNeeded()
-                val noChest = message.contains("没有可开启") || message.contains("没有可用")
-                toast(if (noChest) t("chest_settlement_missing") else t("chest_settlement_failed", message))
-                onFinished()
-            },
-        )
-    }
-
 internal fun DramaAppActivity.createAchievementSummary(snapshot: RewardsApiClient.Snapshot): View = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         setPadding(dp(16), dp(15), dp(16), dp(15))

@@ -149,6 +149,10 @@ internal fun DramaAppActivity.selectEpisode(index: Int) {
             toast(t("player_not_ready"))
             return
         }
+        if (sdkPlayerShown && currentSdkPlayerFragment() != null) {
+            playSdkEpisodeAt(index)
+            return
+        }
         showSdkDramaPlayer(drama, card, index.coerceIn(0, drama.episodes.lastIndex.coerceAtLeast(0)))
     }
 
@@ -303,94 +307,6 @@ internal fun DramaAppActivity.recordCompletedEpisodeForRewards(index: Int, onCon
                 onContinuePlayback()
             } },
         )
-    }
-
-/** A new chest never obscures the preferred next-episode unlock. It appears 15s after a successful unlock. */
-internal fun DramaAppActivity.routeChestAfterEpisode(
-    completedIndex: Int,
-    createdCount: Int,
-    availableCount: Int,
-    onContinuePlayback: () -> Unit,
-) {
-    val nextIndex = completedIndex + 1
-    val nextIsLocked = selectedDrama?.episodes?.indices?.contains(nextIndex) == true && needsUnlock(nextIndex)
-    if (!nextIsLocked) {
-        showRandomChestEarnedDialog(createdCount, availableCount, onContinuePlayback)
-        return
-    }
-    unlockEpisodeThenAutoPlay(
-        index = nextIndex,
-        onUnlocked = {
-            root.postDelayed({
-                if (!isFinishing && !isDestroyed) showRandomChestEarnedDialog(createdCount, availableCount) {}
-            }, 15_000L)
-        },
-        onDeclined = { showRandomChestEarnedDialog(createdCount, availableCount, onContinuePlayback) },
-    )
-}
-
-internal fun DramaAppActivity.showRandomChestEarnedDialog(createdCount: Int, availableCount: Int, onContinuePlayback: () -> Unit) {
-        val dialog = AlertDialog.Builder(this).create()
-        dialog.setCancelable(false)
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(24), dp(24), dp(24), dp(20))
-            background = gradientDrawable(intArrayOf(COLOR_CARD, COLOR_SURFACE), 28)
-        }
-        val chestImage = ImageView(this).apply {
-            setImageResource(com.dramaflow.app.R.drawable.wallet_money)
-            contentDescription = t("chest")
-            scaleX = 0.55f
-            scaleY = 0.55f
-            alpha = 0f
-        }
-        content.addView(chestImage, LinearLayout.LayoutParams(dp(126), dp(126)))
-        content.addView(TextView(this).apply {
-            text = if (createdCount > 0) t("chest_earned", createdCount) else t("open_chest")
-            textSize = 22f
-            typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
-            setTextColor(COLOR_TEXT_PRIMARY)
-        })
-        content.addView(TextView(this).apply {
-            text = if (createdCount > 0) t("chest_earned_message") else t("chest_cash_hint")
-            textSize = 13f
-            gravity = Gravity.CENTER
-            setTextColor(COLOR_TEXT_MUTED)
-            setPadding(0, dp(8), 0, dp(18))
-        })
-        val actions = LinearLayout(this).apply { gravity = Gravity.CENTER }
-        actions.addView(TextView(this).apply {
-            text = t("continue_watching")
-            textSize = 14f
-            typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
-            setTextColor(COLOR_TEXT_PRIMARY)
-            background = roundedDrawable(COLOR_SURFACE, 16)
-            isClickable = true
-            setOnClickListener { dialog.dismiss(); onContinuePlayback() }
-        }, LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginEnd = dp(8) })
-        actions.addView(TextView(this).apply {
-            text = t("open_now")
-            textSize = 14f
-            typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            background = gradientDrawable(intArrayOf(COLOR_CORAL, COLOR_SUNSET), 16)
-            isClickable = true
-            setOnClickListener { dialog.dismiss(); requestRandomChestOpen(onFinished = onContinuePlayback) }
-        }, LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginStart = dp(8) })
-        content.addView(actions, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        dialog.setView(content)
-        dialog.show()
-        dialog.window?.apply {
-            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
-            setLayout((resources.displayMetrics.widthPixels * 0.90f).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
-        }
-        chestImage.animate().alpha(1f).scaleX(1.10f).scaleY(1.10f).setDuration(260L).withEndAction {
-            chestImage.animate().scaleX(1f).scaleY(1f).setDuration(180L).start()
-        }.start()
     }
 
 internal fun DramaAppActivity.needsUnlock(index: Int): Boolean {

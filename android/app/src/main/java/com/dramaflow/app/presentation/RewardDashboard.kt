@@ -76,7 +76,6 @@ internal fun DramaAppActivity.createTasksPage(): View {
         else {
             content.addView(createDailyBenefitsPanel(snapshot), matchParams(top = 10, bottom = 10))
             content.addView(createEpisodeTaskLine(snapshot), matchParams(bottom = 10))
-            content.addView(createRewardChestPanel(snapshot), matchParams(bottom = 10))
         }
         FrameLayout(this@createTasksPage).also { host ->
             rewardCrownRoadHost = host
@@ -436,7 +435,7 @@ internal fun DramaAppActivity.createDailyBenefitsPanel(snapshot: RewardsApiClien
             setTextColor(COLOR_TEXT_PRIMARY)
         })
         addView(TextView(this@createDailyBenefitsPanel).apply {
-            text = t("checkin_next_days")
+            text = snapshot?.let { t("checkin_seven_day_total", formatSevenDayCheckinTotal(it)) } ?: t("checkin_syncing")
             textSize = 12f
             setTextColor(COLOR_TEXT_MUTED)
             setPadding(0, dp(3), 0, 0)
@@ -483,74 +482,3 @@ internal fun DramaAppActivity.createBenefitRow(title: String, subtitle: String, 
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         addView(TextView(this@createBenefitRow).apply { text = action; textSize = 12f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE); background = roundedDrawable(COLOR_CORAL, 18); setPadding(dp(11), dp(9), dp(11), dp(9)); setOnClickListener { onClick() }; isClickable = true })
     }
-
-internal fun DramaAppActivity.createRewardChestPanel(snapshot: RewardsApiClient.Snapshot): View = LinearLayout(this).apply {
-    orientation = LinearLayout.VERTICAL
-    setPadding(dp(18), dp(16), dp(18), dp(16))
-    background = roundedDrawable(COLOR_CARD, 24)
-    val count = snapshot.chest.availableCount
-    val top = LinearLayout(this@createRewardChestPanel).apply { gravity = Gravity.CENTER_VERTICAL }
-    top.addView(ImageView(this@createRewardChestPanel).apply {
-        setImageResource(R.drawable.ic_random_chest_reward)
-        scaleType = ImageView.ScaleType.CENTER_INSIDE
-    }, LinearLayout.LayoutParams(dp(62), dp(62)))
-    top.addView(LinearLayout(this@createRewardChestPanel).apply {
-        orientation = LinearLayout.VERTICAL
-        setPadding(dp(10), 0, dp(8), 0)
-        addView(TextView(this@createRewardChestPanel).apply {
-            text = t("chest")
-            textSize = 20f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(COLOR_TEXT_PRIMARY)
-        })
-        addView(TextView(this@createRewardChestPanel).apply {
-            text = if (count > 0) {
-                t("chest_available_cash", count, formatCurrencyAmount(snapshot.wallet, snapshot.chest.minCash, null, false))
-            } else {
-                t("chest_progress_cash", snapshot.chest.episodesToNextChest.coerceAtLeast(1))
-            }
-            textSize = 12f
-            maxLines = 2
-            setTextColor(COLOR_TEXT_MUTED)
-            setPadding(0, dp(4), 0, 0)
-        })
-    }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-    top.addView(TextView(this@createRewardChestPanel).apply {
-        text = if (count > 0) t("chest_count_badge", count) else t("chest_empty_short")
-        textSize = if (count > 0) 15f else 11f
-        typeface = Typeface.DEFAULT_BOLD
-        gravity = Gravity.CENTER
-        setTextColor(if (count > 0) COLOR_SUNSET else COLOR_TEXT_MUTED)
-        background = roundedDrawable(if (count > 0) 0x332F9E7C else COLOR_SURFACE, 14)
-        setPadding(dp(10), dp(8), dp(10), dp(8))
-    })
-    addView(top)
-    addView(TextView(this@createRewardChestPanel).apply {
-        text = t("chest_continue_hint")
-        textSize = 12f
-        setTextColor(COLOR_TEXT_MUTED)
-        setPadding(dp(2), dp(11), dp(2), dp(10))
-    })
-    val actions = LinearLayout(this@createRewardChestPanel).apply { gravity = Gravity.CENTER_VERTICAL }
-    actions.addView(TextView(this@createRewardChestPanel).apply {
-        text = t("keep_watching")
-        textSize = 13f
-        typeface = Typeface.DEFAULT_BOLD
-        gravity = Gravity.CENTER
-        setTextColor(COLOR_TEXT_PRIMARY)
-        background = roundedDrawable(COLOR_SURFACE, 16)
-        isClickable = true
-        setOnClickListener { activeTab = MainTab.HOME; renderActiveTab() }
-    }, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(8) })
-    actions.addView(TextView(this@createRewardChestPanel).apply {
-        text = if (count > 0) t("open_chest") else t("go_watch")
-        textSize = 13f
-        typeface = Typeface.DEFAULT_BOLD
-        gravity = Gravity.CENTER
-        setTextColor(Color.WHITE)
-        background = roundedDrawable(COLOR_CORAL, 16)
-        isClickable = true
-        setOnClickListener { if (count > 0) requestRandomChestOpen() else { activeTab = MainTab.HOME; renderActiveTab() } }
-    }, LinearLayout.LayoutParams(0, dp(44), 1f))
-    addView(actions)
-}

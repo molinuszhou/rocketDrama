@@ -263,7 +263,6 @@ internal fun DramaAppActivity.showStartupCheckinWhenReady() {
         startupCheckinPromptShown = true
         when {
             snapshot == null -> Unit
-            snapshot.checkinSignedToday && snapshot.chest.availableCount > 0 -> showRandomChestEarnedDialog(0, snapshot.chest.availableCount) {}
             snapshot.checkinSignedToday -> Unit
             else -> showCheckinRewardDialog(snapshot)
         }
@@ -401,7 +400,7 @@ internal fun DramaAppActivity.showCheckinRewardDialog(snapshot: RewardsApiClient
             setTextColor(COLOR_TEXT_PRIMARY)
         })
         content.addView(TextView(this).apply {
-            text = if (snapshot == null) t("checkin_syncing") else t("checkin_next_days")
+            text = if (snapshot == null) t("checkin_syncing") else t("checkin_seven_day_total", formatSevenDayCheckinTotal(snapshot))
             textSize = 14f
             gravity = Gravity.CENTER
             setTextColor(COLOR_TEXT_MUTED)
@@ -423,7 +422,7 @@ internal fun DramaAppActivity.showCheckinRewardDialog(snapshot: RewardsApiClient
         content.addView(TextView(this).apply {
             text = when {
                 snapshot == null -> t("checkin_syncing")
-                snapshot.checkinSignedToday -> t("checkin_open_chest_hint")
+                snapshot.checkinSignedToday -> t("checkin_done_message", snapshot.checkinStreak)
                 else -> t("checkin_watch_ad_cash", formatRewardUnitsAsCash(snapshot, snapshot.checkinNextRewardCoins.toLong()))
             }
             textSize = 14f
@@ -434,7 +433,7 @@ internal fun DramaAppActivity.showCheckinRewardDialog(snapshot: RewardsApiClient
         val primary = TextView(this).apply {
             text = when {
                 snapshot == null -> t("checkin_syncing")
-                snapshot.checkinSignedToday -> t("open_chest")
+                snapshot.checkinSignedToday -> t("done")
                 else -> t("watch_ad_checkin")
             }
             textSize = 16f
@@ -448,7 +447,7 @@ internal fun DramaAppActivity.showCheckinRewardDialog(snapshot: RewardsApiClient
                 when {
                     snapshot == null -> refreshRewardsSnapshot()
                     !snapshot.checkinSignedToday -> completeDailyCheckin()
-                    else -> requestRandomChestOpen()
+                    else -> Unit
                 }
             }
             isClickable = true
@@ -482,22 +481,16 @@ internal fun DramaAppActivity.createCheckinTierStrip(snapshot: RewardsApiClient.
     val completedDays = snapshot?.checkinStreak ?: 0
     val signedToday = snapshot?.checkinSignedToday == true
     val todayIndex = ((snapshot?.checkinTodayIndex ?: 1).coerceAtLeast(1) - 1).coerceAtMost(tiers.lastIndex)
-    val start = when {
-        todayIndex <= 0 -> 0
-        todayIndex >= tiers.lastIndex -> (tiers.lastIndex - 2).coerceAtLeast(0)
-        else -> todayIndex - 1
-    }
-    val visibleIndices = (start until minOf(start + 3, tiers.size)).toList()
     return LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER
-        visibleIndices.forEachIndexed { slot, index ->
+        tiers.indices.forEachIndexed { slot, index ->
             val isToday = snapshot != null && index == todayIndex
             val isDone = snapshot != null && index < completedDays.coerceAtMost(tiers.size)
             addView(LinearLayout(this@createCheckinTierStrip).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER
-                setPadding(dp(6), dp(8), dp(6), dp(8))
+                setPadding(dp(1), dp(7), dp(1), dp(7))
                 background = roundedDrawable(
                     when {
                         isToday -> COLOR_CORAL
@@ -510,9 +503,9 @@ internal fun DramaAppActivity.createCheckinTierStrip(snapshot: RewardsApiClient.
                     text = when {
                         isToday && !signedToday -> t("today")
                         isDone -> t("checkin_complete_short")
-                        else -> t("checkin_day_short", index + 1)
+                        else -> "D${index + 1}"
                     }
-                    textSize = 11f
+                    textSize = 9f
                     typeface = Typeface.DEFAULT_BOLD
                     gravity = Gravity.CENTER
                     maxLines = 1
@@ -521,17 +514,23 @@ internal fun DramaAppActivity.createCheckinTierStrip(snapshot: RewardsApiClient.
                 })
                 addView(TextView(this@createCheckinTierStrip).apply {
                     text = if (snapshot == null) t("syncing") else formatRewardUnitsAsCash(snapshot, tiers[index].toLong())
-                    textSize = 16f
+                    textSize = 10f
                     typeface = Typeface.DEFAULT_BOLD
                     gravity = Gravity.CENTER
                     maxLines = 1
                     ellipsize = android.text.TextUtils.TruncateAt.END
                     setTextColor(if (isToday) Color.WHITE else if (isDone) 0xFFFFDB6A.toInt() else COLOR_TEXT_PRIMARY)
-                    setPadding(0, dp(5), 0, 0)
+                    setPadding(0, dp(4), 0, 0)
                 })
-            }, LinearLayout.LayoutParams(0, dp(72), 1f).apply { if (slot > 0) marginStart = dp(7) })
+            }, LinearLayout.LayoutParams(0, dp(66), 1f).apply { if (slot > 0) marginStart = dp(3) })
         }
     }
+}
+
+/** The seven-day cycle is always the product-facing check-in unit, independent of today's streak. */
+internal fun DramaAppActivity.formatSevenDayCheckinTotal(snapshot: RewardsApiClient.Snapshot): String {
+    val tiers = snapshot.checkinRewardTiers.take(7)
+    return formatRewardUnitsAsCash(snapshot, tiers.sumOf { it.toLong() })
 }
 
 internal fun DramaAppActivity.completeDailyCheckin() {
@@ -539,11 +538,8 @@ internal fun DramaAppActivity.completeDailyCheckin() {
             resumeAfterFullscreenAdIfNeeded()
             if (action.idempotent) {
                 toast(t("checkin_completed_today"))
-                if (action.snapshot.chest.availableCount > 0) showRandomChestEarnedDialog(0, action.snapshot.chest.availableCount) {}
             } else {
-                showCheckinCalendarReminderPrompt {
-                    if (action.snapshot.chest.availableCount > 0) showRandomChestEarnedDialog(0, action.snapshot.chest.availableCount) {}
-                }
+                showCheckinCalendarReminderPrompt()
             }
         })
     }
