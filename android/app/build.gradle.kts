@@ -61,8 +61,16 @@ val analyticsDebug = integrationValue("ANALYTICS_DEBUG").trim().equals("true", i
 // 默认关闭 AppsFlyer、Firebase 和炫羽的实际事件上报；由受控构建参数显式开启。
 val externalReportingEnabled = integrationValue("EXTERNAL_REPORTING_ENABLED").trim().equals("true", ignoreCase = true)
 val releaseAbRoutingEnabled = integrationValue("RELEASE_AB_ROUTING_ENABLED").trim().equals("true", ignoreCase = true)
-val formalRewardsApiBaseUrl = "https://www.joyelleasia.com/joyedrama-rewards"
-val rewardsApiBaseUrl = integrationValue("REWARDS_API_BASE_URL").ifBlank { formalRewardsApiBaseUrl }
+// Rewards 服务地址由 local.properties、-P 或 CI Secret 注入。不要把生产域名硬编码在客户端；
+// 服务迁移或路径调整时，只需更新受控构建参数并重新构建。
+val rewardsApiBaseUrl = integrationValue("REWARDS_API_BASE_URL").trim().trimEnd('/')
+fun isProductionRewardsApiBaseUrl(value: String): Boolean {
+    val normalized = value.trim().trimEnd('/')
+    return normalized.startsWith("https://") &&
+        !normalized.contains("10.0.2.2") &&
+        !normalized.contains("localhost") &&
+        !normalized.contains("127.0.0.1")
+}
 val commercialReleaseRequested = gradle.startParameter.taskNames.any { task ->
     val normalized = task.lowercase()
     normalized.contains("release")
@@ -81,9 +89,12 @@ if (commercialReleaseRequested) {
         "SHORT_DRAMA_VOD_APP_ID" to shortDramaVodAppId,
         "SHORT_DRAMA_LICENSE_ASSET" to shortDramaLicenseAsset,
         "SHORT_DRAMA_SECURITY_KEY" to shortDramaSecurityKey,
-        "REWARDS_API_BASE_URL" to rewardsApiBaseUrl.takeUnless { it.contains("10.0.2.2") }.orEmpty(),
+        "REWARDS_API_BASE_URL" to rewardsApiBaseUrl,
     ).filter { (_, value) -> value.isBlank() }.map { (name, _) -> name }
     check(missing.isEmpty()) { "Commercial Release requires explicit advertising configuration: ${missing.joinToString()}" }
+    check(isProductionRewardsApiBaseUrl(rewardsApiBaseUrl)) {
+        "REWARDS_API_BASE_URL must be an explicit non-local HTTPS URL for a commercial Release build."
+    }
     check(isAdmobAndroidAppId(partnerAdmobAppId)) {
         "ADMOB_APP_ID must be the one Android AdMob App ID in ca-app-pub-...~... format, not a ca-app-pub-.../... ad unit ID."
     }
@@ -99,11 +110,15 @@ val validateCommercialReleaseAdConfig = tasks.register("validateCommercialReleas
     inputs.property("TOPON_INTERSTITIAL_PLACEMENT_ID", partnerTopOnInterstitialPlacementId)
     inputs.property("TOPON_SPLASH_PLACEMENT_ID", partnerTopOnSplashPlacementId)
     inputs.property("ADMOB_APP_ID", partnerAdmobAppId)
+    inputs.property("REWARDS_API_BASE_URL", rewardsApiBaseUrl)
     doLast {
         check(inputs.properties["toponDemoMode"].toString().toBoolean().not()) { "TOPON_DEMO_MODE=true is permitted only for Debug builds, never for a commercial Release build." }
-        val required = listOf("TOPON_APP_ID", "TOPON_APP_KEY", "TOPON_REWARDED_PLACEMENT_ID", "TOPON_INTERSTITIAL_PLACEMENT_ID", "TOPON_SPLASH_PLACEMENT_ID", "ADMOB_APP_ID")
+        val required = listOf("TOPON_APP_ID", "TOPON_APP_KEY", "TOPON_REWARDED_PLACEMENT_ID", "TOPON_INTERSTITIAL_PLACEMENT_ID", "TOPON_SPLASH_PLACEMENT_ID", "ADMOB_APP_ID", "REWARDS_API_BASE_URL")
         val missing = required.filter { key -> inputs.properties[key].toString().isBlank() }
         check(missing.isEmpty()) { "Commercial Release requires explicit advertising configuration: ${missing.joinToString()}" }
+        check(isProductionRewardsApiBaseUrl(inputs.properties["REWARDS_API_BASE_URL"].toString())) {
+            "REWARDS_API_BASE_URL must be an explicit non-local HTTPS URL for a commercial Release build."
+        }
         check(isAdmobAndroidAppId(inputs.properties["ADMOB_APP_ID"].toString())) {
             "ADMOB_APP_ID must be the one Android AdMob App ID in ca-app-pub-...~... format, not a ca-app-pub-.../... ad unit ID."
         }
@@ -154,8 +169,8 @@ android {
         minSdk = 26
         targetSdk = 35
         // Android 客户端每次代码改动递增补丁版本；服务端/文档单独改动不变更此版本。
-        versionCode = 56
-        versionName = "1.7.2"
+        versionCode = 57
+        versionName = "1.7.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -208,7 +223,7 @@ android {
             buildConfigField("boolean", "TOPON_DEMO_MODE", "false")
             // Formal release always uses the Pangle short-drama SDK and AppsFlyer attribution split.
             buildConfigField("boolean", "RELEASE_AB_ROUTING_ENABLED", "true")
-            buildConfigField("String", "REWARDS_API_BASE_URL", "\"$formalRewardsApiBaseUrl\"")
+            buildConfigField("String", "REWARDS_API_BASE_URL", "\"${escapeBuildConfig(rewardsApiBaseUrl)}\"")
             manifestPlaceholders["ADMOB_APP_ID"] = partnerAdmobAppId
             isMinifyEnabled = true
             isShrinkResources = true

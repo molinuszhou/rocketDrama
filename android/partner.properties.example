@@ -1,9 +1,10 @@
 # 复制到 android/local.properties 或受控 CI Secret；真实生产值禁止提交到 Git。
 # Release 包名固定为 com.feather.joyelledrama。
 
-# Rewards 正式公网 HTTPS 地址已固定编入 Release：
-# https://www.joyelleasia.com/joyedrama-rewards
-# 如需专用预发布地址，仅 Debug 构建可通过 REWARDS_API_BASE_URL 覆盖。
+# Rewards 服务地址必须由本机或 CI 配置提供，Release 不再硬编码域名或路径。
+# 当前正式地址如下；服务器迁移、域名或路径变更时，只更新此项后重新构建即可。
+# Release 仅接受非本机 HTTPS 地址；不要填写 http://、localhost、127.0.0.1 或 10.0.2.2。
+REWARDS_API_BASE_URL=https://www.joyelleasia.com/joyedrama-rewards
 
 # TopOn 正式聚合参数。Release 强制 TOPON_DEMO_MODE=false。
 TOPON_DEMO_MODE=false
