@@ -147,6 +147,7 @@ private fun DramaAppActivity.preloadShortDramaSdkCatalog() {
                 cards.forEach { card -> sdkDramaCardsByCatalogId[sdkCatalogId(card.id)] = card }
                 catalogItems = cards.map(::sdkCatalogDrama)
                 updateStartupProgress(30, t("startup_content_ready"))
+                if (startupContentInitializationStarted) renderActiveTab()
                 preloadCatalogCovers(
                     items = catalogItems,
                     onProgress = { percent ->
@@ -156,12 +157,12 @@ private fun DramaAppActivity.preloadShortDramaSdkCatalog() {
                     onFinished = {
                         startupPosterPreloadFinished = true
                         startupPosterPreloadPercent = 100
-                        completeStartupWhenReady()
+                        if (startupContentInitializationStarted) renderActiveTab() else completeStartupWhenReady()
                     },
                     onTimedOut = {
                         startupCatalogFailure = t("startup_resources_timeout")
                         startupPosterPreloadFinished = true
-                        completeStartupWhenReady()
+                        if (startupContentInitializationStarted) renderActiveTab() else completeStartupWhenReady()
                     },
                 )
             } },
@@ -169,7 +170,7 @@ private fun DramaAppActivity.preloadShortDramaSdkCatalog() {
                 startupCatalogFinished = true
                 startupPosterPreloadFinished = true
                 startupCatalogFailure = t("catalog_load_failed", message)
-                completeStartupWhenReady()
+                if (startupContentInitializationStarted) renderActiveTab() else completeStartupWhenReady()
             } },
         )
     } }
@@ -231,13 +232,11 @@ internal fun DramaAppActivity.computeStartupProgress(): Int {
     }
 
 internal fun DramaAppActivity.completeStartupWhenReady() {
-        if (startupContentInitializationStarted || !startupAdFinished || !startupCatalogFinished || !startupPosterPreloadFinished || !startupRewardsFinished || isFinishing || isDestroyed) return
+        // PSSDK catalogue and Rewards data are provider/network work, not launch prerequisites.
+        // Requiring them here is valid for main's local content service but leaves formal builds
+        // permanently at 35% when the provider's first catalogue callback is delayed.
+        if (startupContentInitializationStarted || !startupAdFinished || isFinishing || isDestroyed) return
         startupContentInitializationStarted = true
-        val failure = startupCatalogFailure
-        if (failure != null) {
-            renderFailure(failure)
-            return
-        }
         updateStartupProgress(100, t("startup_ready"))
         if (restorePlayerAfterCatalog) {
             val drama = catalogItems.firstOrNull { it.id == restoredDramaId } ?: catalogItems.firstOrNull()

@@ -81,6 +81,7 @@ internal fun DramaAppActivity.refreshRewardsSnapshot() {
                 }
                 applyRewardsSnapshot(snapshot)
                 if (!startupContentInitializationStarted) completeStartupWhenReady()
+                else showStartupCheckinWhenReady()
             }
         }, { message ->
             runOnUiThread {

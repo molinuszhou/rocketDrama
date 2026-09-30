@@ -74,6 +74,9 @@ internal fun DramaAppActivity.createHomePage(): View = scrollPage { content ->
     content.addView(createPageTitle(t("home"), t("home_greeting")), matchParams(bottom = 12))
     content.addView(createSearchPrompt(), matchParams(bottom = 12))
     content.addView(createCategoryTabs(), matchParams(bottom = 14))
+    if (catalogItems.isEmpty()) {
+        content.addView(createInlineNotice(t("catalog_loading_hint")), matchParams(bottom = 18))
+    }
     val featured = primaryItems.firstOrNull()
     featured?.let { content.addView(createHeroBanner(it), matchParams(bottom = 18)) }
     val shelf = primaryItems.filter { it.id != featured?.id }.take(SHELF_ITEM_LIMIT)
@@ -92,6 +95,9 @@ internal fun DramaAppActivity.createDiscoverPage(): View = scrollPage { content 
         val recommended = recommendedCatalogItems()
         content.addView(createPageTitle(t("discover"), t("discover_subtitle")), matchParams(bottom = 16))
         content.addView(createCategoryTabs(), matchParams(bottom = 16))
+        if (catalogItems.isEmpty()) {
+            content.addView(createInlineNotice(t("catalog_loading_hint")), matchParams(bottom = 18))
+        }
         primaryFeaturedDrama(recommended)?.let { content.addView(createHeroBanner(it), matchParams(bottom = 22)) }
         content.addView(createSectionHeader(t("popular_this_week"), t("recommended_for_you")), matchParams(bottom = 12))
         if (recommended.isNotEmpty()) content.addView(createHorizontalDramaShelf(recommended.take(SHELF_ITEM_LIMIT)), matchParams(bottom = 22))

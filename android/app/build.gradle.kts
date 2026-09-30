@@ -169,8 +169,8 @@ android {
         minSdk = 26
         targetSdk = 35
         // Android 客户端每次代码改动递增补丁版本；服务端/文档单独改动不变更此版本。
-        versionCode = 62
-        versionName = "1.7.8"
+        versionCode = 63
+        versionName = "1.7.9"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
