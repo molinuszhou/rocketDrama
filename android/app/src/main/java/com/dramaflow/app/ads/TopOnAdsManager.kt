@@ -99,6 +99,9 @@ class TopOnAdsManager(
     private val pendingInitializationCallbacks = mutableListOf<(Initialization) -> Unit>()
     private val initializationLock = Any()
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var initializationAttempt = 0L
+    private var activeInitializationAttempt = 0L
+    private var initializationTimeout: Runnable? = null
     /** Keeps TopOn ads out of edge-to-edge host mode; creative close controls remain ad-network owned. */
     private val safeAdWindows = mutableMapOf<Activity, SafeAdWindowState>()
     /** Activity-level window mode is owned by the presentation layer and must survive a full-screen ad. */
@@ -134,6 +137,7 @@ class TopOnAdsManager(
         }
 
         var startInitialization = false
+        var attempt = 0L
         synchronized(initializationLock) {
             if (topOnInitialized) {
                 mainHandler.post { onResult(Initialization.Ready) }
@@ -143,9 +147,29 @@ class TopOnAdsManager(
             if (!topOnInitializationInFlight) {
                 topOnInitializationInFlight = true
                 startInitialization = true
+                attempt = ++initializationAttempt
+                activeInitializationAttempt = attempt
             }
         }
         if (!startInitialization) return
+
+        val timeout = Runnable {
+            synchronized(initializationLock) {
+                if (!topOnInitializationInFlight || activeInitializationAttempt != attempt) return@Runnable
+            }
+            Log.w(TAG, "TopOn initialization timed out after ${TOPON_INITIALIZATION_TIMEOUT_MS}ms")
+            auditEvent("INITIALIZATION", "sdk", "", "sdk", result = "TIMEOUT", errorCode = TOPON_INITIALIZATION_TIMEOUT_CODE, detail = "timeout_ms=$TOPON_INITIALIZATION_TIMEOUT_MS")
+            completeInitialization(
+                Initialization.Failed(TOPON_INITIALIZATION_TIMEOUT_CODE, "TopOn 初始化超时"),
+                attempt,
+            )
+        }
+        synchronized(initializationLock) {
+            if (topOnInitializationInFlight && activeInitializationAttempt == attempt) {
+                initializationTimeout = timeout
+            }
+        }
+        mainHandler.postDelayed(timeout, TOPON_INITIALIZATION_TIMEOUT_MS)
 
         runCatching {
             auditEvent("INITIALIZATION", "sdk", "", "sdk", result = "STARTED")
@@ -156,31 +180,40 @@ class TopOnAdsManager(
                 settings.appKey,
                 ATNetworkConfig(),
                 object : ATSDKInitListener {
-                    override fun onSuccess() = completeInitialization(Initialization.Ready)
+                    override fun onSuccess() = completeInitialization(Initialization.Ready, attempt)
 
                     override fun onFail(errorMessage: String) =
-                        completeInitialization(Initialization.Failed(-1, errorMessage))
+                        completeInitialization(Initialization.Failed(-1, errorMessage), attempt)
                 },
             )
         }.onFailure {
             Log.w(TAG, "TopOn initialization invocation failed", it)
             auditEvent("INITIALIZATION", "sdk", "", "sdk", result = "FAILED", errorCode = -1, detail = "initialization_exception")
-            completeInitialization(Initialization.Failed(-1, it.message.orEmpty()))
+            completeInitialization(Initialization.Failed(-1, it.message.orEmpty()), attempt)
         }
     }
 
-    private fun completeInitialization(result: Initialization) {
+    private fun completeInitialization(result: Initialization, attempt: Long) {
         when (result) {
             Initialization.Ready -> auditEvent("INITIALIZATION", "sdk", "", "sdk", result = "READY")
             Initialization.NotConfigured -> Unit
             is Initialization.Failed -> auditEvent("INITIALIZATION", "sdk", "", "sdk", result = "FAILED", errorCode = result.code, detail = "sdk_initialization_failed")
         }
-        val callbacks = synchronized(initializationLock) {
+        val completion = synchronized(initializationLock) {
+            if (activeInitializationAttempt != attempt) return
+            if (!topOnInitializationInFlight) {
+                // A late success after the startup timeout is useful for later user-initiated ads,
+                // but must not revive the original splash request or hold the loading screen.
+                if (result is Initialization.Ready) topOnInitialized = true
+                return
+            }
             topOnInitialized = result is Initialization.Ready
             topOnInitializationInFlight = false
-            pendingInitializationCallbacks.toList().also { pendingInitializationCallbacks.clear() }
+            val callbacks = pendingInitializationCallbacks.toList().also { pendingInitializationCallbacks.clear() }
+            initializationTimeout.also { initializationTimeout = null } to callbacks
         }
-        mainHandler.post { callbacks.forEach { it(result) } }
+        completion.first?.let(mainHandler::removeCallbacks)
+        mainHandler.post { completion.second.forEach { it(result) } }
     }
 
     fun showRewarded(
@@ -283,16 +316,30 @@ class TopOnAdsManager(
         // TopOn 可能先回调 onAdLoadTimeout，随后仍回调 onAdLoaded(isTimeout=true)。
         // 一旦启动流程已因超时进入内容页，禁止再展示迟到的开屏，避免与新人/签到窗口叠加。
         var splashRequestExpired = false
+        lateinit var startupDeadline: Runnable
         fun deliver(result: FullscreenResult, host: FrameLayout? = null) {
             if (delivered) return
             delivered = true
+            mainHandler.removeCallbacks(startupDeadline)
             splashRequestInFlight = false
             host?.let { (it.parent as? ViewGroup)?.removeView(it) }
             restoreAppWindowAfterAd(activity)
             onResult(result)
         }
 
+        // This is the total cold-start budget, not an additional SDK timeout: initialization and
+        // ad loading together must never hold the user on the loading page for more than 5 seconds.
+        startupDeadline = Runnable {
+            if (delivered) return@Runnable
+            splashRequestExpired = true
+            Log.w(TAG, "Splash startup budget exhausted after ${SPLASH_STARTUP_BUDGET_MS}ms")
+            auditEvent("LOAD_FAILED", "splash", settings.splashPlacementId, "splash", result = "TIMEOUT", detail = "startup_budget_ms=$SPLASH_STARTUP_BUDGET_MS")
+            deliver(FullscreenResult.Skipped("TopOn 开屏广告启动超时"))
+        }
+        mainHandler.postDelayed(startupDeadline, SPLASH_STARTUP_BUDGET_MS)
+
         initialize { init ->
+            if (delivered || splashRequestExpired) return@initialize
             when (init) {
                 Initialization.Ready -> {
                     var splash: ATSplashAd? = null
@@ -753,6 +800,9 @@ class TopOnAdsManager(
     private companion object {
         const val TAG = "TopOnAdsManager"
         const val SPLASH_TIMEOUT_MS = 5_000
+        const val SPLASH_STARTUP_BUDGET_MS = 5_000L
+        const val TOPON_INITIALIZATION_TIMEOUT_MS = 5_000L
+        const val TOPON_INITIALIZATION_TIMEOUT_CODE = -407
         const val INTERSTITIAL_LOAD_TIMEOUT_MS = 8_000L
         const val INTERSTITIAL_LOAD_TIMEOUT_CODE = -408
         const val INTERSTITIAL_NOT_READY_CODE = -409
