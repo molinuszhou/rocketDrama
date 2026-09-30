@@ -120,10 +120,13 @@ internal fun DramaAppActivity.createProfilePage(): View = scrollPage { content -
         }
         content.addView(createSettingsRow(t("settings"), "${t("ad_settings")} · ${t("privacy_terms")}", "›") { showSettingsCenter() }, matchParams(bottom = 8))
         content.addView(createSettingsRow(t("language"), AppLanguage.label(this), "›") { showLanguageSettings() }, matchParams(bottom = 16))
-        // 联调阶段保留服务器地址；上线前按产品要求移除此开发分组。
-        content.addView(createSectionHeader(t("developer_services"), ""), matchParams(bottom = 10))
-        content.addView(createSettingsRow(t("content_service"), localContentBaseUrl(), "›") { showLocalServerSettings() }, matchParams(bottom = 8))
-        content.addView(createSettingsRow(t("rewards_service"), rewardsBaseUrl(), "›") { showRewardsServerSettings() }, matchParams(bottom = 18))
+        // LAN Content API and editable service endpoints are Debug-only. Formal Pangle SDK
+        // releases deliberately do not expose test infrastructure to end users.
+        if (!BuildConfig.SHORT_DRAMA_SDK_ENABLED) {
+            content.addView(createSectionHeader(t("developer_services"), ""), matchParams(bottom = 10))
+            content.addView(createSettingsRow(t("content_service"), localContentBaseUrl(), "›") { showLocalServerSettings() }, matchParams(bottom = 8))
+            content.addView(createSettingsRow(t("rewards_service"), rewardsBaseUrl(), "›") { showRewardsServerSettings() }, matchParams(bottom = 18))
+        }
     }
 
 internal fun DramaAppActivity.createProfileHero(): View = LinearLayout(this).apply {
@@ -322,14 +325,9 @@ internal fun DramaAppActivity.createSdkSearchDramaCard(card: ShortDramaSdkManage
     }
 
 internal fun DramaAppActivity.showSdkDramaPlayer(card: ShortDramaSdkManager.DramaCard) {
-        val fragment = ShortDramaSdkManager.get(this).createDetailFragment(card) { renderActiveTab() }
-        playerShown = false; withdrawalPageShown = false; gemBalanceAnchor = null; gemBalanceLabel = null; cashBalanceLabel = null
-        val host = FrameLayout(this).apply { id = View.generateViewId(); setBackgroundColor(Color.BLACK) }
-        root.removeAllViews()
-        root.addView(host, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        supportFragmentManager.beginTransaction().replace(host.id, fragment, "pssdk_detail").commitNowAllowingStateLoss()
-        // SDK owns video controls; JoyeDrama keeps actionable wallet/gem balances on the same safe top row.
-        root.addView(createPlayerTopBar(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(132), Gravity.TOP))
+        val catalogId = sdkCatalogId(card.id)
+        sdkDramaCardsByCatalogId[catalogId] = card
+        showSdkDramaPlayer(sdkCatalogDrama(card), card, startIndex = 0)
     }
 
 internal fun DramaAppActivity.createHorizontalDramaShelf(items: List<LocalDrama>): View = android.widget.HorizontalScrollView(this).apply {

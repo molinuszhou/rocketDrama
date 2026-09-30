@@ -1,0 +1,63 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-joyedrama_rewards}
+      POSTGRES_USER: ${POSTGRES_USER:-joyedrama}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.production}
+    volumes:
+      - rewards_postgres_data:/var/lib/postgresql/data
+      - ./sql/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  rewards-api:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-joyedrama}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-joyedrama_rewards}
+      HOST: 0.0.0.0
+      PORT: 8100
+      ENVIRONMENT: production
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://api.joyedrama.example}
+      ALLOW_DEBUG_AD_PROOF: "false"
+      # This stays server-side. Never put it in Android local.properties or BuildConfig.
+      PANGLE_CALLBACK_SECRET: ${PANGLE_CALLBACK_SECRET:?Set the provider callback verification secret}
+      ADMIN_DASHBOARD_TOKEN: ${ADMIN_DASHBOARD_TOKEN:?Set a long random administrator token}
+      TIMEZONE: ${TIMEZONE:-UTC}
+    expose:
+      - "8100"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/health', timeout=3)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    depends_on:
+      rewards-api:
+        condition: service_healthy
+    environment:
+      REWARDS_DOMAIN: ${REWARDS_DOMAIN:?Set the public rewards API domain}
+      ACME_EMAIL: ${ACME_EMAIL:?Set the ACME contact email}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  rewards_postgres_data:
+  caddy_data:
+  caddy_config:

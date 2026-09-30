@@ -21,6 +21,7 @@ from app.schemas import (
     EpisodeRewardClaimRequest,
     GemsExchangeRequest,
     HealthResponse,
+    InterstitialIncentiveSettlementRequest,
     MarketWalletPolicyUpdateRequest,
     InterstitialShownRequest,
     RewardedCompleteRequest,
@@ -88,6 +89,20 @@ def settle_rewarded_fallback(payload: RewardedFallbackSettlementRequest) -> dict
     return {
         "code": 0,
         "data": service.settle_rewarded_fallback(
+            user_id=payload.user_id,
+            interstitial_event_id=payload.interstitial_event_id,
+            original_placement_id=payload.original_placement_id,
+            target_id=payload.target_id,
+            episode_index=payload.episode_index,
+        ),
+    }
+
+
+@app.post("/v2/ads/interstitial/incentive-settlement", response_model=ApiEnvelope)
+def settle_interstitial_incentive(payload: InterstitialIncentiveSettlementRequest) -> dict:
+    return {
+        "code": 0,
+        "data": service.settle_interstitial_incentive(
             user_id=payload.user_id,
             interstitial_event_id=payload.interstitial_event_id,
             original_placement_id=payload.original_placement_id,

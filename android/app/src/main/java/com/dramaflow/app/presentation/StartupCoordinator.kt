@@ -115,6 +115,10 @@ internal fun DramaAppActivity.finishStartupAfterAppOpen(reason: String) {
     }
 
 internal fun DramaAppActivity.preloadLocalCatalog() {
+        if (BuildConfig.SHORT_DRAMA_SDK_ENABLED) {
+            preloadShortDramaSdkCatalog()
+            return
+        }
         localDramaApi.fetchFeed(
             baseUrl = localContentBaseUrl(),
             region = CONTENT_REGION,
@@ -156,6 +160,64 @@ internal fun DramaAppActivity.preloadLocalCatalog() {
             } },
         )
     }
+
+private fun DramaAppActivity.preloadShortDramaSdkCatalog() {
+    shortDramaSdk.initializeIfEnabled { initialization -> runOnUiThread {
+        if (initialization != ShortDramaSdkManager.Initialization.Ready) {
+            startupCatalogFinished = true
+            startupPosterPreloadFinished = true
+            startupCatalogFailure = when (initialization) {
+                is ShortDramaSdkManager.Initialization.InvalidConfiguration -> initialization.message
+                is ShortDramaSdkManager.Initialization.Failed -> initialization.message
+                ShortDramaSdkManager.Initialization.Disabled -> "Short-drama SDK is disabled in this build"
+                ShortDramaSdkManager.Initialization.Ready -> error("unreachable")
+            }
+            completeStartupWhenReady()
+            return@runOnUiThread
+        }
+        shortDramaSdk.loadDiscovery(
+            onSuccess = { discovery -> runOnUiThread {
+                val cards = (discovery.popular + discovery.latest)
+                    .distinctBy { it.id }
+                    .filter { it.title.isNotBlank() }
+                startupCatalogFinished = true
+                if (cards.isEmpty()) {
+                    startupCatalogFailure = t("catalog_empty")
+                    startupPosterPreloadFinished = true
+                    completeStartupWhenReady()
+                    return@runOnUiThread
+                }
+                sdkDramaCardsByCatalogId.clear()
+                cards.forEach { card -> sdkDramaCardsByCatalogId[sdkCatalogId(card.id)] = card }
+                catalogItems = cards.map(::sdkCatalogDrama)
+                updateStartupProgress(30, t("startup_content_ready"))
+                preloadCatalogCovers(
+                    items = catalogItems,
+                    onProgress = { percent ->
+                        startupPosterPreloadPercent = percent
+                        updateStartupProgress(computeStartupProgress(), t("startup_content_ready"))
+                    },
+                    onFinished = {
+                        startupPosterPreloadFinished = true
+                        startupPosterPreloadPercent = 100
+                        completeStartupWhenReady()
+                    },
+                    onTimedOut = {
+                        startupCatalogFailure = t("startup_resources_timeout")
+                        startupPosterPreloadFinished = true
+                        completeStartupWhenReady()
+                    },
+                )
+            } },
+            onFailure = { message -> runOnUiThread {
+                startupCatalogFinished = true
+                startupPosterPreloadFinished = true
+                startupCatalogFailure = t("catalog_load_failed", message)
+                completeStartupWhenReady()
+            } },
+        )
+    } }
+}
 
     /** Preloads the first screen’s real poster resources. Main UI never opens until all requests settle. */
 internal fun DramaAppActivity.preloadCatalogCovers(
@@ -217,7 +279,8 @@ internal fun DramaAppActivity.completeStartupWhenReady() {
         startupContentInitializationStarted = true
         val failure = startupCatalogFailure
         if (failure != null) {
-            renderFailure("$failure\n${t("current_server", localContentBaseUrl())}")
+            val context = if (BuildConfig.SHORT_DRAMA_SDK_ENABLED) "" else "\n${t("current_server", localContentBaseUrl())}"
+            renderFailure("$failure$context")
             return
         }
         updateStartupProgress(100, t("startup_ready"))

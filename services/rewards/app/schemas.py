@@ -32,6 +32,7 @@ InterstitialPlacement = Literal[
     "int_seek",
     "int_speed",
     "int_rewarded_fallback",
+    "int_incentive_action",
     "int_drama_switch",
 ]
 
@@ -54,6 +55,16 @@ class RewardedCompleteRequest(BaseModel):
 
 
 class RewardedFallbackSettlementRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=128)
+    interstitial_event_id: str = Field(min_length=8, max_length=160)
+    original_placement_id: RewardedPlacement
+    target_id: str | None = Field(default=None, max_length=256)
+    episode_index: int | None = Field(default=None, ge=1, le=10000)
+
+
+class InterstitialIncentiveSettlementRequest(BaseModel):
+    """Settles an Organic A-surface incentive after its interstitial was actually shown."""
+
     user_id: str = Field(min_length=1, max_length=128)
     interstitial_event_id: str = Field(min_length=8, max_length=160)
     original_placement_id: RewardedPlacement

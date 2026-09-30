@@ -1,40 +1,39 @@
-# 复制所需项到 local.properties 或受控 CI Secret；不要提交实际值。
+# Copy to android/local.properties or protected CI secrets. Never commit real production values.
+# The Release variant ships as com.feather.joyelledrama.
 
-# 自有短剧内容服务。
-# Android 模拟器：http://10.0.2.2:8000
-# 真机局域网：http://<电脑局域网IP>:8000
-LOCAL_CONTENT_API_BASE_URL=http://10.0.2.2:8000
+# Production rewards API. Must be a public HTTPS endpoint; do not use LAN or 10.0.2.2 in Release.
+REWARDS_API_BASE_URL=https://rewards.example.com
 
-# 动态奖励服务；可与内容服务共用同一 FastAPI 地址。
-REWARDS_API_BASE_URL=http://10.0.2.2:8000
-
-# 当前测试包：Pangle Waterfall 直连。真实值仅写入 local.properties/CI Secret。
-PANGLE_APP_ID=
-PANGLE_REWARDED_SLOT_ID=
-PANGLE_INTERSTITIAL_SLOT_ID=
-PANGLE_APP_OPEN_SLOT_ID=
-
-# 暂停广告使用 Native 广告位，以便应用提供“返回播放”按钮；未配置时暂停广告会自动跳过。
-PANGLE_PAUSE_NATIVE_SLOT_ID=
-
-# TopOn 聚合广告未来预留。拿到完整 App ID + App Key 后才可启用；当前版本不读取这些字段。
+# TopOn production mediation settings. TOPON_DEMO_MODE must be false for Release.
+TOPON_DEMO_MODE=false
 TOPON_APP_ID=
 TOPON_APP_KEY=
 TOPON_REWARDED_PLACEMENT_ID=
 TOPON_INTERSTITIAL_PLACEMENT_ID=
 TOPON_SPLASH_PLACEMENT_ID=
 ADMOB_APP_ID=
+# 10 seconds by default; permitted range is 1000–60000 milliseconds.
+TOPON_REWARDED_LOAD_TIMEOUT_MS=10000
 
-# AppsFlyer 归因预留；当前测试包不主动初始化归因 SDK。
+# AppsFlyer attribution. Organic installs take Release A; non-organic installs take Release B.
 APPSFLYER_DEV_KEY=
+RELEASE_AB_ROUTING_ENABLED=true
 
-# 外部短剧 SDK 未来重新启用时的预留项；当前版本不读取、不打包，也不包含 License 文件。
-DRAMAVERSE_APP_ID=
-DRAMAVERSE_SECURITY_KEY=
-BYTEPLUS_VOD_APP_ID=
-BYTEPLUS_VOD_LICENSE_ASSET=
+# External reporting (AppsFlyer, Firebase and Xuanyu). Verify each final provider endpoint before enabling.
+EXTERNAL_REPORTING_ENABLED=true
+ANALYTICS_DEBUG=false
+XUANYU_EVENT_BASE_URL=https://your-final-xuanyu-endpoint.example
 
-# 受控文件（必须被 .gitignore 排除）：
-# 1) app/google-services.json
-# 2) app/src/main/assets/license/*.lic（当前版本目录应为空）
+# Pangle short-drama SDK. Release forces SHORT_DRAMA_SDK_ENABLED=true and does not query the local Content API.
+SHORT_DRAMA_SDK_ENABLED=true
+SHORT_DRAMA_APP_ID=
+SHORT_DRAMA_VOD_APP_ID=
+# Path of the separately delivered license file beneath app/src/main/assets/, for example license/production.lic
+SHORT_DRAMA_LICENSE_ASSET=
+SHORT_DRAMA_SECURITY_KEY=
+
+# Required protected files (excluded by .gitignore):
+# 1) app/google-services.json registered for com.feather.joyelledrama
+# 2) app/src/main/assets/<SHORT_DRAMA_LICENSE_ASSET>
 # 3) local.properties
+# 4) signing keystore and its passwords, kept outside the repository

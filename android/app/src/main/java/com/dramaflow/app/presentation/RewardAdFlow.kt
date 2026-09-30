@@ -58,6 +58,8 @@ import com.dramaflow.app.ads.AdConsent
 import com.dramaflow.app.ads.AdConsentStore
 import com.dramaflow.app.ads.TopOnAdsManager
 import com.dramaflow.app.ads.TopOnSettings
+import com.dramaflow.app.analytics.AttributionExperienceStore
+import com.dramaflow.app.analytics.MonetizationExperience
 import com.dramaflow.app.content.ShortDramaSdkManager
 import com.dramaflow.app.local.LocalDrama
 import com.dramaflow.app.local.LocalDramaApiClient
@@ -84,6 +86,19 @@ internal fun DramaAppActivity.requestRewardedAction(
             AdConsent.GRANTED -> Unit
         }
         if (!rewardsApi.isConfigured) { toast(t("rewards_service_not_configured")); return }
+        // Release A (AppsFlyer Organic) never asks a user to watch a rewarded creative for
+        // cash-out-connected actions. Episode unlock remains the explicit rewarded exception.
+        if (usesOrganicInterstitialIncentives() && placementId != "rv_episode_pass") {
+            requestOrganicInterstitialIncentive(
+                placementId = placementId,
+                targetId = targetId,
+                episodeIndex = episodeIndex,
+                onSettled = onSettled,
+                onSettlementUnavailable = onSettlementUnavailable,
+                deferCashAnimation = deferCashAnimation,
+            )
+            return
+        }
         fullscreenAdRequestInFlight = true
         showFullscreenAdLoadingOverlay()
         pauseForFullscreenAd()
@@ -145,6 +160,54 @@ internal fun DramaAppActivity.requestRewardedAction(
             }
         } }
     }
+
+/** Organic A surface: a shown incentive interstitial, not a rewarded creative, settles the action once. */
+internal fun DramaAppActivity.requestOrganicInterstitialIncentive(
+    placementId: String,
+    targetId: String?,
+    episodeIndex: Int?,
+    onSettled: ((RewardsApiClient.RewardAction) -> Unit)?,
+    onSettlementUnavailable: ((String) -> Unit)?,
+    deferCashAnimation: Boolean,
+) {
+    if (fullscreenAdInProgress || fullscreenAdRequestInFlight) { toast(t("ad_loading")); return }
+    val shouldResume = exoPlayer?.isPlaying == true
+    showPlaybackActionInterstitial(
+        placementId = "int_incentive_action",
+        episodeId = selectedEpisode()?.id,
+        countTowardEpisodeLimit = false,
+        bypassSharedFrequencyCaps = true,
+        resumePlaybackAfter = shouldResume,
+        onShown = {},
+        onUnavailable = { reason ->
+            if (deferCashAnimation) deferNextCashFlight = false
+            if (onSettlementUnavailable != null) onSettlementUnavailable.invoke(reason)
+            else showRewardedUnavailableNotice(shouldResume, reason)
+        },
+        onRecorded = { interstitialEventId ->
+            rewardsApi.settleInterstitialIncentive(
+                userId = anonymousInstallationId(),
+                interstitialEventId = interstitialEventId,
+                originalPlacementId = placementId,
+                targetId = targetId,
+                episodeIndex = episodeIndex,
+                onSuccess = { action -> runOnUiThread {
+                    handleSettledRewardAction(action, onSettled, deferCashAnimation)
+                } },
+                onFailure = { reason -> runOnUiThread {
+                    if (deferCashAnimation) deferNextCashFlight = false
+                    logStatus("A 面插屏奖励结算失败：$reason")
+                    if (onSettlementUnavailable != null) onSettlementUnavailable.invoke(reason)
+                    else showRewardedUnavailableNotice(shouldResume, reason)
+                } },
+            )
+        },
+    )
+}
+
+internal fun DramaAppActivity.usesOrganicInterstitialIncentives(): Boolean =
+    BuildConfig.RELEASE_AB_ROUTING_ENABLED &&
+        AttributionExperienceStore.get(this).current() == MonetizationExperience.ORGANIC_A
 
 /** Applies every server-confirmed cash grant with the same receipt then wallet-flight sequence. */
 internal fun DramaAppActivity.handleSettledRewardAction(

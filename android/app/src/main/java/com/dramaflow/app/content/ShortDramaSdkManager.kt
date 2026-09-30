@@ -12,9 +12,9 @@ import java.util.UUID
 /**
  * 合作方短剧 SDK 的可选内容入口。
  *
- * 当前测试包保持 [BuildConfig.SHORT_DRAMA_SDK_ENABLED] 为 false，目录和播放仍由本地 Content
- * API + Media3 提供。待填写短剧 SDK 测试参数并开启开关后，本类可读取 SDK 的热门、最新、分类
- * 和分类推荐列表；UI 只消费 [DramaCard] 的统一内容模型，避免向用户暴露内容来源或 SDK 名称。
+ * Debug 可保持 [BuildConfig.SHORT_DRAMA_SDK_ENABLED] 为 false，目录和播放仍由本地 Content
+ * API + Media3 提供。正式 Release 强制使用该 SDK 的热门、最新、分类和播放页；UI 只消费
+ * [DramaCard] 的统一内容模型，避免向用户暴露内容来源或 SDK 名称。
  */
 class ShortDramaSdkManager private constructor(private val appContext: Context) {
     sealed interface Initialization {
@@ -205,7 +205,14 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
     }
 
     /** Creates the provider player only for a production SDK card; the caller owns its Fragment transaction. */
-    fun createDetailFragment(card: DramaCard, onClose: () -> Unit): ShortPlayFragment {
+    fun createDetailFragment(
+        card: DramaCard,
+        onClose: () -> Unit,
+        needsEpisodeUnlock: (episodeIndex: Int) -> Boolean,
+        requestEpisodeUnlock: (episodeIndex: Int, listener: PSSDK.ShortPlayBlockResultListener?) -> Unit,
+        onEpisodeStarted: (episodeIndex: Int, episode: com.bytedance.sdk.shortplay.api.EpisodeData?) -> Unit,
+        onEpisodeCompleted: (episodeIndex: Int) -> Unit,
+    ): ShortPlayFragment {
         return PSSDK.createDetailFragment(
             card.nativeShortPlay,
             PSSDK.DetailPageConfig.Builder()
@@ -219,14 +226,20 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
                 override fun onOverScroll(direction: Int) = Unit
                 override fun onProgressChange(shortPlay: ShortPlay?, episodeIndex: Int, progress: Int, duration: Int) = Unit
                 override fun onPlayFailed(error: PSSDK.ErrorInfo?): Boolean = false
-                override fun onShortPlayPlayed(shortPlay: ShortPlay?, episodeIndex: Int, episode: com.bytedance.sdk.shortplay.api.EpisodeData?) = Unit
+                override fun onShortPlayPlayed(shortPlay: ShortPlay?, episodeIndex: Int, episode: com.bytedance.sdk.shortplay.api.EpisodeData?) {
+                    onEpisodeStarted(episodeIndex, episode)
+                }
                 override fun onItemSelected(position: Int, itemType: PSSDK.ShortPlayDetailPageListener.ItemType?, episodeIndex: Int) = Unit
                 override fun onVideoPlayStateChanged(shortPlay: ShortPlay?, episodeIndex: Int, state: Int) = Unit
-                override fun onVideoPlayCompleted(shortPlay: ShortPlay?, episodeIndex: Int) = Unit
+                override fun onVideoPlayCompleted(shortPlay: ShortPlay?, episodeIndex: Int) {
+                    onEpisodeCompleted(episodeIndex)
+                }
                 override fun onEnterImmersiveMode() = Unit
                 override fun onExitImmersiveMode() = Unit
-                override fun isNeedBlock(shortPlay: ShortPlay?, episodeIndex: Int): Boolean = false
-                override fun showAdIfNeed(shortPlay: ShortPlay?, episodeIndex: Int, listener: PSSDK.ShortPlayBlockResultListener?) { listener?.onShortPlayUnlocked() }
+                override fun isNeedBlock(shortPlay: ShortPlay?, episodeIndex: Int): Boolean = needsEpisodeUnlock(episodeIndex)
+                override fun showAdIfNeed(shortPlay: ShortPlay?, episodeIndex: Int, listener: PSSDK.ShortPlayBlockResultListener?) {
+                    requestEpisodeUnlock(episodeIndex, listener)
+                }
                 override fun onVideoInfoFetched(shortPlay: ShortPlay?, episodeIndex: Int, info: PSSDK.VideoPlayInfo?) = Unit
                 override fun onObtainPlayerControlViews(): MutableList<android.view.View> = mutableListOf()
             },

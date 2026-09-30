@@ -425,6 +425,34 @@ class RewardsApiClient(
         }, onFailure)
     }
 
+    /** Organic A surface: settle only after the configured incentive interstitial was shown. */
+    fun settleInterstitialIncentive(
+        userId: String,
+        interstitialEventId: String,
+        originalPlacementId: String,
+        targetId: String? = null,
+        episodeIndex: Int? = null,
+        onSuccess: (RewardAction) -> Unit,
+        onFailure: (String) -> Unit,
+    ) {
+        val payload = JSONObject()
+            .put("user_id", userId)
+            .put("interstitial_event_id", interstitialEventId)
+            .put("original_placement_id", originalPlacementId)
+        if (!targetId.isNullOrBlank()) payload.put("target_id", targetId)
+        if (episodeIndex != null) payload.put("episode_index", episodeIndex)
+        post("/v2/ads/interstitial/incentive-settlement", payload, { data ->
+            val result = data.optJSONObject("result") ?: JSONObject()
+            val authorizationId = result.optString("ad_event_id").ifBlank { interstitialEventId }
+            onSuccess(RewardAction(
+                data.optBoolean("idempotent"), result.optString("action"), result.optLong("gems_added"),
+                parseSnapshot(data.getJSONObject("snapshot")), result.optString("cash_added", "0.00"),
+                result.optString("cash_added_usd_reference", "0.00"), authorizationId,
+                result.optLong("released_micros"), result.optInt("unlock_episode_count", 1).coerceAtLeast(1),
+            ))
+        }, onFailure)
+    }
+
     fun checkin(userId: String, onSuccess: (RewardAction) -> Unit, onFailure: (String) -> Unit) = post(
         "/v2/checkins", JSONObject().put("user_id", userId), { data ->
             val result = data.optJSONObject("result") ?: JSONObject()

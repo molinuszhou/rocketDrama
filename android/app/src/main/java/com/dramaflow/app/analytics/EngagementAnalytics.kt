@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import com.appsflyer.AppsFlyerConversionListener
 import com.appsflyer.AppsFlyerLib
 import com.appsflyer.attribution.AppsFlyerRequestListener
 import com.dramaflow.app.BuildConfig
@@ -40,6 +41,7 @@ import okhttp3.Response
 class EngagementAnalytics private constructor(private val appContext: Context) {
     private val appsFlyer = AppsFlyerLib.getInstance()
     private val reportingAudit = ReportingAuditLog.get(appContext)
+    private val attributionExperience = AttributionExperienceStore.get(appContext)
     /** Firebase auto-initializes from google-services.json; guard the side-channel so an accidental
      * missing test configuration never blocks ads, AppsFlyer events, or rewards. */
     private val firebase: FirebaseAnalytics? by lazy {
@@ -72,9 +74,14 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
         } else {
             reportingAudit.recordProvider(APPSFLYER, "sdk_initialization", ReportingStatus.STARTED)
             appsFlyer.setDebugLog(BuildConfig.ANALYTICS_DEBUG)
-            appsFlyer.init(BuildConfig.APPSFLYER_DEV_KEY, null, appContext)
+            appsFlyer.init(BuildConfig.APPSFLYER_DEV_KEY, attributionConversionListener(), appContext)
             appsFlyer.start(appContext)
-            reportingAudit.recordProvider(APPSFLYER, "sdk_initialization", ReportingStatus.SUCCESS, detail = "start_requested")
+            reportingAudit.recordProvider(
+                APPSFLYER,
+                "sdk_initialization",
+                ReportingStatus.SUCCESS,
+                detail = "start_requested; ${attributionExperience.diagnosticSummary()}",
+            )
         }
         reportingAudit.recordProvider(FIREBASE, "sdk_initialization", ReportingStatus.SUCCESS, detail = "firebase_lazy_init")
         reportingAudit.recordProvider(XUANYU, "sdk_initialization", ReportingStatus.SUCCESS, detail = "http_client_ready")
@@ -85,6 +92,42 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
         .getOrNull()
         ?.trim()
         ?.takeIf(String::isNotBlank)
+
+    private fun attributionConversionListener(): AppsFlyerConversionListener = object : AppsFlyerConversionListener {
+        override fun onConversionDataSuccess(conversionData: MutableMap<String, Any>?) {
+            val experience = attributionExperience.applyConversionData(conversionData)
+            // Keep only the attribution decision and media-source label in the local diagnostic file.
+            // Campaign IDs, click IDs, and raw conversion payload values are intentionally never logged.
+            reportingAudit.recordProvider(
+                APPSFLYER,
+                "attribution_surface",
+                ReportingStatus.SUCCESS,
+                detail = "${attributionExperience.diagnosticSummary()}; selected=${experience.wireValue}",
+            )
+            Log.i(TAG, "AppsFlyer attribution selected release surface ${experience.wireValue}")
+        }
+
+        override fun onConversionDataFail(errorMessage: String?) {
+            reportingAudit.recordProvider(
+                APPSFLYER,
+                "attribution_surface",
+                ReportingStatus.FAILED,
+                detail = "conversion_data_unavailable; default_surface=${attributionExperience.current().wireValue}",
+            )
+            Log.w(TAG, "AppsFlyer conversion data unavailable; retaining safe default surface", errorMessage?.let(::IllegalStateException))
+        }
+
+        override fun onAppOpenAttribution(attributionData: MutableMap<String, String>?) = Unit
+
+        override fun onAttributionFailure(errorMessage: String?) {
+            reportingAudit.recordProvider(
+                APPSFLYER,
+                "app_open_attribution",
+                ReportingStatus.FAILED,
+                detail = "attribution_failure",
+            )
+        }
+    }
 
     /** 广告真实展示：炫羽展示上报使用此时机；收入事件等待 paid impression 回调。 */
     fun reportTopOnImpression(logicalPlacement: String, adUnitId: String, adInfo: ATAdInfo) {

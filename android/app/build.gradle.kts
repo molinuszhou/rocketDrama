@@ -42,7 +42,7 @@ val topOnAdmobAppId = if (topOnDemoMode) topOnDemoAdmobAppId else partnerAdmobAp
 // Configurable from local.properties, -P or environment: TOPON_REWARDED_LOAD_TIMEOUT_MS.
 // Keep the app responsive while allowing slow mediation waterfalls enough time to return a fill.
 val topOnRewardedLoadTimeoutMillis = integrationTimeoutMillis("TOPON_REWARDED_LOAD_TIMEOUT_MS", 10_000L)
-val appsFlyerDevKey = integrationValue("APPSFLYER_DEV_KEY").ifBlank { "DdWbxT9VRELdEsZiAcnGea" }
+val appsFlyerDevKey = integrationValue("APPSFLYER_DEV_KEY")
 val appsFlyerSingleRevenueEventName = integrationValue("APPSFLYER_SINGLE_REVENUE_EVENT_NAME").ifBlank { "ad_impression" }
 val appsFlyerCumulativeRevenueEventName = integrationValue("APPSFLYER_CUMULATIVE_REVENUE_EVENT_NAME").ifBlank { "ad_impression_001" }
 val firebaseRewardedEventName = integrationValue("FIREBASE_REWARDED_EVENT_NAME").ifBlank { "rewarded_ad_completed" }
@@ -58,6 +58,7 @@ val whiteLabelAppName = integrationValue("WHITE_LABEL_APP_NAME").ifBlank { "Joye
 val analyticsDebug = integrationValue("ANALYTICS_DEBUG").trim().equals("true", ignoreCase = true)
 // 测试阶段默认关闭 AppsFlyer、Firebase 和炫羽的实际事件上报；SDK 与事件代码保留，正式联调时显式开启。
 val externalReportingEnabled = integrationValue("EXTERNAL_REPORTING_ENABLED").trim().equals("true", ignoreCase = true)
+val releaseAbRoutingEnabled = integrationValue("RELEASE_AB_ROUTING_ENABLED").trim().equals("true", ignoreCase = true)
 val localContentApiBaseUrl = integrationValue("LOCAL_CONTENT_API_BASE_URL").ifBlank { "http://10.0.2.2:8000" }
 val rewardsApiBaseUrl = integrationValue("REWARDS_API_BASE_URL").ifBlank { "http://10.0.2.2:8100" }
 val commercialReleaseRequested = gradle.startParameter.taskNames.any { task ->
@@ -73,6 +74,12 @@ if (commercialReleaseRequested) {
         "TOPON_INTERSTITIAL_PLACEMENT_ID" to partnerTopOnInterstitialPlacementId,
         "TOPON_SPLASH_PLACEMENT_ID" to partnerTopOnSplashPlacementId,
         "ADMOB_APP_ID" to partnerAdmobAppId,
+        "APPSFLYER_DEV_KEY" to appsFlyerDevKey,
+        "SHORT_DRAMA_APP_ID" to shortDramaAppId,
+        "SHORT_DRAMA_VOD_APP_ID" to shortDramaVodAppId,
+        "SHORT_DRAMA_LICENSE_ASSET" to shortDramaLicenseAsset,
+        "SHORT_DRAMA_SECURITY_KEY" to shortDramaSecurityKey,
+        "REWARDS_API_BASE_URL" to rewardsApiBaseUrl.takeUnless { it.contains("10.0.2.2") }.orEmpty(),
     ).filter { (_, value) -> value.isBlank() }.map { (name, _) -> name }
     check(missing.isEmpty()) { "Commercial Release requires explicit advertising configuration: ${missing.joinToString()}" }
 }
@@ -100,11 +107,22 @@ tasks.configureEach {
         dependsOn(validateCommercialReleaseAdConfig)
     }
 }
-// Firebase 的应用配置属于环境凭据，仓库中不提交。仅在配置文件存在时启用 Google
-// Services 插件；Analytics SDK 与其受开关控制的代码仍可在本地/CI 中正常编译。
-val googleServicesConfigPresent = file("google-services.json").exists() ||
-    file("src/debug/google-services.json").exists() ||
-    file("src/release/google-services.json").exists()
+// Firebase configuration is an environment credential, never committed. Do not apply the Google
+// Services plugin to a stale config registered for the former test package: it would make a
+// formal build look valid while emitting the wrong Firebase resources.
+val formalApplicationId = "com.feather.joyelledrama"
+val googleServicesConfigPresent = listOf(
+    file("google-services.json"),
+    file("src/debug/google-services.json"),
+    file("src/release/google-services.json"),
+).any { candidate ->
+    candidate.exists() && candidate.readText().contains("\"package_name\": \"$formalApplicationId\"")
+}
+if (commercialReleaseRequested) {
+    check(googleServicesConfigPresent) {
+        "Commercial Release requires google-services.json registered for $formalApplicationId."
+    }
+}
 
 plugins {
     id("com.android.application")
@@ -117,18 +135,20 @@ if (googleServicesConfigPresent) {
 }
 
 android {
+    // Source namespace remains stable for existing Activity and resource references. Google Play,
+    // Firebase, AppsFlyer and TopOn identify the shipped app by applicationId below.
     namespace = "com.dramaflow.app"
     compileSdk = 35
 
     defaultConfig {
-        // 与新 Firebase 配置及计划上架的正式 Android 应用标识保持一致。
-        // namespace 与 applicationId 统一，避免上架、深链和第三方 SDK 注册信息出现歧义。
-        applicationId = "com.dramaflow.app"
+        // Formal Play distribution package. Firebase, AppsFlyer and TopOn production settings must
+        // all be registered against this same identifier.
+        applicationId = formalApplicationId
         minSdk = 26
         targetSdk = 35
         // Android 客户端每次代码改动递增补丁版本；服务端/文档单独改动不变更此版本。
-        versionCode = 53
-        versionName = "1.6.6.18"
+        versionCode = 54
+        versionName = "1.7.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -152,6 +172,7 @@ android {
         buildConfigField("String", "SHORT_DRAMA_SECURITY_KEY", "\"${escapeBuildConfig(shortDramaSecurityKey)}\"")
         buildConfigField("boolean", "ANALYTICS_DEBUG", analyticsDebug.toString())
         buildConfigField("boolean", "EXTERNAL_REPORTING_ENABLED", externalReportingEnabled.toString())
+        buildConfigField("boolean", "RELEASE_AB_ROUTING_ENABLED", releaseAbRoutingEnabled.toString())
         buildConfigField("boolean", "WHITE_PACK", "false")
         buildConfigField("boolean", "ADS_ENABLED", "true")
         buildConfigField("boolean", "REWARDS_ENABLED", "true")
@@ -177,6 +198,10 @@ android {
             buildConfigField("String", "TOPON_INTERSTITIAL_PLACEMENT_ID", "\"${escapeBuildConfig(partnerTopOnInterstitialPlacementId)}\"")
             buildConfigField("String", "TOPON_SPLASH_PLACEMENT_ID", "\"${escapeBuildConfig(partnerTopOnSplashPlacementId)}\"")
             buildConfigField("boolean", "TOPON_DEMO_MODE", "false")
+            // Formal release always consumes Pangle short-drama SDK content and the AppsFlyer
+            // organic/non-organic monetization split; local content remains Debug-only.
+            buildConfigField("boolean", "SHORT_DRAMA_SDK_ENABLED", "true")
+            buildConfigField("boolean", "RELEASE_AB_ROUTING_ENABLED", "true")
             manifestPlaceholders["ADMOB_APP_ID"] = partnerAdmobAppId
             isMinifyEnabled = true
             isShrinkResources = true
@@ -204,6 +229,7 @@ android {
             buildConfigField("boolean", "CONTENT_UNLOCK_ENABLED", "false")
             // White release is content-only; never start attribution or send analytics side-channel events.
             buildConfigField("boolean", "EXTERNAL_REPORTING_ENABLED", "false")
+            buildConfigField("boolean", "RELEASE_AB_ROUTING_ENABLED", "false")
             resValue("string", "app_name", "JoyeDrama White")
         }
     }

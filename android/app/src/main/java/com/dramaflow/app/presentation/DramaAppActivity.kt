@@ -81,7 +81,10 @@ class DramaAppActivity : FragmentActivity() {
     internal lateinit var root: FrameLayout
     internal var catalogPage: View? = null
     internal var catalogItems: List<LocalDrama> = emptyList()
-    /** 当前测试由 Local Content API 提供；字段与合作方短剧 SDK 的 title/cover/summary/genres 模型对齐。 */
+    /** Debug may use Local Content API; formal Release maps Pangle SDK cards into this shared model. */
+    internal val sdkDramaCardsByCatalogId = mutableMapOf<String, ShortDramaSdkManager.DramaCard>()
+    internal var sdkPlayerShown = false
+    internal var sdkPlayerContainerId = View.NO_ID
     internal var selectedCatalogGenre: String? = null
     internal var activeTab: MainTab = MainTab.HOME
     internal var withdrawalPageShown = false
@@ -241,6 +244,7 @@ class DramaAppActivity : FragmentActivity() {
     }
     internal val rewardsApi by lazy { RewardsApiClient(baseUrlProvider = { rewardsBaseUrl() }) }
     internal val localDramaApi by lazy { LocalDramaApiClient() }
+    internal val shortDramaSdk by lazy { ShortDramaSdkManager.get(applicationContext) }
     internal val serverPreferences by lazy { getSharedPreferences(SERVER_PREFERENCES, Context.MODE_PRIVATE) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -272,7 +276,7 @@ class DramaAppActivity : FragmentActivity() {
                         withdrawalPageShown = false
                         renderActiveTab()
                     }
-                    playerShown -> showCatalog()
+                    playerShown || sdkPlayerShown -> showCatalog()
                     else -> finish()
                 }
             }
@@ -338,6 +342,7 @@ class DramaAppActivity : FragmentActivity() {
     override fun onDestroy() {
         taskRewardPromptRunnable?.let(root::removeCallbacks)
         taskRewardPromptRunnable = null
+        dismissSdkDramaPlayerIfShown()
         releasePlayer()
         super.onDestroy()
     }
@@ -347,6 +352,10 @@ class DramaAppActivity : FragmentActivity() {
      * 先显示 JoyeDrama Logo 加载页；开屏关闭、跳过或无填充后，再进入签到与内容初始化。
      */
     internal fun loadLocalCatalog() {
+        if (BuildConfig.SHORT_DRAMA_SDK_ENABLED) {
+            loadShortDramaSdkCatalog()
+            return
+        }
         renderLoading(t("loading_catalog"))
         localDramaApi.fetchFeed(
             baseUrl = localContentBaseUrl(),
@@ -357,6 +366,54 @@ class DramaAppActivity : FragmentActivity() {
             onFailure = { message -> runOnUiThread { renderFailure(t("catalog_load_failed", message)) } },
         )
     }
+
+    private fun loadShortDramaSdkCatalog() {
+        renderLoading(t("loading_catalog"))
+        shortDramaSdk.initializeIfEnabled { initialization -> runOnUiThread {
+            when (initialization) {
+                ShortDramaSdkManager.Initialization.Ready -> shortDramaSdk.loadDiscovery(
+                    onSuccess = { discovery -> runOnUiThread {
+                        val cards = (discovery.popular + discovery.latest)
+                            .distinctBy { it.id }
+                            .filter { it.title.isNotBlank() }
+                        sdkDramaCardsByCatalogId.clear()
+                        cards.forEach { card -> sdkDramaCardsByCatalogId[sdkCatalogId(card.id)] = card }
+                        catalogItems = cards.map(::sdkCatalogDrama)
+                        if (catalogItems.isEmpty()) renderFailure(t("catalog_empty")) else renderActiveTab()
+                    } },
+                    onFailure = { message -> runOnUiThread { renderFailure(t("catalog_load_failed", message)) } },
+                )
+                is ShortDramaSdkManager.Initialization.InvalidConfiguration -> renderFailure(t("catalog_load_failed", initialization.message))
+                is ShortDramaSdkManager.Initialization.Failed -> renderFailure(t("catalog_load_failed", initialization.message))
+                ShortDramaSdkManager.Initialization.Disabled -> renderFailure(t("catalog_load_failed", "Short-drama SDK is disabled in this build"))
+            }
+        } }
+    }
+
+    internal fun sdkCatalogId(shortPlayId: Long): String = "pssdk-$shortPlayId"
+
+    internal fun sdkCatalogDrama(card: ShortDramaSdkManager.DramaCard): LocalDrama = LocalDrama(
+        id = sdkCatalogId(card.id),
+        title = card.title,
+        desc = card.summary,
+        coverImage = card.coverUrl,
+        total = card.totalEpisodes.coerceAtLeast(1),
+        freeEpisodes = FREE_EPISODES,
+        genres = card.genres,
+        // PSSDK owns the media URLs and actual player. These lightweight episode records only
+        // provide stable local IDs for the shared unlock, progress and reward state machines.
+        episodes = (0 until card.totalEpisodes.coerceAtLeast(1)).map { index ->
+            LocalEpisode(
+                id = "pssdk-${card.id}-episode-${index + 1}",
+                dramaId = sdkCatalogId(card.id),
+                index = index,
+                title = "Episode ${index + 1}",
+                durationSeconds = 0,
+                coverUrl = card.coverUrl,
+                entitlement = if (index < FREE_EPISODES) "FREE" else "AD_UNLOCK",
+            )
+        },
+    )
 
     internal enum class MainTab(val languageKey: String, val iconRes: Int) {
         HOME("home", R.drawable.ic_nav_home),
@@ -580,6 +637,7 @@ internal fun DramaAppActivity.showAdNetworkAuditLog() {
         // releasePlayer persists resume state only while the player is still marked visible.
         // Keep this ordering so “My / Continue watching” always resumes the actual episode and time.
         releasePlayer()
+        dismissSdkDramaPlayerIfShown()
         clearExternalAdReturnCheckpoint()
         playerShown = false
         activeTab = MainTab.HOME

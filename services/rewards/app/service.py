@@ -701,7 +701,7 @@ class RewardsService:
             # Horizontal drama switching and a failed rewarded placement are explicit
             # exception routes. Their own enablement/hourly controls below remain in
             # force, but a prior content mid-roll must not silently suppress them.
-            independent_exception = placement_id in {"int_drama_switch", "int_rewarded_fallback"}
+            independent_exception = placement_id in {"int_drama_switch", "int_rewarded_fallback", "int_incentive_action"}
 
             cooldown_seconds = int(policy.get("interstitial_cooldown_seconds", 0))
             if not independent_exception and counters["last_interstitial_at"] and now - counters["last_interstitial_at"] < timedelta(seconds=cooldown_seconds):
@@ -779,6 +779,11 @@ class RewardsService:
             elif placement_id == "int_rewarded_fallback":
                 if not bool(policy["rewarded_fallback_interstitial_enabled"]):
                     raise ServiceError(2020, "激励回退插屏当前未启用", 409)
+            elif placement_id == "int_incentive_action":
+                # Organic A uses an interstitial as the explicitly disclosed incentive format.
+                # Reuse the existing operator toggle so this route can be disabled immediately.
+                if not bool(policy["rewarded_fallback_interstitial_enabled"]):
+                    raise ServiceError(2020, "插屏激励当前未启用", 409)
             else:
                 # 兼容旧版 int_timer / int_pause 事件。
                 if placement_count(placement_id) >= int(policy["interstitial_hourly_limit"]):
@@ -990,13 +995,17 @@ class RewardsService:
         original_placement_id: str,
         target_id: str | None,
         episode_index: int | None,
+        expected_interstitial_placement: str = "int_rewarded_fallback",
+        verification_method: str = "interstitial_fallback",
+        authorization_prefix: str = "fallback",
     ) -> dict[str, Any]:
-        """Settle the original rewarded action only after an actual fallback interstitial.
+        """Settle an incentive action only after an actual, auditable interstitial.
 
-        A fallback creative is not itself an equivalent rewarded ad. This path is
-        intentionally separate from ``complete_rewarded_ad``: it requires a
-        recorded ``int_rewarded_fallback`` event and preserves an auditable,
+        This path is intentionally separate from ``complete_rewarded_ad``. It
+        requires the expected recorded interstitial and preserves an auditable,
         idempotent link between that verified display and the original action.
+        The existing fallback ledger is shared with A-surface incentive displays
+        so all non-rewarded verification remains in one one-time grant ledger.
         """
         with self._transaction() as connection:
             self._ensure_user(connection, user_id)
@@ -1015,13 +1024,13 @@ class RewardsService:
                    WHERE event_id = %s AND user_id = %s FOR UPDATE""",
                 (interstitial_event_id, user_id),
             )
-            if interstitial and interstitial["placement_id"] != "int_rewarded_fallback":
-                raise ServiceError(2023, "未找到可结算的激励回退插屏", 409)
+            if interstitial and interstitial["placement_id"] != expected_interstitial_placement:
+                raise ServiceError(2023, "未找到可结算的插屏激励展示", 409)
             policy = self._policy(connection)
             if not bool(policy["rewarded_fallback_interstitial_enabled"]):
                 raise ServiceError(2020, "激励回退插屏当前未启用", 409)
             if not interstitial:
-                # The client only reaches this path from a completed fallback creative.
+                # The client only reaches this path from a completed creative.
                 # Network loss can prevent the preceding telemetry request from arriving,
                 # so persist the same auditable display record here before granting the
                 # original entitlement. This keeps a shown fallback from losing its reward.
@@ -1029,9 +1038,9 @@ class RewardsService:
                 self._execute(
                     connection,
                     """INSERT INTO interstitial_events (event_id, user_id, business_date, placement_id)
-                       VALUES (%s, %s, %s, 'int_rewarded_fallback')
+                       VALUES (%s, %s, %s, %s)
                        ON CONFLICT (event_id) DO NOTHING""",
-                    (interstitial_event_id, user_id, business_date),
+                    (interstitial_event_id, user_id, business_date, expected_interstitial_placement),
                 )
                 self._execute(
                     connection,
@@ -1049,7 +1058,7 @@ class RewardsService:
                 episode_index=episode_index,
                 policy=policy,
             )
-            fallback_ad_event_id = f"fallback-{interstitial_event_id}"
+            fallback_ad_event_id = f"{authorization_prefix}-{interstitial_event_id}"
             # Downstream actions such as the aggregated episode-reward claim
             # must use the rewarded-event identifier that created the server
             # authorization, not the interstitial telemetry identifier.
@@ -1058,8 +1067,8 @@ class RewardsService:
                 connection,
                 """INSERT INTO rewarded_ad_events
                    (ad_event_id, user_id, business_date, placement_id, target_id, ad_timestamp, verification_method, result_payload)
-                   VALUES (%s, %s, %s, %s, %s, NOW(), 'interstitial_fallback', %s::jsonb)""",
-                (fallback_ad_event_id, user_id, business_date, original_placement_id, target_id, self._json(result)),
+                   VALUES (%s, %s, %s, %s, %s, NOW(), %s, %s::jsonb)""",
+                (fallback_ad_event_id, user_id, business_date, original_placement_id, target_id, verification_method, self._json(result)),
             )
             credited_units = self._settle_rewarded_payload(
                 connection=connection,
@@ -1075,7 +1084,8 @@ class RewardsService:
                 result["gems_added"] = credited_units
                 result["cash_added"] = self._money(self._reward_units_to_micros(credited_units, wallet_policy), wallet_policy)
                 result["cash_added_usd_reference"] = self._usd_reference_money(self._reward_units_to_micros(credited_units, wallet_policy), wallet_policy)
-            result["fallback_interstitial_settled"] = True
+            result["interstitial_incentive_settled"] = True
+            result["interstitial_placement_id"] = expected_interstitial_placement
             self._execute(
                 connection,
                 """UPDATE daily_counters
@@ -1115,6 +1125,36 @@ class RewardsService:
                 (self._json(result), interstitial_event_id),
             )
             return {"idempotent": False, "result": result, "snapshot": self._snapshot(connection, user_id)}
+
+    def settle_interstitial_incentive(
+        self,
+        *,
+        user_id: str,
+        interstitial_event_id: str,
+        original_placement_id: str,
+        target_id: str | None,
+        episode_index: int | None,
+    ) -> dict[str, Any]:
+        """Organic A surface: grant after the configured incentive interstitial closes.
+
+        This is not a rewarded-ad verification bypass. The original action is
+        settled only when the client has recorded the A-surface interstitial as
+        shown, and receives its own authorization ID for downstream claims.
+        """
+        if original_placement_id == "rv_episode_pass":
+            # Episode access is intentionally excluded from the Organic A substitution:
+            # it must remain an explicitly requested rewarded-video unlock on both surfaces.
+            raise ServiceError(2024, "剧集解锁必须通过激励广告完成", 409)
+        return self.settle_rewarded_fallback(
+            user_id=user_id,
+            interstitial_event_id=interstitial_event_id,
+            original_placement_id=original_placement_id,
+            target_id=target_id,
+            episode_index=episode_index,
+            expected_interstitial_placement="int_incentive_action",
+            verification_method="interstitial_incentive",
+            authorization_prefix="interstitial-incentive",
+        )
 
     def withdrawal_preflight(self, user_id: str) -> dict[str, Any]:
         with self._transaction() as connection:

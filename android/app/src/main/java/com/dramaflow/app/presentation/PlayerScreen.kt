@@ -70,6 +70,10 @@ import java.util.UUID
 import kotlin.random.Random
 
 internal fun DramaAppActivity.showPlayer(drama: LocalDrama, startIndex: Int, resumePositionSeconds: Int = 0) {
+        sdkDramaCardsByCatalogId[drama.id]?.let { card ->
+            showSdkDramaPlayer(drama, card, startIndex)
+            return
+        }
         if (drama.episodes.isEmpty()) {
             renderLoading(t("loading_episode"))
             localDramaApi.fetchDrama(
