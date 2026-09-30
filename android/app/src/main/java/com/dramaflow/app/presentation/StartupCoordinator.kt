@@ -76,6 +76,8 @@ internal fun DramaAppActivity.beginStartupExperience() {
         startupPosterPreloadFinished = false
         startupRewardsFinished = !rewardsApi.isConfigured
         startupPosterPreloadPercent = 0
+        shortDramaRetryAttempt = 0
+        shortDramaRetryScheduled = false
         renderStartupLoading()
         updateStartupProgress(0, t("startup_preparing"))
         if (rewardsApi.isConfigured) refreshRewardsSnapshot() else completeStartupWhenReady()
@@ -122,13 +124,15 @@ private fun DramaAppActivity.preloadShortDramaSdkCatalog() {
         if (initialization != ShortDramaSdkManager.Initialization.Ready) {
             startupCatalogFinished = true
             startupPosterPreloadFinished = true
+            val retryAllowed = initialization is ShortDramaSdkManager.Initialization.Failed
             startupCatalogFailure = when (initialization) {
                 is ShortDramaSdkManager.Initialization.InvalidConfiguration -> initialization.message
                 is ShortDramaSdkManager.Initialization.Failed -> initialization.message
                 ShortDramaSdkManager.Initialization.Disabled -> "Short-drama SDK is disabled in this build"
                 ShortDramaSdkManager.Initialization.Ready -> error("unreachable")
             }
-            completeStartupWhenReady()
+            if (startupContentInitializationStarted) renderActiveTab() else completeStartupWhenReady()
+            if (retryAllowed) scheduleShortDramaCatalogRetry(startupCatalogFailure.orEmpty())
             return@runOnUiThread
         }
         shortDramaSdk.loadDiscovery(
@@ -140,9 +144,12 @@ private fun DramaAppActivity.preloadShortDramaSdkCatalog() {
                 if (cards.isEmpty()) {
                     startupCatalogFailure = t("catalog_empty")
                     startupPosterPreloadFinished = true
-                    completeStartupWhenReady()
+                    if (startupContentInitializationStarted) renderActiveTab() else completeStartupWhenReady()
+                    scheduleShortDramaCatalogRetry(startupCatalogFailure.orEmpty())
                     return@runOnUiThread
                 }
+                shortDramaRetryAttempt = 0
+                shortDramaRetryScheduled = false
                 sdkDramaCardsByCatalogId.clear()
                 cards.forEach { card -> sdkDramaCardsByCatalogId[sdkCatalogId(card.id)] = card }
                 catalogItems = cards.map(::sdkCatalogDrama)
@@ -171,9 +178,26 @@ private fun DramaAppActivity.preloadShortDramaSdkCatalog() {
                 startupPosterPreloadFinished = true
                 startupCatalogFailure = t("catalog_load_failed", message)
                 if (startupContentInitializationStarted) renderActiveTab() else completeStartupWhenReady()
+                scheduleShortDramaCatalogRetry(message)
             } },
         )
     } }
+}
+
+/** Retries only transient PSSDK bootstrap/catalog failures; the application shell stays interactive. */
+private fun DramaAppActivity.scheduleShortDramaCatalogRetry(reason: String) {
+    if (catalogItems.isNotEmpty() || shortDramaRetryScheduled || shortDramaRetryAttempt >= MAX_SHORT_DRAMA_RETRY_ATTEMPTS || isFinishing || isDestroyed) return
+    shortDramaRetryScheduled = true
+    val nextAttempt = shortDramaRetryAttempt + 1
+    val delayMillis = SHORT_DRAMA_RETRY_DELAYS_MS[shortDramaRetryAttempt]
+    logStatus("短剧目录加载未完成，${delayMillis / 1_000} 秒后进行第 $nextAttempt 次后台重试：$reason")
+    root.postDelayed({
+        shortDramaRetryScheduled = false
+        if (!isFinishing && !isDestroyed && catalogItems.isEmpty()) {
+            shortDramaRetryAttempt = nextAttempt
+            preloadShortDramaSdkCatalog()
+        }
+    }, delayMillis)
 }
 
     /** Preloads the first screen’s real poster resources. Main UI never opens until all requests settle. */
@@ -251,3 +275,6 @@ internal fun DramaAppActivity.completeStartupWhenReady() {
         renderActiveTab()
         showStartupCheckinWhenReady()
     }
+
+private const val MAX_SHORT_DRAMA_RETRY_ATTEMPTS = 3
+private val SHORT_DRAMA_RETRY_DELAYS_MS = longArrayOf(3_000L, 6_000L, 12_000L)

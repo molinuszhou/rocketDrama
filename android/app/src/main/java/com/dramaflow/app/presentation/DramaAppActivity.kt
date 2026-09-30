@@ -107,6 +107,9 @@ class DramaAppActivity : FragmentActivity() {
     internal var startupRewardsFinished = false
     internal var startupPosterPreloadPercent = 0
     internal var startupCatalogFailure: String? = null
+    /** PSSDK can fail its first remote bootstrap on a cold network; retries never block navigation. */
+    internal var shortDramaRetryAttempt = 0
+    internal var shortDramaRetryScheduled = false
     internal var startupProgressBar: ProgressBar? = null
     internal var startupProgressLabel: TextView? = null
     internal var startupProgressPercentLabel: TextView? = null

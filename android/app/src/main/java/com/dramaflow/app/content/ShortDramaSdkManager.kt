@@ -85,7 +85,9 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
             .licenseAssertPath(licenseAsset)
             .securityKey(securityKey)
             .userId(installationId())
-            .requestTimeout(10_000L)
+            // The formal launcher no longer waits for this provider call, so allow cold mobile
+            // networks enough time to complete PSSDK bootstrap before treating it as a failure.
+            .requestTimeout(30_000L)
             .autoInitVideoPlayer(true)
             .debug(BuildConfig.DEBUG)
             .build()
