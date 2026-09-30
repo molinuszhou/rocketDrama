@@ -23,7 +23,9 @@ RELEASE_AB_ROUTING_ENABLED=true
 # 外部上报：AppsFlyer、Firebase、炫羽。完成三方联调后再开启。
 EXTERNAL_REPORTING_ENABLED=true
 ANALYTICS_DEBUG=false
-XUANYU_EVENT_BASE_URL=https://填写正式炫羽上报地址
+# 炫羽正式接口当前仅提供 HTTP。客户端仅对 api.eventtrack.top 放行明文流量；
+# 请勿改成 HTTPS，也不要将其他域名加入明文白名单。
+XUANYU_EVENT_BASE_URL=http://api.eventtrack.top
 
 # Pangle 短剧 SDK。Release 固定启用，不请求本地 Content 服务。
 SHORT_DRAMA_APP_ID=

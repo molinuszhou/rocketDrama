@@ -47,7 +47,7 @@ val appsFlyerSingleRevenueEventName = integrationValue("APPSFLYER_SINGLE_REVENUE
 val appsFlyerCumulativeRevenueEventName = integrationValue("APPSFLYER_CUMULATIVE_REVENUE_EVENT_NAME").ifBlank { "ad_impression_001" }
 val firebaseRewardedEventName = integrationValue("FIREBASE_REWARDED_EVENT_NAME").ifBlank { "rewarded_ad_completed" }
 val firebaseCumulativeRevenueEventName = integrationValue("FIREBASE_CUMULATIVE_REVENUE_EVENT_NAME").ifBlank { "ad_impression_001" }
-// 炫羽海外事件服务当前测试协议为 HTTP；Android 清单仅对该域名放行明文流量。
+// 炫羽海外事件服务当前正式接口仍为 HTTP；Android 清单仅对该域名放行明文流量。
 val xuanyuEventBaseUrl = integrationValue("XUANYU_EVENT_BASE_URL").ifBlank { "http://api.eventtrack.top" }
 val shortDramaAppId = integrationValue("SHORT_DRAMA_APP_ID")
 val shortDramaVodAppId = integrationValue("SHORT_DRAMA_VOD_APP_ID")
