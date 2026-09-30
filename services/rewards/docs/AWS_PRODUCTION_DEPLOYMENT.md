@@ -49,9 +49,12 @@ cd services/rewards
 cp .env.nginx.example .env.production
 chmod 600 .env.production
 # Set the real passwords, PANGLE_CALLBACK_SECRET and ADMIN_DASHBOARD_TOKEN.
-docker compose --env-file .env.production -f docker-compose.nginx.yml up -d --build
+ss -ltnp | grep ':18100' || true  # must show no existing listener before using the default port
+docker compose -p joyedrama-rewards --env-file .env.production -f docker-compose.nginx.yml up -d --build
 curl -fsS http://127.0.0.1:18100/health
 ```
+
+The explicit `-p joyedrama-rewards` project name isolates the new container names, Docker network and PostgreSQL volume from other Compose applications on the same host. If `18100` is already used, select a free high port, set `REWARDS_BIND_PORT` to that value, and change the Nginx `proxy_pass` port to the same value.
 
 Copy [`deploy/nginx/joyedrama-rewards.location.conf`](../deploy/nginx/joyedrama-rewards.location.conf) **inside the existing HTTPS `server {}` block** for `www.joyelleasia.com` (not directly inside the top-level `http {}` block). Then validate and reload the existing Nginx process:
 
