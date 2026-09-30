@@ -14,6 +14,8 @@ TOPON_SPLASH_PLACEMENT_ID=
 ADMOB_APP_ID=
 # 激励广告加载超时默认 10 秒，允许范围 1000–60000 毫秒。
 TOPON_REWARDED_LOAD_TIMEOUT_MS=10000
+# Release 固定使用 TopOn 服务端激励结算，Debug 如需联调 S2S 可显式设为 true。
+TOPON_S2S_REWARDED_ENABLED=false
 
 # AppsFlyer 归因：Organic 进入 A 面，Non-organic 进入 B 面。
 APPSFLYER_DEV_KEY=

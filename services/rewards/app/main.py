@@ -4,7 +4,7 @@ from datetime import date
 
 from fastapi import FastAPI, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 
 from app.admin_dashboard import DASHBOARD_HTML
 from app.config import Settings
@@ -28,6 +28,7 @@ from app.schemas import (
     RewardedFallbackSettlementRequest,
     RewardPolicyUpdateRequest,
     RewardedSkippedRequest,
+    TopOnRewardedIntentRequest,
     TenRoundClaimRequest,
     WelcomeBonusRequest,
     WatchEventRequest,
@@ -82,6 +83,36 @@ def complete_rewarded_ad(payload: RewardedCompleteRequest) -> dict:
             timestamp_ms=payload.timestamp_ms,
         ),
     }
+
+
+@app.post("/v2/ads/topon/rewarded/intents", response_model=ApiEnvelope)
+def prepare_topon_rewarded_intent(payload: TopOnRewardedIntentRequest) -> dict:
+    return {
+        "code": 0,
+        "data": service.prepare_topon_rewarded_intent(
+            user_id=payload.user_id,
+            placement_id=payload.placement_id,
+            target_id=payload.target_id,
+            episode_index=payload.episode_index,
+        ),
+    }
+
+
+@app.get("/v2/ads/topon/rewarded/intents/{intent_id}", response_model=ApiEnvelope)
+def topon_rewarded_intent_status(intent_id: str, user_id: str) -> dict:
+    return {"code": 0, "data": service.topon_rewarded_intent_status(user_id=user_id, intent_id=intent_id)}
+
+
+@app.get("/v2/ads/topon/rewarded/callback", include_in_schema=False)
+def topon_rewarded_callback(request: Request) -> Response:
+    # TopOn calls this endpoint directly after a completed reward. It requires an HTTP
+    # 200/601/602 response within two seconds, so do not route through the JSON error handler.
+    try:
+        service.settle_topon_rewarded_callback(dict(request.query_params))
+    except ServiceError as error:
+        status_code = 601 if error.code == 1604 else 602
+        return PlainTextResponse(error.message, status_code=status_code)
+    return Response(status_code=200)
 
 
 @app.post("/v2/ads/rewarded/fallback-settlement", response_model=ApiEnvelope)

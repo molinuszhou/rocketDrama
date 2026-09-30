@@ -54,6 +54,15 @@ class RewardedCompleteRequest(BaseModel):
     proof: str | None = Field(default=None, max_length=2048)
 
 
+class TopOnRewardedIntentRequest(BaseModel):
+    """Registers a business action before Android loads a TopOn rewarded placement."""
+
+    user_id: str = Field(min_length=1, max_length=128)
+    placement_id: RewardedPlacement
+    target_id: str | None = Field(default=None, max_length=256)
+    episode_index: int | None = Field(default=None, ge=1, le=10000)
+
+
 class RewardedFallbackSettlementRequest(BaseModel):
     user_id: str = Field(min_length=1, max_length=128)
     interstitial_event_id: str = Field(min_length=8, max_length=160)

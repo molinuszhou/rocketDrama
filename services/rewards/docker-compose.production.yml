@@ -31,8 +31,9 @@ services:
       # 填现有站点的来源，不要包含 /joyedrama-rewards 路径。
       CORS_ORIGINS: ${CORS_ORIGINS:?请设置现有 HTTPS 站点来源}
       ALLOW_DEBUG_AD_PROOF: "false"
-      # 仅服务端保存，禁止写入 Android 或 BuildConfig。
-      PANGLE_CALLBACK_SECRET: ${PANGLE_CALLBACK_SECRET:?请设置广告服务端回调验签密钥}
+      # 仅服务端保存，禁止写入 Android 或 BuildConfig。对应 TopOn 后台服务端激励的 sec_key。
+      TOPON_REWARDED_S2S_SECRET: ${TOPON_REWARDED_S2S_SECRET:?请设置 TopOn 激励服务端验签密钥}
+      TOPON_REWARDED_PLACEMENT_ID: ${TOPON_REWARDED_PLACEMENT_ID:?请设置正式 TopOn 激励广告位 ID}
       ADMIN_DASHBOARD_TOKEN: ${ADMIN_DASHBOARD_TOKEN:?请设置高强度后台管理令牌}
       TIMEZONE: ${TIMEZONE:-UTC}
     # 仅供宿主机原生 Nginx 访问；不要改成 0.0.0.0。

@@ -24,6 +24,8 @@ psql "postgresql://postgres@127.0.0.1:$PG_PORT/$DB_NAME" -v ON_ERROR_STOP=1 -f "
 cd "$REWARDS_DIR"
 DATABASE_URL="postgresql://postgres@127.0.0.1:$PG_PORT/$DB_NAME" \
 ALLOW_DEBUG_AD_PROOF=true \
+TOPON_REWARDED_S2S_SECRET=postgres-smoke-topon-s2s-secret \
+TOPON_REWARDED_PLACEMENT_ID=topon-rewarded-postgres-smoke \
 ADMIN_DASHBOARD_TOKEN=smoke-admin-token \
 python3 tests/rewards_postgres_smoke.py
 DATABASE_URL="postgresql://postgres@127.0.0.1:$PG_PORT/$DB_NAME" \

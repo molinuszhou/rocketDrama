@@ -12,7 +12,8 @@ class Settings:
     port: int
     cors_origins: list[str]
     allow_debug_ad_proof: bool
-    pangle_callback_secret: str | None
+    topon_rewarded_s2s_secret: str | None
+    topon_rewarded_placement_id: str | None
     admin_dashboard_token: str | None
     timezone: str
 
@@ -25,9 +26,12 @@ class Settings:
         allow_debug_ad_proof = os.getenv("ALLOW_DEBUG_AD_PROOF", "false").strip().lower() == "true"
         if environment != "development" and allow_debug_ad_proof:
             raise RuntimeError("非 development 环境禁止 ALLOW_DEBUG_AD_PROOF")
-        pangle_callback_secret = os.getenv("PANGLE_CALLBACK_SECRET", "").strip() or None
-        if environment == "production" and not pangle_callback_secret:
-            raise RuntimeError("production 环境必须设置 PANGLE_CALLBACK_SECRET 用于广告服务端验证")
+        topon_rewarded_s2s_secret = os.getenv("TOPON_REWARDED_S2S_SECRET", "").strip() or None
+        topon_rewarded_placement_id = os.getenv("TOPON_REWARDED_PLACEMENT_ID", "").strip() or None
+        if environment == "production" and not topon_rewarded_s2s_secret:
+            raise RuntimeError("production 环境必须设置 TOPON_REWARDED_S2S_SECRET 用于 TopOn 激励服务端验签")
+        if environment == "production" and not topon_rewarded_placement_id:
+            raise RuntimeError("production 环境必须设置 TOPON_REWARDED_PLACEMENT_ID 以校验 TopOn 激励广告位")
         origins = [item.strip() for item in os.getenv("CORS_ORIGINS", "").split(",") if item.strip()]
         return cls(
             database_url=database_url,
@@ -36,7 +40,8 @@ class Settings:
             port=int(os.getenv("PORT", "8100")),
             cors_origins=origins or ["http://localhost"],
             allow_debug_ad_proof=allow_debug_ad_proof,
-            pangle_callback_secret=pangle_callback_secret,
+            topon_rewarded_s2s_secret=topon_rewarded_s2s_secret,
+            topon_rewarded_placement_id=topon_rewarded_placement_id,
             admin_dashboard_token=os.getenv("ADMIN_DASHBOARD_TOKEN", "").strip() or None,
             timezone=os.getenv("TIMEZONE", "Asia/Shanghai").strip() or "Asia/Shanghai",
         )

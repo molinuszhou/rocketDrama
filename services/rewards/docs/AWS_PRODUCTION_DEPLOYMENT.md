@@ -48,7 +48,8 @@ nano .env.production
 | 配置项 | 用途 |
 |---|---|
 | `POSTGRES_PASSWORD` | PostgreSQL 数据库密码 |
-| `PANGLE_CALLBACK_SECRET` | 合作方提供的广告服务端回调验签密钥 |
+| `TOPON_REWARDED_S2S_SECRET` | TopOn 后台「服务端激励」配置中的 `sec_key` |
+| `TOPON_REWARDED_PLACEMENT_ID` | APK 使用的正式 TopOn 激励广告位 ID |
 | `ADMIN_DASHBOARD_TOKEN` | Rewards 后台管理接口访问令牌 |
 
 保留以下默认值即可：
@@ -59,7 +60,15 @@ CORS_ORIGINS=https://www.joyelleasia.com
 TIMEZONE=UTC
 ```
 
-`PANGLE_CALLBACK_SECRET` 只能放在服务器 `.env.production` 中。禁止放入 Android `local.properties`、APK、Git 仓库或客户端请求中。
+在 TopOn 后台为**正式激励广告位**开启「服务端激励」，回调 URL 填写：
+
+```text
+https://www.joyelleasia.com/joyedrama-rewards/v2/ads/topon/rewarded/callback
+```
+
+将后台显示的 `sec_key` 写入服务器 `.env.production` 的 `TOPON_REWARDED_S2S_SECRET`。它禁止进入 Android `local.properties`、APK、Git 仓库或客户端请求中。
+
+> **激励广告位配置要求：**正式包仅在收到 TopOn 已验签的服务端激励回调后结算现金或权益。请在该广告位的瀑布流中使用已支持 TopOn S2S 的广告源（TopOn Adx、直投或交叉推广），或为其他 ADN 按其官方方案配置相应的服务端激励回调；不要只依赖客户端 `onReward` 回调。上线前至少完成一次真实回调，并通过 Rewards 日志确认该请求返回 `200`。
 
 ### 3. 启动容器
 
@@ -142,7 +151,7 @@ TOPON_REWARDED_LOAD_TIMEOUT_MS=10000
 
 ## 五、生产安全要求
 
-生产环境会拒绝 `ALLOW_DEBUG_AD_PROOF=true`，并且缺少 `PANGLE_CALLBACK_SECRET` 时会拒绝启动。非自然量 B 面的现金相关激励奖励必须等待广告平台服务端可验证的完成结果，客户端广告回调本身不能直接发钱。
+生产环境会拒绝 `ALLOW_DEBUG_AD_PROOF=true`，并且缺少 TopOn 的 `TOPON_REWARDED_S2S_SECRET` 或正式激励位 ID 时会拒绝启动。非自然量 B 面的现金相关激励奖励必须等待 TopOn 服务端可验证的完成结果，客户端广告回调本身不能直接发钱。
 
 请仅开放服务器防火墙的既有 `80/443`。不要开放 PostgreSQL `5432`，也不要开放 Rewards API 内部端口 `18100`。
 

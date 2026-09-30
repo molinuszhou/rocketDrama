@@ -30,6 +30,8 @@ psql "postgresql://postgres@127.0.0.1:$PG_PORT/$DB_NAME" -v ON_ERROR_STOP=1 -f "
 cd "$REWARDS_DIR"
 DATABASE_URL="postgresql://postgres@127.0.0.1:$PG_PORT/$DB_NAME" \
 ALLOW_DEBUG_AD_PROOF=true \
+TOPON_REWARDED_S2S_SECRET=http-smoke-topon-s2s-secret \
+TOPON_REWARDED_PLACEMENT_ID=topon-rewarded-http-smoke \
 ADMIN_DASHBOARD_TOKEN=smoke-admin-token \
 uvicorn app.main:app --host 127.0.0.1 --port "$HTTP_PORT" > /tmp/joyedrama-direct-cash-http.log 2>&1 &
 API_PID=$!

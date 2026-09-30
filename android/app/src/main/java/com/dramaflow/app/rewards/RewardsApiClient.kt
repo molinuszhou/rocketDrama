@@ -298,6 +298,18 @@ class RewardsApiClient(
         val unlockEpisodeCount: Int = 1,
     )
 
+    data class TopOnRewardedIntent(
+        val intentId: String,
+        val toponUserId: String,
+        val toponCustomData: String,
+        val expiresInSeconds: Int,
+    )
+
+    data class TopOnRewardedSettlement(
+        val status: String,
+        val action: RewardAction? = null,
+    )
+
     val isConfigured: Boolean
         get() = BuildConfig.REWARDS_ENABLED && normalisedBaseUrl()?.let { it.startsWith("http://") || it.startsWith("https://") } == true
 
@@ -398,6 +410,60 @@ class RewardsApiClient(
         }, onFailure)
     }
 
+    /** Registers the reward action before the TopOn SDK loads an ad for S2S verification. */
+    fun prepareTopOnRewardedIntent(
+        userId: String,
+        placementId: String,
+        targetId: String? = null,
+        episodeIndex: Int? = null,
+        onSuccess: (TopOnRewardedIntent) -> Unit,
+        onFailure: (String) -> Unit,
+    ) {
+        val payload = JSONObject().put("user_id", userId).put("placement_id", placementId)
+        if (!targetId.isNullOrBlank()) payload.put("target_id", targetId)
+        if (episodeIndex != null) payload.put("episode_index", episodeIndex)
+        post("/v2/ads/topon/rewarded/intents", payload, { data ->
+            onSuccess(
+                TopOnRewardedIntent(
+                    intentId = data.getString("intent_id"),
+                    toponUserId = data.getString("topon_user_id"),
+                    toponCustomData = data.getString("topon_custom_data"),
+                    expiresInSeconds = data.optInt("expires_in_seconds", 1800),
+                ),
+            )
+        }, onFailure)
+    }
+
+    /** Queries the result written by a verified TopOn server-side incentive callback. */
+    fun getTopOnRewardedSettlement(
+        userId: String,
+        intentId: String,
+        onSuccess: (TopOnRewardedSettlement) -> Unit,
+        onFailure: (String) -> Unit,
+    ) = get(
+        "/v2/ads/topon/rewarded/intents/$intentId?user_id=${java.net.URLEncoder.encode(userId, "UTF-8")}",
+        { data ->
+            val status = data.optString("status", "PENDING")
+            val result = data.optJSONObject("result")
+            val snapshot = data.optJSONObject("snapshot")
+            val action = if (status == "SETTLED" && result != null && snapshot != null) {
+                RewardAction(
+                    idempotent = false,
+                    action = result.optString("action"),
+                    gemsAdded = result.optLong("gems_added"),
+                    snapshot = parseSnapshot(snapshot),
+                    cashAdded = result.optString("cash_added", "0.00"),
+                    cashAddedUsdReference = result.optString("cash_added_usd_reference", "0.00"),
+                    adEventId = result.optString("ad_event_id").ifBlank { null },
+                    releasedMicros = result.optLong("released_micros"),
+                    unlockEpisodeCount = result.optInt("unlock_episode_count", 1).coerceAtLeast(1),
+                )
+            } else null
+            onSuccess(TopOnRewardedSettlement(status, action))
+        },
+        onFailure,
+    )
+
     fun settleRewardedFallback(
         userId: String,
         interstitialEventId: String,
@@ -486,6 +552,24 @@ class RewardsApiClient(
         if (baseUrl == null) { onFailure("独立积分服务尚未配置"); return }
         val request = Request.Builder().url(baseUrl + path)
             .post(body.toString().toRequestBody(JSON)).header("Content-Type", "application/json").build()
+        httpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, error: IOException) = onFailure("积分服务网络错误：${error.message ?: "无法连接"}")
+            override fun onResponse(call: Call, response: okhttp3.Response) {
+                response.use {
+                    val json = runCatching { JSONObject(it.body?.string().orEmpty()) }.getOrNull()
+                    if (!it.isSuccessful) { onFailure(json?.optString("msg")?.takeIf(String::isNotBlank) ?: "积分服务请求失败（HTTP ${it.code}）"); return }
+                    val data = json?.optJSONObject("data")
+                    if (json?.optInt("code", -1) != 0 || data == null) { onFailure(json?.optString("msg")?.takeIf(String::isNotBlank) ?: "积分服务响应无效"); return }
+                    runCatching { onSuccess(data) }.onFailure { onFailure("积分服务响应解析失败：${it.message}") }
+                }
+            }
+        })
+    }
+
+    private fun get(path: String, onSuccess: (JSONObject) -> Unit, onFailure: (String) -> Unit) {
+        val baseUrl = normalisedBaseUrl()
+        if (baseUrl == null) { onFailure("独立积分服务尚未配置"); return }
+        val request = Request.Builder().url(baseUrl + path).get().build()
         httpClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, error: IOException) = onFailure("积分服务网络错误：${error.message ?: "无法连接"}")
             override fun onResponse(call: Call, response: okhttp3.Response) {
