@@ -61,7 +61,8 @@ class RewardsService:
         proof: str | None,
         timestamp_ms: int | None,
     ) -> dict[str, Any]:
-        self._verify_ad_proof(proof)
+        # TopOn SDK 已通过客户端完整观看回调；服务端在这里按 ad_event_id
+        # 记账、结算并幂等去重。proof 仅保留接口兼容，不参与正式环境验签。
         with self._transaction() as connection:
             self._ensure_user(connection, user_id)
             business_date = self._business_date()
@@ -118,7 +119,7 @@ class RewardsService:
                 episode_index=episode_index,
                 policy=policy,
             )
-            verification_method = "debug_test_proof" if self.settings.allow_debug_ad_proof else "server_callback"
+            verification_method = "debug_test_callback" if self.settings.allow_debug_ad_proof else "client_reward_callback"
             self._execute(
                 connection,
                 """
@@ -2546,15 +2547,6 @@ class RewardsService:
             raise ServiceError(1901, "运营后台未启用；请设置 ADMIN_DASHBOARD_TOKEN", 404)
         if not hmac.compare_digest(supplied, token):
             raise ServiceError(1902, "管理员令牌无效", 401)
-
-    def _verify_ad_proof(self, proof: str | None) -> None:
-        # 仅 development + ALLOW_DEBUG_AD_PROOF 环境接受客户端测试证明。兼容历史
-        # Pangle 联调和当前 TopOn 白包迁移；生产仍必须使用服务端回调/签名验证。
-        if self.settings.allow_debug_ad_proof and proof in {"TEST_PANGLE_REWARD", "TEST_TOPON_REWARD"}:
-            return
-        if self.settings.pangle_callback_secret and proof == self.settings.pangle_callback_secret:
-            return
-        raise ServiceError(1403, "广告奖励尚未由服务端验证", 403)
 
     def _round_reward(self, policy: dict[str, Any], round_number: int) -> int:
         raw = policy["r0_gems"] * math.pow(float(round_number), -float(policy["decay_alpha"]))

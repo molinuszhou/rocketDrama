@@ -48,7 +48,6 @@ nano .env.production
 | 配置项 | 用途 |
 |---|---|
 | `POSTGRES_PASSWORD` | PostgreSQL 数据库密码 |
-| `PANGLE_CALLBACK_SECRET` | 合作方提供的广告服务端回调验签密钥 |
 | `ADMIN_DASHBOARD_TOKEN` | Rewards 后台管理接口访问令牌 |
 
 保留以下默认值即可：
@@ -58,8 +57,6 @@ REWARDS_BIND_PORT=18100
 CORS_ORIGINS=https://www.joyelleasia.com
 TIMEZONE=UTC
 ```
-
-`PANGLE_CALLBACK_SECRET` 只能放在服务器 `.env.production` 中。禁止放入 Android `local.properties`、APK、Git 仓库或客户端请求中。
 
 ### 3. 启动容器
 
@@ -142,7 +139,7 @@ TOPON_REWARDED_LOAD_TIMEOUT_MS=10000
 
 ## 五、生产安全要求
 
-生产环境会拒绝 `ALLOW_DEBUG_AD_PROOF=true`，并且缺少 `PANGLE_CALLBACK_SECRET` 时会拒绝启动。非自然量 B 面的现金相关激励奖励必须等待广告平台服务端可验证的完成结果，客户端广告回调本身不能直接发钱。
+生产环境会拒绝 `ALLOW_DEBUG_AD_PROOF=true`。激励广告成功后由客户端调用 Rewards 服务；服务端按 `ad_event_id` 记录广告奖励账本并做幂等去重，客户端重复请求不会重复入账。
 
 请仅开放服务器防火墙的既有 `80/443`。不要开放 PostgreSQL `5432`，也不要开放 Rewards API 内部端口 `18100`。
 

@@ -35,7 +35,7 @@ def rewarded(
             placement_id=placement,
             target_id=target_id,
             episode_index=episode_index,
-            proof="TEST_PANGLE_REWARD",
+            proof="TEST_TOPON_REWARD",
             timestamp_ms=None,
         ),
         ad_event_id,

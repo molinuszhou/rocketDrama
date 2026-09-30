@@ -39,7 +39,7 @@ def event_id(prefix: str) -> str:
 
 def rewarded(placement: str, target_id: str | None = None, episode_index: int | None = None) -> tuple[int, dict, str]:
     ad_event_id = event_id(placement)
-    payload = {"user_id": USER_ID, "ad_event_id": ad_event_id, "placement_id": placement, "proof": "TEST_PANGLE_REWARD"}
+    payload = {"user_id": USER_ID, "ad_event_id": ad_event_id, "placement_id": placement, "proof": "TEST_TOPON_REWARD"}
     if target_id is not None:
         payload["target_id"] = target_id
     if episode_index is not None:
@@ -146,7 +146,7 @@ def run() -> None:
     # 前 3 集免费；第 4 集通过激励广告获得解锁权益。
     _, free_rejection = post(
         "/v2/ads/rewarded/complete",
-        {"user_id": USER_ID, "ad_event_id": event_id("free"), "placement_id": "rv_episode_pass", "target_id": "episode-3", "episode_index": 3, "proof": "TEST_PANGLE_REWARD"},
+        {"user_id": USER_ID, "ad_event_id": event_id("free"), "placement_id": "rv_episode_pass", "target_id": "episode-3", "episode_index": 3, "proof": "TEST_TOPON_REWARD"},
         expected_status=409,
     )
     assert free_rejection["code"] == 1100
@@ -156,7 +156,7 @@ def run() -> None:
     # 低频广告版本关闭单集翻倍，避免单集完成后再叠加额外激励广告位。
     _, boost_disabled = post(
         "/v2/ads/rewarded/complete",
-        {"user_id": USER_ID, "ad_event_id": event_id("boost"), "placement_id": "rv_episode_reward_boost", "target_id": "episode-1", "proof": "TEST_PANGLE_REWARD"},
+        {"user_id": USER_ID, "ad_event_id": event_id("boost"), "placement_id": "rv_episode_reward_boost", "target_id": "episode-1", "proof": "TEST_TOPON_REWARD"},
         expected_status=409,
     )
     assert boost_disabled["code"] == 1214
