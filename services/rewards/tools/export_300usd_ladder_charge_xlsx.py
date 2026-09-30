@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export the v1.7.0.2 US$300 reward policy in the v1.6.5.1 ladder-model format.
+"""Export the v1.7.0.4 US$300 reward policy in the v1.6.5.1 ladder-model format.
 
 This workbook follows the established JoyeDrama modelling pattern:
 blue editable Inputs -> hidden event-level Engine sheets -> Daily scenario sheets
@@ -229,7 +229,7 @@ def formulas_for_engine(row: int, phase: str) -> tuple[str, ...]:
 
 
 def build_readme(ws) -> None:
-    title(ws, "JoyeDrama v1.7.0.2 — 三日300美元阶梯充能广告测算模型", "公式驱动模型：仅修改 Inputs 蓝色单元格；隐藏 Engine 逐笔结算层和展示表会自动重算。", 7)
+    title(ws, "JoyeDrama v1.7.0.4 — 三日300美元阶梯充能广告测算模型", "公式驱动模型：仅修改 Inputs 蓝色单元格；隐藏 Engine 逐笔结算层和展示表会自动重算。", 7)
     section(ws, 6, "使用方法", 7)
     notes = [
         "1. 仅修改 Inputs 中蓝色单元格。当前模型将服务端 300 美元上限、三日 290 美元高参与度资格路径、皇冠之路与阻尼参数集中在该页。",
@@ -247,10 +247,10 @@ def build_readme(ws) -> None:
     section(ws, 15, "当前默认规则", 7)
     headers(ws, 16, ["模块", "默认规则", "与服务端口径"], 3)
     rules = [
-        ("目标", "三日高参与度路径结算显示 US$290.00；生命周期硬上限 3,000,000 单位（US$300）。", "迁移 031_v1702_damping_starts_after_290usd.sql"),
+        ("目标", "三日高参与度路径结算显示 US$290.00；生命周期硬上限 3,000,000 单位（US$300）。", "迁移 033_v1704_rounded_290usd_curve.sql"),
         ("新人奖励", "首日 600,000 内部单位，并统计 1 条内容流激励广告。", "welcome_rewards / market_wallet_policy"),
         ("追剧任务", "每日 1、3、6、9、12、15、18、24、30、36、42、48、54、60 集为固定金额节点；每个节点 1 条激励广告。", "reward_policy 的四档固定任务金额"),
-        ("皇冠与钱包", "皇冠主动加速与钱包加速均为每天 10 次；每条皇冠广告增加 1 点成长积分，钱包每条奖励 1,000 单位。", "Crown Road / wallet redpacket policy"),
+        ("皇冠与钱包", "皇冠主动加速与钱包加速均为每天 10 次；每条皇冠广告增加 1 点成长积分，钱包每条奖励 2,000 单位。", "Crown Road / wallet redpacket policy"),
         ("阻尼", "US$290（2,900,000 单位）前全额按 1.00x 结算；达到后从下一笔奖励起依次采用 0.50x / 0.25x / 0.12x / 0.06x / 0.01x，直至 3,000,000 上限。", "reward_policy gems_earned_cap 与 damping tiers"),
         ("广告", "前 3 集免费；每条解锁激励连续解锁 2 集；集包插屏系数 0.5；不在本模型中叠加播放时长计时插屏。", "用于运营频率估算，实际展示以客户端频控为准"),
     ]
@@ -263,7 +263,7 @@ def build_readme(ws) -> None:
 
 
 def build_inputs(ws) -> None:
-    title(ws, "JoyeDrama v1.7.0.2 — 三日300美元阶梯充能广告参数", "蓝色 = 可调输入；绿色 = 公式结果。修改蓝色单元格后请重新计算工作簿。", 7)
+    title(ws, "JoyeDrama v1.7.0.4 — 三日300美元阶梯充能广告参数", "蓝色 = 可调输入；绿色 = 公式结果。修改蓝色单元格后请重新计算工作簿。", 7)
     section(ws, 6, "模型范围与用户情景", 7)
     headers(ws, 8, ["参数", "当前值", "单位", "分类", "说明"], 3)
     input_row(ws, R["summary_days"], "汇总统计天数", 3, "天", "模型范围", "Summary 统计前 N 天累计表现；三日资格目标默认使用 3。")
@@ -272,8 +272,8 @@ def build_inputs(ws) -> None:
     input_row(ws, R["max_episodes"], "单日最大测算集数", MAX_EPISODES_PER_DAY, "集/日", "模型范围", "逐笔 Engine 每日预留 100 集；不要设置超过 100。")
     input_row(ws, R["episode_minutes"], "平均单集时长", 1.5, "分钟/集", "用户情景", "决定三种时长情景对应的有效观看集数。", "0.0")
     input_row(ws, R["hours_1"], "情景 A 日观看时长", 1.0, "小时/日", "用户情景", "轻度观看情景。", "0.0")
-    input_row(ws, R["hours_15"], "情景 B 日观看时长", 1.5, "小时/日", "用户情景", "目标资格路径：60 集/日。", "0.0")
-    input_row(ws, R["hours_2"], "情景 C 日观看时长", 2.0, "小时/日", "用户情景", "高时长观看情景。", "0.0")
+    input_row(ws, R["hours_15"], "情景 B 日观看时长", 1.5, "小时/日", "用户情景", "中度观看情景。", "0.0")
+    input_row(ws, R["hours_2"], "情景 C 日观看时长", 2.0, "小时/日", "用户情景", "目标资格路径：80 集/日。", "0.0")
     input_row(ws, R["rv_completion"], "激励广告完成率", 1.0, "%", "用户情景", "用于由完整观看 RV 换算请求量；奖励结算按完整观看计算。", "0.0%")
 
     section(ws, 19, "内部单位、上限与目标", 7)
@@ -509,7 +509,7 @@ def build_summary(ws) -> None:
         "蓝色 Inputs 修改后，奖励、广告量、阻尼进度、美元钱包、任务线和里程碑会联动。逐笔计算层为隐藏工作表 Engine_*；如需审计，可在 Excel 中取消隐藏。",
         f"三种情景均预生成 {MAX_DAYS} 天、每天最多 {MAX_EPISODES_PER_DAY} 集。Inputs 中范围参数不得超过该上限。",
         "广告频率为运营测算：内容流 RV 包含新人、签到、任务、日末领取与解锁；奖励中心 RV 包含每日 10 次皇冠主动加速与 10 次钱包加速；实际广告填充和客户端频控以生产逻辑为准。",
-        "1.5h 情景默认 60 集/日；完整路径含七日循环签到、每日各 10 次皇冠与钱包加速，三日结算显示 US$290.00；硬上限为 US$300。",
+        "2.0h 情景默认 80 集/日；完整路径含七日循环签到、每日各 10 次皇冠与钱包加速，三日结算显示 US$290.00；硬上限为 US$300。",
     ]
     for row, note in enumerate(notes, start=25):
         ws.merge_cells(start_row=row, start_column=3, end_row=row, end_column=6)
@@ -573,7 +573,7 @@ def build_milestones(ws) -> None:
     notes = [
         "目标与硬上限均按日末累计进度识别。隐藏 Engine 层在每笔事件上应用阻尼，避免按天统一套用阻尼倍率。",
         "“290万时累计内容流RV”包含新人、签到、解锁、任务和日末领取；“奖励中心RV”包含皇冠主动加速与钱包加速。未达到的情景会显示“未达到”。",
-        "模型默认 1.5h 情景在第 3 天达到 290 万资格目标；由于第三天进入阻尼区间，部分原始奖励按阻尼后实际入账。",
+        "模型默认 2.0h 情景在第 3 天达到 290 万资格目标；达到目标后的下一笔奖励才进入阻尼区间。",
     ]
     for row, note in enumerate(notes, start=21):
         ws.merge_cells(start_row=row, start_column=3, end_row=row, end_column=6)

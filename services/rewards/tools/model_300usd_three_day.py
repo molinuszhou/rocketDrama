@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reproduce the v1.7.0.2 US$300 reward-curve qualification model.
+"""Reproduce the v1.7.0.4 US$300 reward-curve qualification model.
 
 The model mirrors the settlement ordering in RewardsService._credit_gems:
 settlement uses the user's credited total immediately before each event to pick
@@ -20,7 +20,7 @@ from pathlib import Path
 UNITS_PER_USD = Decimal("10000")
 CAP_UNITS = 3_000_000
 WELCOME_UNITS = 600_000
-EPISODES_PER_DAY = 60
+EPISODES_PER_DAY = 80
 DAYS = 3
 CHECKIN_CYCLE_DAYS = 7
 # The service uses this seven-day cycle repeatedly. The first three entries are
@@ -28,7 +28,7 @@ CHECKIN_CYCLE_DAYS = 7
 # explicit for the workbook and operational review.
 CHECKIN_CYCLE_UNITS = (10_000, 20_000, 30_000, 40_000, 50_000, 60_000, 70_000)
 CHECKIN_UNITS = CHECKIN_CYCLE_UNITS[:DAYS]
-WALLET_BOOST_UNITS = 1_000
+WALLET_BOOST_UNITS = 2_000
 WALLET_BOOSTS_PER_DAY = 10
 CROWN_ACTIVE_BOOSTS_PER_DAY = 10
 CROWN_REWARDED_AD_PROGRESS_POINTS = 1
@@ -46,31 +46,32 @@ DAMPING_TIERS: tuple[tuple[int, Decimal], ...] = (
 )
 TASK_REWARDS = {
     1: 10_000,
-    3: 15_000,
-    6: 15_000,
-    9: 15_000,
-    12: 20_000,
-    15: 20_000,
-    18: 25_000,
-    24: 25_000,
-    30: 25_000,
-    36: 25_000,
-    42: 25_000,
-    48: 25_000,
-    54: 25_000,
-    60: 25_000,
+    3: 18_500,
+    6: 18_500,
+    9: 18_500,
+    12: 27_000,
+    15: 27_000,
+    18: 40_500,
+    24: 40_500,
+    30: 40_500,
+    36: 40_500,
+    42: 40_500,
+    48: 40_500,
+    54: 40_500,
+    60: 40_500,
 }
 CROWN_LEVELS = (
     ("BRONZE", 30, 12_000, Decimal("1.10")),
     ("SILVER", 100, 26_000, Decimal("1.25")),
-    ("GOLD", 200, 66_000, Decimal("1.50")),
+    ("GOLD", 200, 67_000, Decimal("1.50")),
     ("DIAMOND", 500, 80_000, Decimal("2.00")),
     ("CROWN", 800, 100_000, Decimal("2.50")),
 )
-# Calibrated against the server's event-by-event settlement: the complete
-# three-day path reaches 2,899,980 units, displayed as US$290.00 while
-# retaining the US$300 hard ceiling and avoiding pre-US$290 attenuation.
-BASE_EPISODE_REWARD = 5_093
+# Calibrated against the server's event-by-event settlement using only
+# user-facing rewards that are whole-thousand or 500-unit values. The complete
+# three-day path reaches exactly 2,900,000 units (US$290.00), retains the
+# US$300 hard ceiling and avoids pre-US$290 attenuation.
+BASE_EPISODE_REWARD = 2_000
 CROWN_EPISODE_PROGRESS_POINTS = 2
 TARGET_UNITS = 2_900_000
 TARGET_TOLERANCE_UNITS = 100  # sub-cent settlement rounding allowance
@@ -204,7 +205,7 @@ def summary(settlements: list[Settlement]) -> dict[str, object]:
         raw_by_day[item.day] += item.raw_units
     final_units = settlements[-1].cumulative_units
     return {
-        "model": "v1.7.0.2-damping-after-290usd",
+        "model": "v1.7.0.4-rounded-damping-after-290usd",
         "assumptions": {
             "days": DAYS,
             "episodes_per_day": EPISODES_PER_DAY,
@@ -282,7 +283,7 @@ def write_chart(settlements: list[Settlement], path: Path) -> None:
     axis.set_xticks(x, [f"第{day}天" for day in x])
     axis.set_ylabel("默认 USD 市场钱包累计")
     fig.suptitle("JoyeDrama 三日 290 美元奖励路径", x=0.12, y=0.985, ha="left", fontsize=22, fontweight="bold", color="#17263A")
-    fig.text(0.12, 0.90, "高参与度路径：每天 60 集、七日循环签到、每日各 10 次皇冠与钱包加速；US$290 前全额结算", color="#5A687A", fontsize=12)
+    fig.text(0.12, 0.90, "高参与度路径：每天 80 集、七日循环签到、每日各 10 次皇冠与钱包加速；US$290 前全额结算", color="#5A687A", fontsize=12)
     for day, value in zip(x, day_end):
         axis.annotate(f"${Decimal(value) / UNITS_PER_USD:.2f}", (day, value / float(UNITS_PER_USD)), xytext=(0, 14), textcoords="offset points", ha="center", fontsize=12, fontweight="bold", color="#17263A")
     axis.grid(axis="y", alpha=0.35)

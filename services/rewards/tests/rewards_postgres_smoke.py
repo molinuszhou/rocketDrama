@@ -93,6 +93,24 @@ def run() -> None:
     assert len(initial["crown_progress"]) == 5
     assert all(item["gems"] > 0 for item in initial["crown_progress"])
 
+    # v1.7.0.4 keeps the two-hour/three-day US$290 qualification curve on
+    # clean 500-unit reward increments. Query the effective migrated policy so
+    # future changes cannot silently reintroduce irregular user-facing values.
+    with service._transaction() as connection:  # noqa: SLF001 - migration regression test
+        current_policy = service._policy(connection)  # noqa: SLF001 - migration regression test
+        gold_reward = service._one(  # noqa: SLF001 - migration regression test
+            connection,
+            "SELECT reward_gems FROM achievement_policy WHERE code = 'GOLD'",
+        )
+    assert current_policy["episode_reward_gems"] == 2_000
+    assert current_policy["episode_task_tier1_min_gems"] == current_policy["episode_task_tier1_max_gems"] == 10_000
+    assert current_policy["episode_task_tier2_min_gems"] == current_policy["episode_task_tier2_max_gems"] == 18_500
+    assert current_policy["episode_task_tier3_min_gems"] == current_policy["episode_task_tier3_max_gems"] == 27_000
+    assert current_policy["episode_task_tier4_min_gems"] == current_policy["episode_task_tier4_max_gems"] == 40_500
+    assert current_policy["wallet_redpacket_min_gems"] == current_policy["wallet_redpacket_max_gems"] == 2_000
+    assert current_policy["gem_damping_tier1_threshold"] == 2_900_000
+    assert gold_reward is not None and gold_reward["reward_gems"] == 67_000
+
     # Advertising operations telemetry stores only an installation hash, de-duplicates
     # client retries and separates shown counts from paid-impression revenue.
     mediation_event_id = event_id("mediation-shown")

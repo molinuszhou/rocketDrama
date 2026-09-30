@@ -70,8 +70,10 @@ def make_events() -> list[Event]:
     events.append(Event(1, "welcome", "Welcome reward", None, None, "=Inputs!$C$8", "One-time welcome reward", model.WELCOME_UNITS))
 
     earned_crowns: set[str] = set()
+    crown_points = 0
     lifetime_episode = 0
     pending_episode_claims: list[tuple[int, int, int, str]] = []
+    active_points_per_day = model.CROWN_ACTIVE_BOOSTS_PER_DAY * model.CROWN_REWARDED_AD_PROGRESS_POINTS
 
     crown_row_map = {code: 5 + index for index, (code, _, _, _) in enumerate(model.CROWN_LEVELS)}
     for day in range(1, model.DAYS + 1):
@@ -87,6 +89,23 @@ def make_events() -> list[Event]:
                 model.CHECKIN_UNITS[day - 1],
             )
         )
+        # The service processes the ten voluntary Crown Road ad actions before
+        # episode viewing. They contribute progression only, but that ordering
+        # changes which multiplier applies to subsequent episode rewards.
+        for index in range(1, model.CROWN_ACTIVE_BOOSTS_PER_DAY + 1):
+            crown_points += model.CROWN_REWARDED_AD_PROGRESS_POINTS
+            events.append(
+                Event(
+                    day,
+                    "crown_active_ad",
+                    f"Crown active ad · {index}",
+                    None,
+                    None,
+                    "=0",
+                    "Adds Crown Road progress only; no direct wallet reward",
+                    0,
+                )
+            )
         for episode_in_day in range(1, model.EPISODES_PER_DAY + 1):
             lifetime_episode += 1
             # Matches RewardsService ordering: this episode's cash is calculated
@@ -94,16 +113,17 @@ def make_events() -> list[Event]:
             episode_multiplier = model.current_episode_multiplier(earned_crowns)
             claim_raw = floor_units(Decimal(model.BASE_EPISODE_REWARD) * episode_multiplier)
             pending_episode_claims.append((day, episode_in_day, lifetime_episode, str(episode_multiplier)))
-            current_points = lifetime_episode * model.CROWN_EPISODE_PROGRESS_POINTS
-            prior_points = (lifetime_episode - 1) * model.CROWN_EPISODE_PROGRESS_POINTS
+            prior_points = crown_points
+            crown_points += model.CROWN_EPISODE_PROGRESS_POINTS
+            current_points = crown_points
             for code, threshold, reward_units, _ in model.CROWN_LEVELS:
                 input_row = crown_row_map[code]
                 raw = reward_units if code not in earned_crowns and current_points >= threshold and prior_points < threshold else 0
                 if raw:
                     earned_crowns.add(code)
                 formula = (
-                    f"=IF(AND($F{{row}}*Inputs!$C$12>=Inputs!$L${input_row},"
-                    f"($F{{row}}-1)*Inputs!$C$12<Inputs!$L${input_row}),Inputs!$M${input_row},0)"
+                    f"=IF(AND($F{{row}}*Inputs!$C$12+$B{{row}}*{active_points_per_day}>=Inputs!$L${input_row},"
+                    f"($F{{row}}-1)*Inputs!$C$12+$B{{row}}*{active_points_per_day}<Inputs!$L${input_row}),Inputs!$M${input_row},0)"
                 )
                 events.append(
                     Event(day, "crown", f"Crown check · {code}", episode_in_day, lifetime_episode, formula, "Awards when the crown threshold is crossed", raw)
@@ -138,7 +158,7 @@ def make_events() -> list[Event]:
         for event in [item for item in events if item.group == "episode_claim_template" and item.day == day]:
             events.remove(event)
             multiplier_terms = ",".join(
-                f"IF(($F{{row}}-1)*Inputs!$C$12>=Inputs!$L${crown_row_map[code]},Inputs!$N${crown_row_map[code]},1)"
+                f"IF(($F{{row}}-1)*Inputs!$C$12+$B{{row}}*{active_points_per_day}>=Inputs!$L${crown_row_map[code]},Inputs!$N${crown_row_map[code]},1)"
                 for code, _, _, _ in model.CROWN_LEVELS
             )
             events.append(
@@ -162,7 +182,7 @@ def make_events() -> list[Event]:
                     None,
                     None,
                     "=Inputs!$C$13",
-                    "One wallet boost per active day",
+                    "One of ten wallet boosts per active day",
                     model.WALLET_BOOST_UNITS,
                 )
             )
@@ -277,10 +297,10 @@ def build_workbook(output: Path) -> None:
     readme["A10"].font = Font(size=13, bold=True, color=NAVY)
     readme.merge_cells("A11:H14")
     readme["A11"] = (
-        "This workbook mirrors the v1.7.0.0 server settlement order: reward events use the cumulative credited "
+        "This workbook mirrors the v1.7.0.4 server settlement order: reward events use the cumulative credited "
         "balance immediately before settlement to determine the damping multiplier, floor the credited units, and "
-        "apply the 3,000,000-unit hard cap. The path assumes three consecutive days, 60 completed episodes per day, "
-        "all configured watch tasks, daily check-in and one wallet boost each day. It excludes optional Crown Road ads."
+        "apply the 3,000,000-unit hard cap. The path assumes three consecutive days, 80 completed episodes per day, "
+        "all configured watch tasks, daily check-in, ten Crown Road accelerations and ten wallet boosts each day."
     )
     readme["A11"].alignment = Alignment(wrap_text=True, vertical="top")
     readme["A11"].fill = PatternFill("solid", fgColor=LIGHT_BLUE)
@@ -443,7 +463,7 @@ def build_workbook(output: Path) -> None:
         daily.cell(4, column, header)
     style_header(daily, 4, 1, len(daily_headers))
     last = 4 + len(events)
-    action_note = "60 episodes · 14 task milestones · 1 check-in · 1 wallet boost"
+    action_note = "80 episodes · 14 task milestones · 1 check-in · 10 wallet boosts"
     for row, day in enumerate(range(1, model.DAYS + 1), start=5):
         daily.cell(row, 1, day)
         daily.cell(row, 2, f'=SUMIF(Settlement!$B$5:$B${last},A{row},Settlement!$G$5:$G${last})')
@@ -453,7 +473,7 @@ def build_workbook(output: Path) -> None:
         daily.cell(row, 6, f'=D{row}/Inputs!$C$6')
         daily.cell(row, 7, f'=C{row}/Inputs!$C$5')
         daily.cell(row, 8, action_note)
-        daily.cell(row, 9, "Un-damped" if day < 3 else "Damping begins above 2,650,000 units")
+        daily.cell(row, 9, "Un-damped" if day < 3 else "Damping begins after 2,900,000 units")
         for column in (2, 3, 4):
             daily.cell(row, column).number_format = "#,##0"
         daily.cell(row, 5).number_format = 'US$#,##0.00'
@@ -639,7 +659,7 @@ def _draw_chinese_snapshot_charts() -> tuple[Path, Path]:
         draw.text((15, y - 12), f"${value}", font=small_font, fill=grey)
     draw.line((left, top, left, bottom), fill=navy, width=3)
     draw.line((left, bottom, right, bottom), fill=navy, width=3)
-    day_values = [147.20, 249.40, 290.00]
+    day_values = [129.60, 208.15, 290.00]
     points: list[tuple[int, int]] = []
     for index, amount in enumerate(day_values, start=1):
         x = left + (index - 1) * (right - left) // 2
@@ -657,12 +677,12 @@ def _draw_chinese_snapshot_charts() -> tuple[Path, Path]:
     draw = ImageDraw.Draw(canvas)
     draw.text((35, 24), "按奖励来源的入账美元", font=title_font, fill=navy)
     source_values = [
-        ("单集奖励", 132.388, blue),
-        ("追剧任务", 81.00, coral),
+        ("单集奖励", 66.45, blue),
+        ("追剧任务", 133.05, coral),
         ("新人奖励", 60.00, "#70AD47"),
-        ("皇冠奖励", 10.40, "#8064A2"),
+        ("皇冠奖励", 18.50, "#8064A2"),
         ("签到", 6.00, "#FFC000"),
-        ("钱包加速", 0.212, "#A5A5A5"),
+        ("钱包加速", 6.00, "#A5A5A5"),
     ]
     left, top, right, bottom = 210, 105, 1000, 520
     maximum = 140.0
@@ -716,7 +736,7 @@ def localize_chinese(output: Path) -> None:
         "Use Daily Summary and Source Mix for\nmanagement review; both sheets\ncalculate from Settlement.": "管理复核请使用“每日汇总”和“来源构成”；两者均由“结算明细”计算。",
         "For changes to crown threshold timing\nor task counts, rerun the paired Python\nexporter to rebuild event rows.": "如修改皇冠触发时点或任务数量，请重新运行配套 Python 导出器以重建事件行。",
         "Model boundary": "模型边界",
-        "This workbook mirrors the v1.7.0.0 server settlement order: reward events use the cumulative credited balance immediately before settlement to determine the damping multiplier, floor the credited units, and apply the 3,000,000-unit hard cap. The path assumes three consecutive days, 60 completed episodes per day, all configured watch tasks, daily check-in and one wallet boost each day. It excludes optional Crown Road ads.": "本工作簿复刻 v1.7.0.0 服务端结算顺序：每笔奖励在结算前按累计已入账余额确定阻尼系数，对结果向下取整后再应用 3,000,000 内部单位硬上限。该路径假设连续活跃三天、每日完成 60 集、完成全部配置的追剧任务、每日签到，并每天使用 1 次钱包加速；不包含可选的皇冠之路广告。",
+        "This workbook mirrors the v1.7.0.4 server settlement order: reward events use the cumulative credited balance immediately before settlement to determine the damping multiplier, floor the credited units, and apply the 3,000,000-unit hard cap. The path assumes three consecutive days, 80 completed episodes per day, all configured watch tasks, daily check-in, ten Crown Road accelerations and ten wallet boosts each day.": "本工作簿复刻 v1.7.0.4 服务端结算顺序：每笔奖励在结算前按累计已入账余额确定阻尼系数，对结果向下取整后再应用 3,000,000 内部单位硬上限。该路径假设连续活跃三天、每日完成 80 集、完成全部配置的追剧任务、每日签到，并每天完成 10 次皇冠之路加速和 10 次钱包加速。",
         "Expected default result": "默认预期结果",
         "Final credited amount": "最终入账金额",
         "Lifetime cap": "生命周期上限",
@@ -858,8 +878,8 @@ def localize_chinese(output: Path) -> None:
         "PASS": "通过",
         "CHECK": "需检查",
         "Un-damped": "未进入阻尼",
-        "Damping begins above 2,650,000 units": "超过 2,650,000 单位后开始进入阻尼",
-        "60 episodes · 14 task milestones · 1 check-in · 1 wallet boost": "60 集 · 14 个任务里程碑 · 1 次签到 · 1 次钱包加速",
+        "Damping begins after 2,900,000 units": "达到 2,900,000 单位后的下一笔奖励开始进入阻尼",
+        "80 episodes · 14 task milestones · 1 check-in · 10 wallet boosts": "80 集 · 14 个任务里程碑 · 1 次签到 · 10 次钱包加速",
     }
     crown_names = {
         "BRONZE": "青铜",
@@ -884,6 +904,8 @@ def localize_chinese(output: Path) -> None:
                         elif value.startswith("Crown check · "):
                             code = value.rsplit(" · ", 1)[-1]
                             value = "皇冠条件检查 · " + crown_names.get(code, code)
+                        elif value.startswith("Crown active ad · "):
+                            value = "皇冠主动加速 · 第 " + value.rsplit(" · ", 1)[-1] + " 次"
                         elif value.startswith("Watch task · episode "):
                             value = "追剧任务 · 第 " + value.rsplit(" ", 1)[-1] + " 集"
                         elif value.startswith("Episode claim · episode "):
@@ -892,12 +914,14 @@ def localize_chinese(output: Path) -> None:
                             value = "钱包广告加速 · 第 " + value.rsplit(" · ", 1)[-1] + " 次"
                         elif value == "Awards when the crown threshold is crossed":
                             value = "达到皇冠积分阈值时发放奖励"
+                        elif value == "Adds Crown Road progress only; no direct wallet reward":
+                            value = "仅增加皇冠之路进度，不直接发放现金奖励"
                         elif value == "Task milestone reward; zero outside milestones":
                             value = "追剧任务里程碑奖励；非里程碑时为零"
                         elif value == "Daily aggregated episode reward claim":
                             value = "每日聚合领取的单集观看奖励"
-                        elif value == "One wallet boost per active day":
-                            value = "每个活跃日 1 次钱包加速"
+                        elif value == "One of ten wallet boosts per active day":
+                            value = "每日 10 次钱包加速中的一次"
                         cell.value = value
                 if cell.font and cell.font.name != "Noto Sans CJK SC":
                     font = copy(cell.font)
