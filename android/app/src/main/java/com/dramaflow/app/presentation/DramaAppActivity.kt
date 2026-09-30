@@ -3,6 +3,7 @@ package com.dramaflow.app.presentation
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
 import android.app.AlertDialog
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.content.res.ColorStateList
@@ -32,6 +33,7 @@ import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
+import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -53,8 +55,10 @@ import com.dramaflow.app.i18n.AppLanguage
 import com.dramaflow.app.ads.AdConsent
 import com.dramaflow.app.ads.AdConsentStore
 import com.dramaflow.app.ads.AdMediationEventReporter
+import com.dramaflow.app.ads.AdNetworkAuditLog
 import com.dramaflow.app.ads.TopOnAdsManager
 import com.dramaflow.app.ads.TopOnSettings
+import com.dramaflow.app.analytics.ReportingAuditLog
 import com.dramaflow.app.content.ShortDramaSdkManager
 import com.dramaflow.app.local.LocalDrama
 import com.dramaflow.app.local.LocalEpisode
@@ -107,15 +111,10 @@ class DramaAppActivity : FragmentActivity() {
     internal var startupRewardsFinished = false
     internal var startupPosterPreloadPercent = 0
     internal var startupCatalogFailure: String? = null
-    internal var catalogRetryAttempt = 0
-    internal var catalogRetryScheduled = false
     internal var startupProgressBar: ProgressBar? = null
     internal var startupProgressLabel: TextView? = null
     internal var startupProgressPercentLabel: TextView? = null
     internal var resumePlaybackWhenForeground = false
-    /** Mirrors the background/resume policy for the provider-owned PSSDK player. */
-    internal var resumeSdkPlaybackWhenForeground = false
-    internal var sdkPlaybackActive = false
     internal var restorePlayerAfterCatalog = false
     /** Prevents a second app-open ad while recovering from an ad click's external destination. */
     internal var restoringExternalAdReturn = false
@@ -295,11 +294,6 @@ class DramaAppActivity : FragmentActivity() {
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             resumePlaybackWhenForeground = false
         }
-        if (resumeSdkPlaybackWhenForeground && sdkPlayerShown && !fullscreenAdInProgress) {
-            (supportFragmentManager.findFragmentByTag("joyedrama.pssdk.player") as? com.bytedance.sdk.shortplay.api.ShortPlayFragment)?.startPlay()
-            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            resumeSdkPlaybackWhenForeground = false
-        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -308,7 +302,7 @@ class DramaAppActivity : FragmentActivity() {
         // Google Play may relaunch the launcher route after an ad click. LauncherActivity forwards
         // that intent to this single-task Activity with CLEAR_TOP/SINGLE_TOP, so retain the
         // existing player rather than starting a fresh loading experience.
-        if (playerShown || sdkPlayerShown) {
+        if (playerShown) {
             logStatus("已复用现有播放器 Activity 处理外部返回")
             if (fullscreenAdInProgress || fullscreenAdRequestInFlight) {
                 // Returning via a fresh launcher intent can remove the mediation Activity without
@@ -327,16 +321,12 @@ class DramaAppActivity : FragmentActivity() {
         if (fullscreenAdInProgress || fullscreenAdRequestInFlight) saveExternalAdReturnCheckpoint()
         resumePlaybackWhenForeground = playerShown && exoPlayer?.isPlaying == true && !fullscreenAdInProgress
         if (resumePlaybackWhenForeground) exoPlayer?.pause()
-        resumeSdkPlaybackWhenForeground = sdkPlayerShown && sdkPlaybackActive && !fullscreenAdInProgress
-        if (resumeSdkPlaybackWhenForeground) {
-            (supportFragmentManager.findFragmentByTag("joyedrama.pssdk.player") as? com.bytedance.sdk.shortplay.api.ShortPlayFragment)?.pausePlay()
-        }
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         super.onStop()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
-        outState.putBoolean(STATE_PLAYER_VISIBLE, playerShown || sdkPlayerShown)
+        outState.putBoolean(STATE_PLAYER_VISIBLE, playerShown)
         outState.putString(STATE_DRAMA_ID, selectedDrama?.id)
         outState.putInt(STATE_EPISODE_INDEX, currentEpisodeIndex)
         outState.putInt(STATE_POSITION_SECONDS, exoPlayer?.currentPosition?.div(1_000L)?.toInt() ?: playerProgressSeconds)
@@ -356,8 +346,7 @@ class DramaAppActivity : FragmentActivity() {
      * 先显示 JoyeDrama Logo 加载页；开屏关闭、跳过或无填充后，再进入签到与内容初始化。
      */
     internal fun loadCatalog() {
-        renderCatalogLoadingShell()
-        scheduleCatalogRetry(immediate = true)
+        loadShortDramaSdkCatalog()
     }
 
     private fun loadShortDramaSdkCatalog() {
@@ -416,9 +405,10 @@ class DramaAppActivity : FragmentActivity() {
     }
 
     internal fun renderActiveTab() {
-        // The catalogue may still be loading, but Home/Discover/Rewards/Profile must remain
-        // independently navigable. Returning the loading shell here made every bottom-nav tap
-        // render the same page and effectively locked the app until PSSDK responded.
+        if (catalogItems.isEmpty()) {
+            renderLoading(t("home_greeting"))
+            return
+        }
         withdrawalPageShown = false
         playerShown = false
         configureCatalogWindow()
@@ -454,67 +444,6 @@ class DramaAppActivity : FragmentActivity() {
         })
     }
 
-    /** Regular application chrome shown while the formal PSSDK discovers the first catalogue page. */
-    internal fun renderCatalogLoadingShell() {
-        withdrawalPageShown = false
-        playerShown = false
-        configureCatalogWindow()
-        val shell = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(24), dp(186), dp(24), dp(114))
-            addView(ProgressBar(this@DramaAppActivity).apply {
-                indeterminateTintList = android.content.res.ColorStateList.valueOf(COLOR_CORAL)
-            }, LinearLayout.LayoutParams(dp(44), dp(44)))
-            addView(TextView(this@DramaAppActivity).apply {
-                text = t("catalog_loading")
-                textSize = 19f
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
-                gravity = Gravity.CENTER
-                setTextColor(COLOR_TEXT_PRIMARY)
-                setPadding(0, dp(16), 0, dp(5))
-            })
-            addView(TextView(this@DramaAppActivity).apply {
-                text = t("catalog_loading_hint")
-                textSize = 13f
-                gravity = Gravity.CENTER
-                setTextColor(COLOR_TEXT_MUTED)
-            })
-        }
-        root.removeAllViews()
-        root.addView(shell, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        root.addView(createPersistentAssetHeader(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(120), Gravity.TOP))
-        root.addView(createBottomNavigation(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(68), Gravity.BOTTOM))
-    }
-
-    /** A provider error never removes navigation; retry runs in the background and can be requested manually. */
-    internal fun renderCatalogUnavailableShell(message: String) {
-        withdrawalPageShown = false
-        playerShown = false
-        configureCatalogWindow()
-        val shell = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(24), dp(186), dp(24), dp(114))
-            addView(TextView(this@DramaAppActivity).apply {
-                text = t("catalog_load_failed", message)
-                textSize = 17f
-                typeface = Typeface.DEFAULT_BOLD
-                gravity = Gravity.CENTER
-                setTextColor(COLOR_TEXT_PRIMARY)
-            })
-            addView(Button(this@DramaAppActivity).apply {
-                text = t("retry")
-                isAllCaps = false
-                setOnClickListener { scheduleCatalogRetry(immediate = true) }
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(46)).apply { topMargin = dp(16) })
-        }
-        root.removeAllViews()
-        root.addView(shell, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        root.addView(createPersistentAssetHeader(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(120), Gravity.TOP))
-        root.addView(createBottomNavigation(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(68), Gravity.BOTTOM))
-    }
-
     internal fun showAdPrivacySettings() {
         val granted = consentStore.read() == AdConsent.GRANTED
         showBrandedChoiceDialog(
@@ -527,6 +456,86 @@ class DramaAppActivity : FragmentActivity() {
                 toast(if (granted) t("ads_disabled") else t("ads_enabled"))
             },
             secondaryLabel = t("cancel"),
+        )
+    }
+
+/** Opens the locally persisted TopOn ADN audit and shares its CSV without exposing App Key or user data. */
+internal fun DramaAppActivity.showAdNetworkAuditLog() {
+        val audit = AdNetworkAuditLog.get(this)
+        val summary = audit.summary()
+        val message = if (summary.eventCount == 0) {
+            t("ad_network_audit_empty")
+        } else {
+            t("ad_network_audit_message", summary.eventCount, summary.lastRecordedAtUtc.orEmpty())
+        }
+        showBrandedChoiceDialog(
+            title = t("ad_network_audit"),
+            message = message,
+            primaryLabel = t("ad_network_audit_share"),
+            onPrimary = {
+                runCatching {
+                    val file = audit.exportFile()
+                    val uri = FileProvider.getUriForFile(this, "${BuildConfig.APPLICATION_ID}.ad-audit-files", file)
+                    val share = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/csv"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        clipData = ClipData.newRawUri("joyedrama_topon_adn_audit", uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    startActivity(Intent.createChooser(share, t("ad_network_audit_share")))
+                }.onFailure {
+                    toast(t("ad_network_audit_share_failed"))
+                }
+            },
+            secondaryLabel = t("ad_network_audit_clear"),
+            onSecondary = {
+                showBrandedChoiceDialog(
+                    title = t("ad_network_audit_clear"),
+                    message = t("ad_network_audit_clear_message"),
+                    primaryLabel = t("ad_network_audit_clear"),
+                    onPrimary = {
+                        audit.clear()
+                        toast(t("ad_network_audit_cleared"))
+                    },
+                    secondaryLabel = t("cancel"),
+                )
+            },
+        )
+    }
+
+    /** Shares the locally persisted AppsFlyer/Firebase/Xuanyu submission audit CSV. */
+    internal fun showReportingAuditLog() {
+        val audit = ReportingAuditLog.get(this)
+        val summary = audit.summary()
+        val message = if (summary.eventCount == 0) t("reporting_audit_empty")
+        else t("reporting_audit_message", summary.eventCount, summary.lastRecordedAtUtc.orEmpty())
+        showBrandedChoiceDialog(
+            title = t("reporting_audit"),
+            message = message,
+            primaryLabel = t("reporting_audit_share"),
+            onPrimary = {
+                runCatching {
+                    val file = audit.exportFile()
+                    val uri = FileProvider.getUriForFile(this, "${BuildConfig.APPLICATION_ID}.ad-audit-files", file)
+                    val share = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/csv"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        clipData = ClipData.newRawUri("joyedrama_reporting_audit", uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    startActivity(Intent.createChooser(share, t("reporting_audit_share")))
+                }.onFailure { toast(t("reporting_audit_share_failed")) }
+            },
+            secondaryLabel = t("reporting_audit_clear"),
+            onSecondary = {
+                showBrandedChoiceDialog(
+                    title = t("reporting_audit_clear"),
+                    message = t("reporting_audit_clear_message"),
+                    primaryLabel = t("reporting_audit_clear"),
+                    onPrimary = { audit.clear(); toast(t("reporting_audit_cleared")) },
+                    secondaryLabel = t("cancel"),
+                )
+            },
         )
     }
 

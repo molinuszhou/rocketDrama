@@ -297,9 +297,9 @@ internal fun DramaAppActivity.createPlayerTopBar(): View {
         shell.addView(assets, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(50), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(26) })
         ViewCompat.setOnApplyWindowInsetsListener(shell) { _, insets ->
             val safeTop = insets.getInsets(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()).top
-            val margin = safeTop + dp(4)
+            val margin = safeTop + dp(8)
             (back.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = margin; back.layoutParams = params }
-            (assets.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = margin + dp(4); assets.layoutParams = params }
+            (assets.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = margin + dp(18); assets.layoutParams = params }
             insets
         }
         ViewCompat.requestApplyInsets(shell)
@@ -371,7 +371,7 @@ internal fun DramaAppActivity.switchDramaBySwipe(forward: Boolean = true) {
 internal fun DramaAppActivity.requestMidEpisodeInterstitialIfEligible(positionSeconds: Int) {
         val snapshot = rewardsSnapshot ?: return
         val policy = snapshot.interstitial
-        if ((!playerShown && !sdkPlayerShown) || playerIsPaused || fullscreenAdInProgress || fullscreenAdRequestInFlight || !policy.midEpisodeEnabled) return
+        if (!playerShown || playerIsPaused || fullscreenAdInProgress || !policy.midEpisodeEnabled) return
         val previousPosition = lastMidrollSamplePositionSeconds
         lastMidrollSamplePositionSeconds = positionSeconds
         if (previousPosition < 0) return

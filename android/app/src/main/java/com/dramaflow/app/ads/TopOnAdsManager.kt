@@ -103,7 +103,7 @@ class TopOnAdsManager(
     private val safeAdWindows = mutableMapOf<Activity, SafeAdWindowState>()
     /** Activity-level window mode is owned by the presentation layer and must survive a full-screen ad. */
     private val hostEdgeToEdge = mutableMapOf<Activity, Boolean>()
-    /** Debug-only internal record for reconciling returned ADN with the mediation dashboard. */
+    /** Local, shareable record for reconciling returned ADN with the mediation dashboard. */
     private val adNetworkAudit = AdNetworkAuditLog.get(applicationContext)
 
     private data class SafeAdWindowState(
@@ -283,30 +283,16 @@ class TopOnAdsManager(
         // TopOn 可能先回调 onAdLoadTimeout，随后仍回调 onAdLoaded(isTimeout=true)。
         // 一旦启动流程已因超时进入内容页，禁止再展示迟到的开屏，避免与新人/签到窗口叠加。
         var splashRequestExpired = false
-        lateinit var startupDeadline: Runnable
         fun deliver(result: FullscreenResult, host: FrameLayout? = null) {
             if (delivered) return
             delivered = true
-            mainHandler.removeCallbacks(startupDeadline)
             splashRequestInFlight = false
             host?.let { (it.parent as? ViewGroup)?.removeView(it) }
             restoreAppWindowAfterAd(activity)
             onResult(result)
         }
 
-        // This is the total cold-start budget, not an additional SDK timeout: initialization and
-        // ad loading together must never hold the user on the loading page for more than 5 seconds.
-        startupDeadline = Runnable {
-            if (delivered) return@Runnable
-            splashRequestExpired = true
-            Log.w(TAG, "Splash startup budget exhausted after ${SPLASH_STARTUP_BUDGET_MS}ms")
-            auditEvent("LOAD_FAILED", "splash", settings.splashPlacementId, "splash", result = "TIMEOUT", detail = "startup_budget_ms=$SPLASH_STARTUP_BUDGET_MS")
-            deliver(FullscreenResult.Skipped("TopOn 开屏广告启动超时"))
-        }
-        mainHandler.postDelayed(startupDeadline, SPLASH_STARTUP_BUDGET_MS)
-
         initialize { init ->
-            if (delivered || splashRequestExpired) return@initialize
             when (init) {
                 Initialization.Ready -> {
                     var splash: ATSplashAd? = null
@@ -767,7 +753,6 @@ class TopOnAdsManager(
     private companion object {
         const val TAG = "TopOnAdsManager"
         const val SPLASH_TIMEOUT_MS = 5_000
-        const val SPLASH_STARTUP_BUDGET_MS = 5_000L
         const val INTERSTITIAL_LOAD_TIMEOUT_MS = 8_000L
         const val INTERSTITIAL_LOAD_TIMEOUT_CODE = -408
         const val INTERSTITIAL_NOT_READY_CODE = -409
