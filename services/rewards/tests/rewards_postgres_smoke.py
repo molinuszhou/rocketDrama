@@ -93,8 +93,10 @@ def run() -> None:
     assert len(initial["crown_progress"]) == 5
     assert all(item["gems"] > 0 for item in initial["crown_progress"])
 
-    # v1.7.0.4 keeps the two-hour/three-day US$290 qualification curve on
-    # clean 500-unit reward increments. Query the effective migrated policy so
+    # v1.7.0.5 keeps the two-hour/three-day US$290 qualification curve on
+    # clean 500-unit reward increments while retaining the 600,000 welcome
+    # reward and raising recurring episode and wallet acceleration rewards.
+    # Query the effective migrated policy so
     # future changes cannot silently reintroduce irregular user-facing values.
     with service._transaction() as connection:  # noqa: SLF001 - migration regression test
         current_policy = service._policy(connection)  # noqa: SLF001 - migration regression test
@@ -102,14 +104,19 @@ def run() -> None:
             connection,
             "SELECT reward_gems FROM achievement_policy WHERE code = 'GOLD'",
         )
-    assert current_policy["episode_reward_gems"] == 2_000
-    assert current_policy["episode_task_tier1_min_gems"] == current_policy["episode_task_tier1_max_gems"] == 10_000
-    assert current_policy["episode_task_tier2_min_gems"] == current_policy["episode_task_tier2_max_gems"] == 18_500
-    assert current_policy["episode_task_tier3_min_gems"] == current_policy["episode_task_tier3_max_gems"] == 27_000
-    assert current_policy["episode_task_tier4_min_gems"] == current_policy["episode_task_tier4_max_gems"] == 40_500
-    assert current_policy["wallet_redpacket_min_gems"] == current_policy["wallet_redpacket_max_gems"] == 2_000
+        silver_multiplier = service._one(  # noqa: SLF001 - migration regression test
+            connection,
+            "SELECT episode_reward_multiplier FROM achievement_policy WHERE code = 'SILVER'",
+        )
+    assert current_policy["episode_reward_gems"] == 5_000
+    assert current_policy["episode_task_tier1_min_gems"] == current_policy["episode_task_tier1_max_gems"] == 5_000
+    assert current_policy["episode_task_tier2_min_gems"] == current_policy["episode_task_tier2_max_gems"] == 5_000
+    assert current_policy["episode_task_tier3_min_gems"] == current_policy["episode_task_tier3_max_gems"] == 6_000
+    assert current_policy["episode_task_tier4_min_gems"] == current_policy["episode_task_tier4_max_gems"] == 6_000
+    assert current_policy["wallet_redpacket_min_gems"] == current_policy["wallet_redpacket_max_gems"] == 5_500
     assert current_policy["gem_damping_tier1_threshold"] == 2_900_000
     assert gold_reward is not None and gold_reward["reward_gems"] == 67_000
+    assert silver_multiplier is not None and float(silver_multiplier["episode_reward_multiplier"]) == 1.20
 
     # Advertising operations telemetry stores only an installation hash, de-duplicates
     # client retries and separates shown counts from paid-impression revenue.

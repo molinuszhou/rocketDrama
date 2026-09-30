@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reproduce the v1.7.0.4 US$300 reward-curve qualification model.
+"""Reproduce the v1.7.0.5 US$300 reward-curve qualification model.
 
 The model mirrors the settlement ordering in RewardsService._credit_gems:
 settlement uses the user's credited total immediately before each event to pick
@@ -28,7 +28,7 @@ CHECKIN_CYCLE_DAYS = 7
 # explicit for the workbook and operational review.
 CHECKIN_CYCLE_UNITS = (10_000, 20_000, 30_000, 40_000, 50_000, 60_000, 70_000)
 CHECKIN_UNITS = CHECKIN_CYCLE_UNITS[:DAYS]
-WALLET_BOOST_UNITS = 2_000
+WALLET_BOOST_UNITS = 5_500
 WALLET_BOOSTS_PER_DAY = 10
 CROWN_ACTIVE_BOOSTS_PER_DAY = 10
 CROWN_REWARDED_AD_PROGRESS_POINTS = 1
@@ -45,24 +45,24 @@ DAMPING_TIERS: tuple[tuple[int, Decimal], ...] = (
     (3_000_000, Decimal("0.01")),
 )
 TASK_REWARDS = {
-    1: 10_000,
-    3: 18_500,
-    6: 18_500,
-    9: 18_500,
-    12: 27_000,
-    15: 27_000,
-    18: 40_500,
-    24: 40_500,
-    30: 40_500,
-    36: 40_500,
-    42: 40_500,
-    48: 40_500,
-    54: 40_500,
-    60: 40_500,
+    1: 5_000,
+    3: 5_000,
+    6: 5_000,
+    9: 5_000,
+    12: 6_000,
+    15: 6_000,
+    18: 6_000,
+    24: 6_000,
+    30: 6_000,
+    36: 6_000,
+    42: 6_000,
+    48: 6_000,
+    54: 6_000,
+    60: 6_000,
 }
 CROWN_LEVELS = (
     ("BRONZE", 30, 12_000, Decimal("1.10")),
-    ("SILVER", 100, 26_000, Decimal("1.25")),
+    ("SILVER", 100, 26_000, Decimal("1.20")),
     ("GOLD", 200, 67_000, Decimal("1.50")),
     ("DIAMOND", 500, 80_000, Decimal("2.00")),
     ("CROWN", 800, 100_000, Decimal("2.50")),
@@ -71,7 +71,7 @@ CROWN_LEVELS = (
 # user-facing rewards that are whole-thousand or 500-unit values. The complete
 # three-day path reaches exactly 2,900,000 units (US$290.00), retains the
 # US$300 hard ceiling and avoids pre-US$290 attenuation.
-BASE_EPISODE_REWARD = 2_000
+BASE_EPISODE_REWARD = 5_000
 CROWN_EPISODE_PROGRESS_POINTS = 2
 TARGET_UNITS = 2_900_000
 TARGET_TOLERANCE_UNITS = 100  # sub-cent settlement rounding allowance
@@ -205,7 +205,7 @@ def summary(settlements: list[Settlement]) -> dict[str, object]:
         raw_by_day[item.day] += item.raw_units
     final_units = settlements[-1].cumulative_units
     return {
-        "model": "v1.7.0.4-rounded-damping-after-290usd",
+        "model": "v1.7.0.5-high-episode-wallet-rounded-after-290usd",
         "assumptions": {
             "days": DAYS,
             "episodes_per_day": EPISODES_PER_DAY,

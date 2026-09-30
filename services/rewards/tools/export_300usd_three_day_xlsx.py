@@ -297,7 +297,7 @@ def build_workbook(output: Path) -> None:
     readme["A10"].font = Font(size=13, bold=True, color=NAVY)
     readme.merge_cells("A11:H14")
     readme["A11"] = (
-        "This workbook mirrors the v1.7.0.4 server settlement order: reward events use the cumulative credited "
+        "This workbook mirrors the v1.7.0.5 server settlement order: reward events use the cumulative credited "
         "balance immediately before settlement to determine the damping multiplier, floor the credited units, and "
         "apply the 3,000,000-unit hard cap. The path assumes three consecutive days, 80 completed episodes per day, "
         "all configured watch tasks, daily check-in, ten Crown Road accelerations and ten wallet boosts each day."
@@ -659,7 +659,7 @@ def _draw_chinese_snapshot_charts() -> tuple[Path, Path]:
         draw.text((15, y - 12), f"${value}", font=small_font, fill=grey)
     draw.line((left, top, left, bottom), fill=navy, width=3)
     draw.line((left, bottom, right, bottom), fill=navy, width=3)
-    day_values = [129.60, 208.15, 290.00]
+    day_values = [123.55, 204.25, 290.00]
     points: list[tuple[int, int]] = []
     for index, amount in enumerate(day_values, start=1):
         x = left + (index - 1) * (right - left) // 2
@@ -677,12 +677,12 @@ def _draw_chinese_snapshot_charts() -> tuple[Path, Path]:
     draw = ImageDraw.Draw(canvas)
     draw.text((35, 24), "按奖励来源的入账美元", font=title_font, fill=navy)
     source_values = [
-        ("单集奖励", 66.45, blue),
-        ("追剧任务", 133.05, coral),
+        ("单集奖励", 165.00, blue),
+        ("追剧任务", 24.00, coral),
         ("新人奖励", 60.00, "#70AD47"),
         ("皇冠奖励", 18.50, "#8064A2"),
         ("签到", 6.00, "#FFC000"),
-        ("钱包加速", 6.00, "#A5A5A5"),
+        ("钱包加速", 16.50, "#A5A5A5"),
     ]
     left, top, right, bottom = 210, 105, 1000, 520
     maximum = 140.0
@@ -736,7 +736,7 @@ def localize_chinese(output: Path) -> None:
         "Use Daily Summary and Source Mix for\nmanagement review; both sheets\ncalculate from Settlement.": "管理复核请使用“每日汇总”和“来源构成”；两者均由“结算明细”计算。",
         "For changes to crown threshold timing\nor task counts, rerun the paired Python\nexporter to rebuild event rows.": "如修改皇冠触发时点或任务数量，请重新运行配套 Python 导出器以重建事件行。",
         "Model boundary": "模型边界",
-        "This workbook mirrors the v1.7.0.4 server settlement order: reward events use the cumulative credited balance immediately before settlement to determine the damping multiplier, floor the credited units, and apply the 3,000,000-unit hard cap. The path assumes three consecutive days, 80 completed episodes per day, all configured watch tasks, daily check-in, ten Crown Road accelerations and ten wallet boosts each day.": "本工作簿复刻 v1.7.0.4 服务端结算顺序：每笔奖励在结算前按累计已入账余额确定阻尼系数，对结果向下取整后再应用 3,000,000 内部单位硬上限。该路径假设连续活跃三天、每日完成 80 集、完成全部配置的追剧任务、每日签到，并每天完成 10 次皇冠之路加速和 10 次钱包加速。",
+        "This workbook mirrors the v1.7.0.5 server settlement order: reward events use the cumulative credited balance immediately before settlement to determine the damping multiplier, floor the credited units, and apply the 3,000,000-unit hard cap. The path assumes three consecutive days, 80 completed episodes per day, all configured watch tasks, daily check-in, ten Crown Road accelerations and ten wallet boosts each day.": "本工作簿复刻 v1.7.0.5 服务端结算顺序：每笔奖励在结算前按累计已入账余额确定阻尼系数，对结果向下取整后再应用 3,000,000 内部单位硬上限。该路径假设连续活跃三天、每日完成 80 集、完成全部配置的追剧任务、每日签到，并每天完成 10 次皇冠之路加速和 10 次钱包加速。",
         "Expected default result": "默认预期结果",
         "Final credited amount": "最终入账金额",
         "Lifetime cap": "生命周期上限",

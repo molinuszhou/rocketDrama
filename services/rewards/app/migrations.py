@@ -47,6 +47,7 @@ def apply_runtime_migrations(settings: Settings) -> None:
             ("031_v1702_damping_starts_after_290usd", sql_directory / "031_v1702_damping_starts_after_290usd.sql"),
             ("032_v1703_organic_interstitial_incentives", sql_directory / "032_v1703_organic_interstitial_incentives.sql"),
             ("033_v1704_rounded_290usd_curve", sql_directory / "033_v1704_rounded_290usd_curve.sql"),
+            ("034_v1705_high_episode_wallet_rewards", sql_directory / "034_v1705_high_episode_wallet_rewards.sql"),
         )
     with psycopg.connect(settings.database_url, autocommit=True) as connection:
         with connection.cursor() as cursor:
