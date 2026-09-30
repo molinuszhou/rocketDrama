@@ -4,10 +4,9 @@ import android.content.Context
 import com.dramaflow.app.BuildConfig
 
 /**
- * 版本 1.6 白包广告配置。
+ * TopOn 正式广告配置。
  *
- * 测试参数可以来自 local.properties、Gradle 参数或环境变量；正式环境必须改用各
- * 合作方独立的安全配置，不应把正式密钥写死在客户端仓库中。
+ * 真实广告参数通过受控构建配置注入，禁止写入客户端仓库中。
  */
 data class TopOnSettings(
     val appId: String,
@@ -21,16 +20,16 @@ data class TopOnSettings(
     val enableNetworkDebug: Boolean,
 ) {
     val isConfigured: Boolean
-        get() = BuildConfig.ADS_ENABLED && appId.isNotBlank() && appKey.isNotBlank()
+        get() = appId.isNotBlank() && appKey.isNotBlank()
 
     val canShowRewarded: Boolean
-        get() = BuildConfig.ADS_ENABLED && isConfigured && rewardedPlacementId.isNotBlank()
+        get() = isConfigured && rewardedPlacementId.isNotBlank()
 
     val canShowInterstitial: Boolean
-        get() = BuildConfig.ADS_ENABLED && isConfigured && interstitialPlacementId.isNotBlank()
+        get() = isConfigured && interstitialPlacementId.isNotBlank()
 
     val canShowSplash: Boolean
-        get() = BuildConfig.ADS_ENABLED && isConfigured && splashPlacementId.isNotBlank()
+        get() = isConfigured && splashPlacementId.isNotBlank()
 
     companion object {
         fun fromBuildConfig(): TopOnSettings = TopOnSettings(

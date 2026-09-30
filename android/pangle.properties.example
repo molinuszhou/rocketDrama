@@ -1,8 +1,0 @@
-# 复制以下两行到 local.properties，或在 CI 中以同名环境变量/Gradle 属性注入。
-# 不要将真实生产参数提交到 Git。
-PANGLE_APP_ID=your_pangle_app_id
-PANGLE_REWARDED_SLOT_ID=your_rewarded_video_placement_id
-
-# 短剧内容服务与 Pangle Ads SDK 是两套独立授权资料。
-# 若业务侧提供短剧 API/SDK，请在安全配置中保存其 base URL、客户端凭据和环境信息，
-# 不要将密钥硬编码在 Android 客户端。

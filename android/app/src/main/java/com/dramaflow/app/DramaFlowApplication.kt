@@ -7,10 +7,9 @@ import com.dramaflow.app.analytics.EngagementAnalytics
 import com.dramaflow.app.content.ShortDramaSdkManager
 
 /**
- * 白包应用级入口。
+ * 正式应用级入口。
  *
- * 短剧内容仍由 content service 与现有播放器链路处理；这里统一初始化第三方
- * 广告、归因和统计 SDK。初始化失败不阻塞本地内容浏览，但会使广告入口安全降级。
+ * 短剧内容由 Pangle/PSSDK 提供；这里初始化广告、归因和统计 SDK。
  */
 class DramaFlowApplication : Application() {
     override fun onCreate() {
@@ -23,14 +22,14 @@ class DramaFlowApplication : Application() {
         if (settings.isConfigured) {
             val mode = if (settings.isDemoMode) "official-demo" else "configured-network"
             // 真正初始化由 TopOnAdsManager 异步完成；它会等待 SDK 回调成功后才加载开屏广告。
-            Log.i(TAG, "TopOn configuration ready for white-label build ${BuildConfig.VERSION_NAME}, mode=$mode")
+            Log.i(TAG, "TopOn configuration ready for release ${BuildConfig.VERSION_NAME}, mode=$mode")
         } else {
-            Log.w(TAG, "TopOn is not configured: TOPON_APP_ID or TOPON_APP_KEY is missing; enable TOPON_DEMO_MODE for official demo testing")
+            Log.w(TAG, "TopOn is not configured: TOPON_APP_ID or TOPON_APP_KEY is missing")
         }
 
         ShortDramaSdkManager.get(this).initializeIfEnabled { result ->
             when (result) {
-                ShortDramaSdkManager.Initialization.Disabled -> Log.i(TAG, "External short-drama SDK disabled; local content mode is active")
+                ShortDramaSdkManager.Initialization.Disabled -> Log.w(TAG, "Pangle short-drama SDK is disabled")
                 ShortDramaSdkManager.Initialization.Ready -> Log.i(TAG, "External short-drama SDK initialization completed")
                 is ShortDramaSdkManager.Initialization.InvalidConfiguration -> Log.w(TAG, result.message)
                 is ShortDramaSdkManager.Initialization.Failed -> Log.w(TAG, result.message)

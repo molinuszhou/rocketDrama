@@ -48,10 +48,8 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
     supportFragmentManager.beginTransaction()
         .replace(container.id, fragment, SDK_PLAYER_FRAGMENT_TAG)
         .commitNowAllowingStateLoss()
-    if (!com.dramaflow.app.BuildConfig.WHITE_PACK) {
-        // The provider owns media controls; JoyeDrama keeps only the existing wallet/reward entry.
-        root.addView(createPlayerTopBar(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(132), Gravity.TOP))
-    }
+    // The provider owns media controls; JoyeDrama keeps the existing wallet/reward entry.
+    root.addView(createPlayerTopBar(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(132), Gravity.TOP))
 }
 
 private fun DramaAppActivity.onSdkEpisodeStarted(episodeIndex: Int, episode: EpisodeData?) {

@@ -20,10 +20,3 @@ data class LocalEpisode(
     val coverUrl: String,
     val entitlement: String,
 )
-
-data class LocalPlaybackSession(
-    val episodeId: String,
-    val streamUrl: String,
-    val entitlement: String,
-    val message: String?,
-)

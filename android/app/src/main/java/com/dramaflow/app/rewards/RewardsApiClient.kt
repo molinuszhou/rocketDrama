@@ -299,7 +299,7 @@ class RewardsApiClient(
     )
 
     val isConfigured: Boolean
-        get() = BuildConfig.REWARDS_ENABLED && normalisedBaseUrl()?.let { it.startsWith("http://") || it.startsWith("https://") } == true
+        get() = normalisedBaseUrl()?.let { it.startsWith("http://") || it.startsWith("https://") } == true
 
     fun bootstrap(userId: String, region: String, onSuccess: (Snapshot) -> Unit, onFailure: (String) -> Unit) {
         post("/v2/bootstrap", JSONObject().put("user_id", userId).put("region", region), { onSuccess(parseSnapshot(it)) }, onFailure)

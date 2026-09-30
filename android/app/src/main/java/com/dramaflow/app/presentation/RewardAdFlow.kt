@@ -62,7 +62,6 @@ import com.dramaflow.app.analytics.AttributionExperienceStore
 import com.dramaflow.app.analytics.MonetizationExperience
 import com.dramaflow.app.content.ShortDramaSdkManager
 import com.dramaflow.app.local.LocalDrama
-import com.dramaflow.app.local.LocalDramaApiClient
 import com.dramaflow.app.local.LocalEpisode
 import com.dramaflow.app.rewards.RewardsApiClient
 import java.text.NumberFormat
@@ -121,7 +120,7 @@ internal fun DramaAppActivity.requestRewardedAction(
                     if (rewardedWasPresented && wasPlayingBeforeRewarded) { resumeAfterFullscreenAd = true; resumeAfterFullscreenAdIfNeeded() }
                     rewardsApi.completeRewarded(
                         userId = anonymousInstallationId(), placementId = placementId, targetId = targetId,
-                        episodeIndex = episodeIndex, proof = testRewardProof(),
+                        episodeIndex = episodeIndex, proof = "",
                         onSuccess = { action -> runOnUiThread {
                             fullscreenAdInProgress = false
                             playbackInterstitialShownAtElapsedMillis.clear()

@@ -60,7 +60,6 @@ import com.dramaflow.app.ads.TopOnAdsManager
 import com.dramaflow.app.ads.TopOnSettings
 import com.dramaflow.app.content.ShortDramaSdkManager
 import com.dramaflow.app.local.LocalDrama
-import com.dramaflow.app.local.LocalDramaApiClient
 import com.dramaflow.app.local.LocalEpisode
 import com.dramaflow.app.rewards.RewardsApiClient
 import java.text.NumberFormat
@@ -114,19 +113,10 @@ internal fun DramaAppActivity.createProfilePage(): View = scrollPage { content -
         content.addView(createSectionHeader(t("my_services"), t("profile_subtitle")), matchParams(top = 10, bottom = 10))
         content.addView(createSettingsRow(t("favorites"), t("continue_watching"), "›") { toast(t("favorites")) }, matchParams(bottom = 8))
         content.addView(createSettingsRow(t("reward_ledger"), t("ledger_note"), "›") { showRewardLedgerHint() }, matchParams(bottom = 8))
-        if (!BuildConfig.WHITE_PACK) {
-            content.addView(createSettingsRow(t("ad_network_audit"), t("ad_network_audit_subtitle"), "›") { showAdNetworkAuditLog() }, matchParams(bottom = 8))
-            content.addView(createSettingsRow(t("reporting_audit"), t("reporting_audit_subtitle"), "›") { showReportingAuditLog() }, matchParams(bottom = 8))
-        }
+        content.addView(createSettingsRow(t("ad_network_audit"), t("ad_network_audit_subtitle"), "›") { showAdNetworkAuditLog() }, matchParams(bottom = 8))
+        content.addView(createSettingsRow(t("reporting_audit"), t("reporting_audit_subtitle"), "›") { showReportingAuditLog() }, matchParams(bottom = 8))
         content.addView(createSettingsRow(t("settings"), "${t("ad_settings")} · ${t("privacy_terms")}", "›") { showSettingsCenter() }, matchParams(bottom = 8))
         content.addView(createSettingsRow(t("language"), AppLanguage.label(this), "›") { showLanguageSettings() }, matchParams(bottom = 16))
-        // LAN Content API and editable service endpoints are Debug-only. Formal Pangle SDK
-        // releases deliberately do not expose test infrastructure to end users.
-        if (!BuildConfig.SHORT_DRAMA_SDK_ENABLED) {
-            content.addView(createSectionHeader(t("developer_services"), ""), matchParams(bottom = 10))
-            content.addView(createSettingsRow(t("content_service"), localContentBaseUrl(), "›") { showLocalServerSettings() }, matchParams(bottom = 8))
-            content.addView(createSettingsRow(t("rewards_service"), rewardsBaseUrl(), "›") { showRewardsServerSettings() }, matchParams(bottom = 18))
-        }
     }
 
 internal fun DramaAppActivity.createProfileHero(): View = LinearLayout(this).apply {
@@ -288,7 +278,7 @@ internal fun DramaAppActivity.showSearchPage() {
             }
             if (filtered.isEmpty()) results.addView(createInlineNotice(t("search_empty")), matchParams(top = 16))
             else filtered.forEach { drama -> results.addView(createDiscoverDramaCard(drama), matchParams(top = 10)) }
-            if (BuildConfig.SHORT_DRAMA_SDK_ENABLED && normalized.isNotBlank()) {
+            if (normalized.isNotBlank()) {
                 val requestedQuery = normalized
                 ShortDramaSdkManager.get(this).search(normalized, onSuccess = { cards -> runOnUiThread {
                     if (input.text.toString().trim() != requestedQuery) return@runOnUiThread

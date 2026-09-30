@@ -49,21 +49,19 @@ val firebaseRewardedEventName = integrationValue("FIREBASE_REWARDED_EVENT_NAME")
 val firebaseCumulativeRevenueEventName = integrationValue("FIREBASE_CUMULATIVE_REVENUE_EVENT_NAME").ifBlank { "ad_impression_001" }
 // 炫羽海外事件服务当前测试协议为 HTTP；Android 清单仅对该域名放行明文流量。
 val xuanyuEventBaseUrl = integrationValue("XUANYU_EVENT_BASE_URL").ifBlank { "http://api.eventtrack.top" }
-val shortDramaSdkEnabled = integrationValue("SHORT_DRAMA_SDK_ENABLED").trim().equals("true", ignoreCase = true)
 val shortDramaAppId = integrationValue("SHORT_DRAMA_APP_ID")
 val shortDramaVodAppId = integrationValue("SHORT_DRAMA_VOD_APP_ID")
 val shortDramaLicenseAsset = integrationValue("SHORT_DRAMA_LICENSE_ASSET")
 val shortDramaSecurityKey = integrationValue("SHORT_DRAMA_SECURITY_KEY")
-val whiteLabelAppName = integrationValue("WHITE_LABEL_APP_NAME").ifBlank { "JoyeDrama" }
 val analyticsDebug = integrationValue("ANALYTICS_DEBUG").trim().equals("true", ignoreCase = true)
-// 测试阶段默认关闭 AppsFlyer、Firebase 和炫羽的实际事件上报；SDK 与事件代码保留，正式联调时显式开启。
+// 默认关闭 AppsFlyer、Firebase 和炫羽的实际事件上报；由受控构建参数显式开启。
 val externalReportingEnabled = integrationValue("EXTERNAL_REPORTING_ENABLED").trim().equals("true", ignoreCase = true)
 val releaseAbRoutingEnabled = integrationValue("RELEASE_AB_ROUTING_ENABLED").trim().equals("true", ignoreCase = true)
-val localContentApiBaseUrl = integrationValue("LOCAL_CONTENT_API_BASE_URL").ifBlank { "http://10.0.2.2:8000" }
-val rewardsApiBaseUrl = integrationValue("REWARDS_API_BASE_URL").ifBlank { "http://10.0.2.2:8100" }
+val formalRewardsApiBaseUrl = "https://www.joyelleasia.com/joyedrama-rewards"
+val rewardsApiBaseUrl = integrationValue("REWARDS_API_BASE_URL").ifBlank { formalRewardsApiBaseUrl }
 val commercialReleaseRequested = gradle.startParameter.taskNames.any { task ->
     val normalized = task.lowercase()
-    normalized.contains("release") && !normalized.contains("whiterelease")
+    normalized.contains("release")
 }
 if (commercialReleaseRequested) {
     check(!topOnDemoMode) { "TOPON_DEMO_MODE=true is permitted only for Debug builds, never for a commercial Release build." }
@@ -103,7 +101,7 @@ val validateCommercialReleaseAdConfig = tasks.register("validateCommercialReleas
 }
 tasks.configureEach {
     val normalized = name.lowercase()
-    if (name != validateCommercialReleaseAdConfig.name && normalized.contains("release") && !normalized.contains("whiterelease")) {
+    if (name != validateCommercialReleaseAdConfig.name && normalized.contains("release")) {
         dependsOn(validateCommercialReleaseAdConfig)
     }
 }
@@ -127,7 +125,6 @@ if (commercialReleaseRequested) {
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 if (googleServicesConfigPresent) {
@@ -147,8 +144,8 @@ android {
         minSdk = 26
         targetSdk = 35
         // Android 客户端每次代码改动递增补丁版本；服务端/文档单独改动不变更此版本。
-        versionCode = 54
-        versionName = "1.7.0"
+        versionCode = 55
+        versionName = "1.7.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -165,7 +162,8 @@ android {
         buildConfigField("String", "FIREBASE_REWARDED_EVENT_NAME", "\"${escapeBuildConfig(firebaseRewardedEventName)}\"")
         buildConfigField("String", "FIREBASE_CUMULATIVE_REVENUE_EVENT_NAME", "\"${escapeBuildConfig(firebaseCumulativeRevenueEventName)}\"")
         buildConfigField("String", "XUANYU_EVENT_BASE_URL", "\"${escapeBuildConfig(xuanyuEventBaseUrl)}\"")
-        buildConfigField("boolean", "SHORT_DRAMA_SDK_ENABLED", shortDramaSdkEnabled.toString())
+        // Formal content always comes from Pangle/PSSDK; local Content API builds were removed.
+        buildConfigField("boolean", "SHORT_DRAMA_SDK_ENABLED", "true")
         buildConfigField("String", "SHORT_DRAMA_APP_ID", "\"${escapeBuildConfig(shortDramaAppId)}\"")
         buildConfigField("String", "SHORT_DRAMA_VOD_APP_ID", "\"${escapeBuildConfig(shortDramaVodAppId)}\"")
         buildConfigField("String", "SHORT_DRAMA_LICENSE_ASSET", "\"${escapeBuildConfig(shortDramaLicenseAsset)}\"")
@@ -173,12 +171,7 @@ android {
         buildConfigField("boolean", "ANALYTICS_DEBUG", analyticsDebug.toString())
         buildConfigField("boolean", "EXTERNAL_REPORTING_ENABLED", externalReportingEnabled.toString())
         buildConfigField("boolean", "RELEASE_AB_ROUTING_ENABLED", releaseAbRoutingEnabled.toString())
-        buildConfigField("boolean", "WHITE_PACK", "false")
-        buildConfigField("boolean", "ADS_ENABLED", "true")
-        buildConfigField("boolean", "REWARDS_ENABLED", "true")
-        buildConfigField("boolean", "CONTENT_UNLOCK_ENABLED", "true")
-        resValue("string", "app_name", whiteLabelAppName)
-        buildConfigField("String", "LOCAL_CONTENT_API_BASE_URL", "\"${escapeBuildConfig(localContentApiBaseUrl)}\"")
+        resValue("string", "app_name", "JoyeDrama")
         buildConfigField("String", "REWARDS_API_BASE_URL", "\"${escapeBuildConfig(rewardsApiBaseUrl)}\"")
         manifestPlaceholders["ADMOB_APP_ID"] = topOnAdmobAppId
     }
@@ -198,10 +191,9 @@ android {
             buildConfigField("String", "TOPON_INTERSTITIAL_PLACEMENT_ID", "\"${escapeBuildConfig(partnerTopOnInterstitialPlacementId)}\"")
             buildConfigField("String", "TOPON_SPLASH_PLACEMENT_ID", "\"${escapeBuildConfig(partnerTopOnSplashPlacementId)}\"")
             buildConfigField("boolean", "TOPON_DEMO_MODE", "false")
-            // Formal release always consumes Pangle short-drama SDK content and the AppsFlyer
-            // organic/non-organic monetization split; local content remains Debug-only.
-            buildConfigField("boolean", "SHORT_DRAMA_SDK_ENABLED", "true")
+            // Formal release always uses the Pangle short-drama SDK and AppsFlyer attribution split.
             buildConfigField("boolean", "RELEASE_AB_ROUTING_ENABLED", "true")
+            buildConfigField("String", "REWARDS_API_BASE_URL", "\"$formalRewardsApiBaseUrl\"")
             manifestPlaceholders["ADMOB_APP_ID"] = partnerAdmobAppId
             isMinifyEnabled = true
             isShrinkResources = true
@@ -209,28 +201,6 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-        }
-        // Partner white-label build: content browsing/playback remains available,
-        // while ads, rewards, wallet and episode locks are disabled at build time.
-        create("whiteRelease") {
-            initWith(getByName("release"))
-            matchingFallbacks += listOf("release")
-            versionNameSuffix = "-white"
-            // Partner testing build: sign with the standard local debug keystore
-            // so adb can install it. Replace this with the partner's release
-            // keystore before any public distribution.
-            signingConfig = signingConfigs.getByName("debug")
-            isDebuggable = true
-            isMinifyEnabled = false
-            isShrinkResources = false
-            buildConfigField("boolean", "WHITE_PACK", "true")
-            buildConfigField("boolean", "ADS_ENABLED", "false")
-            buildConfigField("boolean", "REWARDS_ENABLED", "false")
-            buildConfigField("boolean", "CONTENT_UNLOCK_ENABLED", "false")
-            // White release is content-only; never start attribution or send analytics side-channel events.
-            buildConfigField("boolean", "EXTERNAL_REPORTING_ENABLED", "false")
-            buildConfigField("boolean", "RELEASE_AB_ROUTING_ENABLED", "false")
-            resValue("string", "app_name", "JoyeDrama White")
         }
     }
 
@@ -240,29 +210,13 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
 
-    buildFeatures { compose = true; buildConfig = true }
+    buildFeatures { buildConfig = true }
     packaging { resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" } }
 }
 
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
-    implementation(composeBom)
-    androidTestImplementation(composeBom)
-
-    implementation("androidx.core:core-ktx:1.15.0")
+    // Android 12+ system splash attributes referenced by the formal launcher theme.
     implementation("androidx.core:core-splashscreen:1.0.1")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
-    implementation("androidx.activity:activity-compose:1.10.0")
-    implementation("androidx.fragment:fragment-ktx:1.8.5")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
-    implementation("androidx.navigation:navigation-compose:2.8.5")
-    implementation("androidx.datastore:datastore-preferences:1.1.2")
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
 
     // TopOn mediation core. In the current 6.5.73.3 distribution it already bundles the
     // interstitial, rewarded and splash APIs; adding the older standalone format AARs would
@@ -293,8 +247,7 @@ dependencies {
     implementation(platform("com.google.firebase:firebase-bom:33.10.0"))
     implementation("com.google.firebase:firebase-analytics")
 
-    // 合作方短剧 SDK：默认由 SHORT_DRAMA_SDK_ENABLED=false 保持本地视频测试链路；
-    // 需要外部短剧目录和鉴权时再填入合作方参数并开启该开关。
+    // 正式短剧目录与播放器 SDK。
     implementation("com.bytedance.dramaverse:pssdk:1.8.0.0")
 
     implementation("androidx.media3:media3-exoplayer:1.5.1")
@@ -302,6 +255,5 @@ dependencies {
     implementation("io.coil-kt:coil:2.7.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
-    debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
 }

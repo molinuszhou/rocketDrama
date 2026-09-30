@@ -1,8 +1,9 @@
 # 复制到 android/local.properties 或受控 CI Secret；真实生产值禁止提交到 Git。
 # Release 包名固定为 com.feather.joyelledrama。
 
-# 正式 Rewards HTTPS 地址。当前宿主机 Nginx 路径代理示例：
-REWARDS_API_BASE_URL=https://www.joyelleasia.com/joyedrama-rewards
+# Rewards 正式公网 HTTPS 地址已固定编入 Release：
+# https://www.joyelleasia.com/joyedrama-rewards
+# 如需专用预发布地址，仅 Debug 构建可通过 REWARDS_API_BASE_URL 覆盖。
 
 # TopOn 正式聚合参数。Release 强制 TOPON_DEMO_MODE=false。
 TOPON_DEMO_MODE=false
@@ -24,8 +25,7 @@ EXTERNAL_REPORTING_ENABLED=true
 ANALYTICS_DEBUG=false
 XUANYU_EVENT_BASE_URL=https://填写正式炫羽上报地址
 
-# Pangle 短剧 SDK。Release 强制 SHORT_DRAMA_SDK_ENABLED=true，不请求本地 Content 服务。
-SHORT_DRAMA_SDK_ENABLED=true
+# Pangle 短剧 SDK。Release 固定启用，不请求本地 Content 服务。
 SHORT_DRAMA_APP_ID=
 SHORT_DRAMA_VOD_APP_ID=
 # License 文件相对 app/src/main/assets/ 的路径，例如 license/production.lic。

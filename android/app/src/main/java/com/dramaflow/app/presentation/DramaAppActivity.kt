@@ -10,7 +10,6 @@ import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.text.Editable
@@ -25,7 +24,6 @@ import android.view.animation.AccelerateDecelerateInterpolator
 import android.view.animation.LinearInterpolator
 import android.view.WindowManager
 import android.widget.Button
-import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -63,7 +61,6 @@ import com.dramaflow.app.ads.TopOnSettings
 import com.dramaflow.app.analytics.ReportingAuditLog
 import com.dramaflow.app.content.ShortDramaSdkManager
 import com.dramaflow.app.local.LocalDrama
-import com.dramaflow.app.local.LocalDramaApiClient
 import com.dramaflow.app.local.LocalEpisode
 import com.dramaflow.app.rewards.RewardsApiClient
 import java.text.NumberFormat
@@ -74,14 +71,13 @@ import kotlin.random.Random
 /**
  * JoyeDrama 的统一短剧入口。
  *
- * 测试阶段从局域网 FastAPI 服务获取自有剧目录、分集与短时播放 URL，使用 Media3 播放；
- * 目录卡片、播放控制、选集、收藏、广告解锁和奖励体验均由应用自己管理。
+ * 正式内容由 Pangle/PSSDK 提供；应用统一管理目录展示、广告解锁和奖励体验。
  */
 class DramaAppActivity : FragmentActivity() {
     internal lateinit var root: FrameLayout
     internal var catalogPage: View? = null
     internal var catalogItems: List<LocalDrama> = emptyList()
-    /** Debug may use Local Content API; formal Release maps Pangle SDK cards into this shared model. */
+    /** Pangle SDK cards are mapped into a lightweight shared catalog display model. */
     internal val sdkDramaCardsByCatalogId = mutableMapOf<String, ShortDramaSdkManager.DramaCard>()
     internal var sdkPlayerShown = false
     internal var sdkPlayerContainerId = View.NO_ID
@@ -243,9 +239,7 @@ class DramaAppActivity : FragmentActivity() {
         TopOnAdsManager(applicationContext, TopOnSettings.fromBuildConfig(), adMediationReporter = adMediationReporter)
     }
     internal val rewardsApi by lazy { RewardsApiClient(baseUrlProvider = { rewardsBaseUrl() }) }
-    internal val localDramaApi by lazy { LocalDramaApiClient() }
     internal val shortDramaSdk by lazy { ShortDramaSdkManager.get(applicationContext) }
-    internal val serverPreferences by lazy { getSharedPreferences(SERVER_PREFERENCES, Context.MODE_PRIVATE) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -351,20 +345,8 @@ class DramaAppActivity : FragmentActivity() {
      * 启动时不显示“开始追剧”确认框。只有用户先主动启用广告后才可能请求开屏。
      * 先显示 JoyeDrama Logo 加载页；开屏关闭、跳过或无填充后，再进入签到与内容初始化。
      */
-    internal fun loadLocalCatalog() {
-        if (BuildConfig.SHORT_DRAMA_SDK_ENABLED) {
-            loadShortDramaSdkCatalog()
-            return
-        }
-        renderLoading(t("loading_catalog"))
-        localDramaApi.fetchFeed(
-            baseUrl = localContentBaseUrl(),
-            region = CONTENT_REGION,
-            onSuccess = { items -> runOnUiThread {
-                if (items.isEmpty()) renderFailure(t("catalog_empty")) else { catalogItems = items; renderActiveTab() }
-            } },
-            onFailure = { message -> runOnUiThread { renderFailure(t("catalog_load_failed", message)) } },
-        )
+    internal fun loadCatalog() {
+        loadShortDramaSdkCatalog()
     }
 
     private fun loadShortDramaSdkCatalog() {
@@ -445,9 +427,7 @@ class DramaAppActivity : FragmentActivity() {
         root.addView(page, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         // 常规页始终显示资产栏；奖励中心仅在 hero 已离开视口时淡入同款吸顶栏。
         rewardsStickyAssetHeader = null
-        if (BuildConfig.WHITE_PACK) {
-            // White builds are content-only: no wallet, reward balance or sticky reward header.
-        } else if (activeTab != MainTab.TASKS) {
+        if (activeTab != MainTab.TASKS) {
             root.addView(createPersistentAssetHeader(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(120), Gravity.TOP))
         } else {
             createPersistentAssetHeader().also { header ->
@@ -458,71 +438,10 @@ class DramaAppActivity : FragmentActivity() {
             }
         }
         root.addView(createBottomNavigation(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(68), Gravity.BOTTOM))
-        if (!BuildConfig.WHITE_PACK) {
-            root.addView(createFloatingRewardWheel(), FrameLayout.LayoutParams(dp(130), dp(112), Gravity.END or Gravity.BOTTOM).apply {
-                marginEnd = 0
-                bottomMargin = dp(80)
-            })
-        }
-    }
-
-    internal fun showLocalServerSettings() {
-        val input = EditText(this).apply {
-            setText(localContentBaseUrl())
-            hint = "http://192.168.1.100:8000"
-            isSingleLine = true
-            setSelectAllOnFocus(true)
-        }
-        showBrandedInputDialog(
-            title = t("content_service"),
-            message = t("local_content_server_hint"),
-            input = input,
-            primaryLabel = t("save"),
-            onPrimary = { value ->
-                if (!value.startsWith("http://") && !value.startsWith("https://")) {
-                    toast(t("server_address_invalid"))
-                } else {
-                    serverPreferences.edit().putString(SERVER_BASE_URL_KEY, value.trimEnd('/')).apply()
-                    catalogItems = emptyList()
-                    loadLocalCatalog()
-                }
-            },
-            secondaryLabel = t("restore_default"),
-            onSecondary = {
-                serverPreferences.edit().remove(SERVER_BASE_URL_KEY).apply()
-                catalogItems = emptyList()
-                loadLocalCatalog()
-            },
-        )
-    }
-
-    internal fun showRewardsServerSettings() {
-        val input = EditText(this).apply {
-            setText(rewardsBaseUrl())
-            hint = "http://192.168.1.100:8100"
-            isSingleLine = true
-            setSelectAllOnFocus(true)
-        }
-        showBrandedInputDialog(
-            title = t("rewards_service"),
-            message = t("local_rewards_server_hint"),
-            input = input,
-            primaryLabel = t("save"),
-            onPrimary = { value ->
-                if (!value.startsWith("http://") && !value.startsWith("https://")) {
-                    toast(t("server_address_invalid"))
-                } else {
-                    serverPreferences.edit().putString(REWARDS_SERVER_BASE_URL_KEY, value.trimEnd('/')).apply()
-                    refreshRewardsSnapshot()
-                    toast(t("server_saved"))
-                }
-            },
-            secondaryLabel = t("restore_default"),
-            onSecondary = {
-                serverPreferences.edit().remove(REWARDS_SERVER_BASE_URL_KEY).apply()
-                refreshRewardsSnapshot()
-            },
-        )
+        root.addView(createFloatingRewardWheel(), FrameLayout.LayoutParams(dp(130), dp(112), Gravity.END or Gravity.BOTTOM).apply {
+            marginEnd = 0
+            bottomMargin = dp(80)
+        })
     }
 
     internal fun showAdPrivacySettings() {
@@ -641,7 +560,7 @@ internal fun DramaAppActivity.showAdNetworkAuditLog() {
         clearExternalAdReturnCheckpoint()
         playerShown = false
         activeTab = MainTab.HOME
-        if (catalogItems.isNotEmpty()) renderActiveTab() else loadLocalCatalog()
+        if (catalogItems.isNotEmpty()) renderActiveTab() else loadCatalog()
     }
 
     internal fun renderStartupLoading() {
@@ -771,64 +690,14 @@ internal fun DramaAppActivity.showAdNetworkAuditLog() {
             setPadding(0, dp(8), 0, 0)
         })
         column.addView(Button(this).apply {
-            text = t("server_address")
-            isAllCaps = false
-            backgroundTintList = ColorStateList.valueOf(COLOR_ACCENT)
-            setTextColor(Color.WHITE)
-            setOnClickListener { showLocalServerSettings() }
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = dp(22) })
-        column.addView(Button(this).apply {
             text = t("retry")
             isAllCaps = false
-            setOnClickListener { loadLocalCatalog() }
+            setOnClickListener { loadCatalog() }
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = dp(10) })
-        column.addView(TextView(this).apply {
-            text = t("restore_default")
-            textSize = 13f
-            gravity = Gravity.CENTER
-            setTextColor(COLOR_ACCENT)
-            setPadding(dp(12), dp(14), dp(12), dp(8))
-            isClickable = true
-            setOnClickListener {
-                serverPreferences.edit().remove(SERVER_BASE_URL_KEY).apply()
-                toast("已恢复默认地址：${BuildConfig.LOCAL_CONTENT_API_BASE_URL}")
-                loadLocalCatalog()
-            }
-        })
         root.addView(column, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
     }
 
-    /** 仅用于开发环境联调；正式构建必须由广告服务端回调/验签替代。 */
-    internal fun testRewardProof(): String = if (BuildConfig.DEBUG) "TEST_TOPON_REWARD" else ""
-
-    internal fun rewardsBaseUrl(): String {
-        val saved = serverPreferences
-            .getString(REWARDS_SERVER_BASE_URL_KEY, null)
-            ?.trim()
-            ?.trimEnd('/')
-            ?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
-        if (saved != null) return saved
-
-        val configured = BuildConfig.REWARDS_API_BASE_URL.trim().trimEnd('/')
-        // Debug 真机常见情况：只配置或手动保存了 Content API，Rewards 地址仍保持模拟器默认
-        // 10.0.2.2。此时复用已验证可访问的内容服务主机，仅替换为 Rewards 的 8100 端口。
-        if (BuildConfig.DEBUG && configured.contains("10.0.2.2")) {
-            val contentUri = runCatching { Uri.parse(localContentBaseUrl()) }.getOrNull()
-            val host = contentUri?.host?.takeIf { it.isNotBlank() }
-            if (host != null && host != "10.0.2.2") {
-                val scheme = contentUri.scheme?.takeIf { it == "http" || it == "https" } ?: "http"
-                return "$scheme://$host:8100"
-            }
-        }
-        return configured
-    }
-
-    internal fun localContentBaseUrl(): String = serverPreferences
-        .getString(SERVER_BASE_URL_KEY, null)
-        ?.trim()
-        ?.trimEnd('/')
-        ?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
-        ?: BuildConfig.LOCAL_CONTENT_API_BASE_URL.trim().trimEnd('/')
+    internal fun rewardsBaseUrl(): String = BuildConfig.REWARDS_API_BASE_URL.trim().trimEnd('/')
 
     internal fun resumePreferenceKey(dramaId: String, suffix: String): String = "resume_${suffix}_${dramaId}"
 
@@ -969,7 +838,7 @@ internal fun DramaAppActivity.showAdNetworkAuditLog() {
         }
     }
 
-    internal fun rewardsMarketCode(): String = Locale.getDefault().country.trim().uppercase(Locale.ROOT).ifBlank { CONTENT_REGION }
+    internal fun rewardsMarketCode(): String = Locale.getDefault().country.trim().uppercase(Locale.ROOT).ifBlank { "US" }
 
     internal fun t(key: String, vararg values: Any): String = AppLanguage.text(this, key, *values)
     internal fun toast(message: String) = runOnUiThread { Toast.makeText(this, message, Toast.LENGTH_SHORT).show() }

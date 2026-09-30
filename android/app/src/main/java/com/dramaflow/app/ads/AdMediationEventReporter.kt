@@ -55,7 +55,6 @@ class AdMediationEventReporter(
 
     /** Attempts a bounded replay of retained events. Safe to call from Activity.onCreate. */
     fun flushPending() {
-        if (!BuildConfig.REWARDS_ENABLED) return
         synchronized(lock) {
             if (sending || queuedEventsLocked().isEmpty()) return
             sending = true
@@ -64,7 +63,6 @@ class AdMediationEventReporter(
     }
 
     private fun enqueue(eventType: String, logicalPlacement: String, toponPlacementId: String, adFormat: String, adInfo: ATAdInfo) {
-        if (!BuildConfig.REWARDS_ENABLED) return
         val identity = AdNetworkIdentity.from(adInfo)
         val revenue = AdRevenueAuditValues.fromPaidImpression(adInfo.currency, adInfo.ecpm)
         val event = JSONObject()

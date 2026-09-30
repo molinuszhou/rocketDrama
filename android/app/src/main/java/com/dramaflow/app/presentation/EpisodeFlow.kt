@@ -55,7 +55,6 @@ import com.dramaflow.app.presentation.DramaAppActivity.MainTab
 import com.dramaflow.app.i18n.AppLanguage
 import com.dramaflow.app.content.ShortDramaSdkManager
 import com.dramaflow.app.local.LocalDrama
-import com.dramaflow.app.local.LocalDramaApiClient
 import com.dramaflow.app.local.LocalEpisode
 import com.dramaflow.app.rewards.RewardsApiClient
 import java.text.NumberFormat
@@ -144,62 +143,13 @@ internal fun DramaAppActivity.showEpisodePicker() {
     }
 
 internal fun DramaAppActivity.selectEpisode(index: Int) {
-        if (playerShown && index != currentEpisodeIndex) persistPlaybackProgress()
         val drama = selectedDrama ?: return
-        val episode = drama.episodes.getOrNull(index) ?: run {
-            toast(t("episode_info_missing", index + 1))
+        val card = sdkDramaCardsByCatalogId[drama.id]
+        if (card == null) {
+            toast(t("player_not_ready"))
             return
         }
-        if (needsUnlock(index)) {
-            unlockEpisodeThenAutoPlay(index)
-            return
-        }
-        completedEpisodeKeys.remove(episodeKey(index))
-        // A replay is a new viewing session: timing and per-episode ad capacity must not inherit prior runs.
-        midEpisodeInterstitialRequestedEpisodeKeys.remove(episodeKey(index))
-        interstitialRequestedEpisodeKeys.remove(episodeKey(index))
-        actionInterstitialShownEpisodeKeys.remove("${selectedDrama?.id}:${episode.id}")
-        interstitialCountByEpisodeKey.remove("${selectedDrama?.id}:${episode.id}")
-        episodePlaybackStartedAtElapsedMillis = 0L
-        episodePlaybackPausedAtElapsedMillis = 0L
-        episodePlaybackPausedDurationMillis = 0L
-        lastMidrollSamplePositionSeconds = -1
-        exoPlayer?.pause()
-        currentEpisodeIndex = index
-        refreshFloatingRewardWheels()
-        playerProgressSeconds = 0
-        playerDurationSeconds = episode.durationSeconds
-        playerIsSeeking = false
-        playerIsPaused = false
-        playerProgressSeekBar?.isEnabled = true
-        updateEpisodeStatus()
-        updatePlayerProgress(0, playerDurationSeconds)
-        localDramaApi.createPlaybackSession(
-            baseUrl = localContentBaseUrl(),
-            episodeId = episode.id,
-            region = CONTENT_REGION,
-            userId = anonymousInstallationId(),
-            deviceId = anonymousInstallationId(),
-            onSuccess = { session -> runOnUiThread {
-                if (selectedEpisode()?.id != session.episodeId) return@runOnUiThread
-                val player = exoPlayer ?: return@runOnUiThread
-                player.setMediaItem(MediaItem.fromUri(session.streamUrl))
-                player.setPlaybackSpeed(playerSpeed)
-                player.volume = if (playerMuted) 0f else 1f
-                player.prepare()
-                val resumeAtSeconds = pendingResumePositionSeconds
-                if (resumeAtSeconds > 0) player.seekTo(resumeAtSeconds * 1_000L)
-                pendingResumePositionSeconds = 0
-                player.play()
-                episodeTransitionInProgress = false
-                window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            } },
-            onFailure = { message -> runOnUiThread {
-                episodeTransitionInProgress = false
-                logStatus("播放会话创建失败：$message")
-                toast(t("playback_url_failed"))
-            } },
-        )
+        showSdkDramaPlayer(drama, card, index.coerceIn(0, drama.episodes.lastIndex.coerceAtLeast(0)))
     }
 
 internal fun DramaAppActivity.selectedEpisode(): LocalEpisode? = selectedDrama?.episodes?.getOrNull(currentEpisodeIndex)
@@ -300,52 +250,19 @@ internal fun DramaAppActivity.settleEpisodeUnlockAfterAd(
     unlockCount: Int = 1,
     onUnlocked: () -> Unit = {},
 ) {
-        val episodes = selectedDrama?.episodes.orEmpty()
-        val indexes = (index until (index + unlockCount.coerceAtLeast(1)).coerceAtMost(episodes.size)).toList()
-        if (indexes.isEmpty()) {
-            episodeTransitionInProgress = false
-            return
-        }
-
-        fun finish(unlockedCount: Int) {
-            indexes.take(unlockedCount).forEach { unlockedIndex -> sessionUnlockedEpisodeKeys.add(episodeKey(unlockedIndex)) }
-            pendingUnlockIndex = -1
-            updateEpisodeStatus()
-            toast(if (unlockedCount > 1) t("episodes_unlocked", unlockedCount) else t("episode_unlocked", index + 1))
-            onUnlocked()
-        }
-
-        fun unlockNext(position: Int) {
-            val unlockedIndex = indexes[position]
-            val episode = episodes[unlockedIndex]
-            localDramaApi.unlockEpisode(
-                baseUrl = localContentBaseUrl(),
-                episodeId = episode.id,
-                region = CONTENT_REGION,
-                userId = anonymousInstallationId(),
-                unlockMethod = unlockMethod,
-                onSuccess = { runOnUiThread {
-                    if (position + 1 < indexes.size) unlockNext(position + 1) else finish(indexes.size)
-                } },
-                onFailure = { message -> runOnUiThread {
-                    // The rewarded placement has already settled. Preserve every content entitlement that was
-                    // confirmed before a transient content-service error, and never block the first requested episode.
-                    if (position > 0) {
-                        logStatus("后续分集解锁未同步：$message")
-                        finish(position)
-                    } else {
-                        episodeTransitionInProgress = false
-                        if (unlockMethod == "AD_INTERSTITIAL" || unlockMethod == "AD_REWARDED") interstitialRequestedEpisodeKeys.remove(episodeKey(index))
-                        logStatus("自有剧解锁失败：$message")
-                        resumeAfterFullscreenAdIfNeeded()
-                        toast(t("unlock_service_unavailable_generic"))
-                    }
-                } },
-            )
-        }
-
-        unlockNext(0)
+    val episodes = selectedDrama?.episodes.orEmpty()
+    val indexes = (index until (index + unlockCount.coerceAtLeast(1)).coerceAtMost(episodes.size)).toList()
+    if (indexes.isEmpty()) {
+        episodeTransitionInProgress = false
+        return
     }
+    indexes.forEach { unlockedIndex -> sessionUnlockedEpisodeKeys.add(episodeKey(unlockedIndex)) }
+    pendingUnlockIndex = -1
+    episodeTransitionInProgress = false
+    updateEpisodeStatus()
+    toast(if (indexes.size > 1) t("episodes_unlocked", indexes.size) else t("episode_unlocked", index + 1))
+    onUnlocked()
+}
 
 internal fun DramaAppActivity.unlockEpisodeForCurrentSession(index: Int, message: String) {
         sessionUnlockedEpisodeKeys.add(episodeKey(index))
@@ -477,7 +394,6 @@ internal fun DramaAppActivity.showRandomChestEarnedDialog(createdCount: Int, ava
     }
 
 internal fun DramaAppActivity.needsUnlock(index: Int): Boolean {
-        if (!BuildConfig.CONTENT_UNLOCK_ENABLED) return false
         // The trial is a product-wide promise. Older local catalog responses
         // may still mark episode 2 or 3 as AD_UNLOCK, so never let their stale
         // entitlement override the first three free episodes.

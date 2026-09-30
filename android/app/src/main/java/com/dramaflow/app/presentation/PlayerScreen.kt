@@ -61,7 +61,6 @@ import com.dramaflow.app.ads.TopOnAdsManager
 import com.dramaflow.app.ads.TopOnSettings
 import com.dramaflow.app.content.ShortDramaSdkManager
 import com.dramaflow.app.local.LocalDrama
-import com.dramaflow.app.local.LocalDramaApiClient
 import com.dramaflow.app.local.LocalEpisode
 import com.dramaflow.app.rewards.RewardsApiClient
 import java.text.NumberFormat
@@ -70,23 +69,16 @@ import java.util.UUID
 import kotlin.random.Random
 
 internal fun DramaAppActivity.showPlayer(drama: LocalDrama, startIndex: Int, resumePositionSeconds: Int = 0) {
-        sdkDramaCardsByCatalogId[drama.id]?.let { card ->
-            showSdkDramaPlayer(drama, card, startIndex)
+        val card = sdkDramaCardsByCatalogId[drama.id]
+        if (card == null) {
+            logStatus("PSSDK 目录映射缺失：${drama.id}")
+            renderFailure(t("player_not_ready"))
             return
         }
-        if (drama.episodes.isEmpty()) {
-            renderLoading(t("loading_episode"))
-            localDramaApi.fetchDrama(
-                baseUrl = localContentBaseUrl(),
-                dramaId = drama.id,
-                region = CONTENT_REGION,
-                userId = anonymousInstallationId(),
-                onSuccess = { detail -> runOnUiThread { showPlayer(detail, startIndex, resumePositionSeconds) } },
-                onFailure = { message -> runOnUiThread { renderFailure(t("episode_load_failed", message)) } },
-            )
-            return
-        }
+        showSdkDramaPlayer(drama, card, startIndex)
+    }
 
+private fun DramaAppActivity.renderLegacyPlayer(drama: LocalDrama, startIndex: Int, resumePositionSeconds: Int = 0) {
         releasePlayer()
         // One transparent edge-to-edge policy is reapplied before player creation and after every ad close.
         configurePlayerWindow()
@@ -167,12 +159,10 @@ internal fun DramaAppActivity.showPlayer(drama: LocalDrama, startIndex: Int, res
         })
         root.addView(playerView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         root.addView(createPlayerChrome(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        if (!BuildConfig.WHITE_PACK) {
-            root.addView(createFloatingRewardWheel(compact = true), FrameLayout.LayoutParams(dp(112), dp(96), Gravity.END or Gravity.BOTTOM).apply {
-                marginEnd = dp(12)
-                bottomMargin = dp(166)
-            })
-        }
+        root.addView(createFloatingRewardWheel(compact = true), FrameLayout.LayoutParams(dp(112), dp(96), Gravity.END or Gravity.BOTTOM).apply {
+            marginEnd = dp(12)
+            bottomMargin = dp(166)
+        })
         selectEpisode(currentEpisodeIndex)
         showPlayerGestureHintOnce()
         progressHandler.removeCallbacks(progressTicker)
@@ -300,20 +290,16 @@ internal fun DramaAppActivity.createPlayerTopBar(): View {
             isClickable = true
             setOnClickListener { showCatalog() }
         }
-        val assets = if (!BuildConfig.WHITE_PACK) createPlayerAssetStrip() else null
+        val assets = createPlayerAssetStrip()
         // Both controls share the true system safe inset. This avoids the fixed 14dp
         // offset that could overlap a notch/status region on first opening the player.
         shell.addView(back, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.TOP or Gravity.START).apply { topMargin = dp(8); marginStart = dp(8) })
-        assets?.let { assetView ->
-            shell.addView(assetView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(50), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(26) })
-        }
+        shell.addView(assets, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(50), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(26) })
         ViewCompat.setOnApplyWindowInsetsListener(shell) { _, insets ->
             val safeTop = insets.getInsets(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()).top
             val margin = safeTop + dp(8)
             (back.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = margin; back.layoutParams = params }
-            assets?.let { assetView ->
-                (assetView.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = margin + dp(18); assetView.layoutParams = params }
-            }
+            (assets.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = margin + dp(18); assets.layoutParams = params }
             insets
         }
         ViewCompat.requestApplyInsets(shell)

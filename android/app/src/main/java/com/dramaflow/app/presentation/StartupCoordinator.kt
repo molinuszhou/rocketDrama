@@ -59,7 +59,6 @@ import com.dramaflow.app.ads.TopOnAdsManager
 import com.dramaflow.app.ads.TopOnSettings
 import com.dramaflow.app.content.ShortDramaSdkManager
 import com.dramaflow.app.local.LocalDrama
-import com.dramaflow.app.local.LocalDramaApiClient
 import com.dramaflow.app.local.LocalEpisode
 import com.dramaflow.app.rewards.RewardsApiClient
 import java.text.NumberFormat
@@ -80,7 +79,7 @@ internal fun DramaAppActivity.beginStartupExperience() {
         renderStartupLoading()
         updateStartupProgress(0, t("startup_preparing"))
         if (rewardsApi.isConfigured) refreshRewardsSnapshot() else completeStartupWhenReady()
-        preloadLocalCatalog()
+        preloadCatalog()
         // 等待 onPostResume 后再发起开屏请求，确保窗口已就绪；目录和开屏并行预热。
     }
 
@@ -114,52 +113,9 @@ internal fun DramaAppActivity.finishStartupAfterAppOpen(reason: String) {
         completeStartupWhenReady()
     }
 
-internal fun DramaAppActivity.preloadLocalCatalog() {
-        if (BuildConfig.SHORT_DRAMA_SDK_ENABLED) {
-            preloadShortDramaSdkCatalog()
-            return
-        }
-        localDramaApi.fetchFeed(
-            baseUrl = localContentBaseUrl(),
-            region = CONTENT_REGION,
-            onSuccess = { items -> runOnUiThread {
-                startupCatalogFinished = true
-                if (items.isEmpty()) {
-                    startupCatalogFailure = t("catalog_empty")
-                    startupPosterPreloadFinished = true
-                    updateStartupProgress(88, t("catalog_empty"))
-                    completeStartupWhenReady()
-                } else {
-                    catalogItems = items
-                    updateStartupProgress(30, t("startup_content_ready"))
-                    preloadCatalogCovers(
-                        items = items,
-                        onProgress = { percent ->
-                            startupPosterPreloadPercent = percent
-                            updateStartupProgress(computeStartupProgress(), t("startup_content_ready"))
-                        },
-                        onFinished = {
-                            startupPosterPreloadFinished = true
-                            startupPosterPreloadPercent = 100
-                            updateStartupProgress(computeStartupProgress(), t("startup_content_ready"))
-                            completeStartupWhenReady()
-                        },
-                        onTimedOut = {
-                            startupCatalogFailure = t("startup_resources_timeout")
-                            startupPosterPreloadFinished = true
-                            completeStartupWhenReady()
-                        },
-                    )
-                }
-            } },
-            onFailure = { message -> runOnUiThread {
-                startupCatalogFinished = true
-                startupCatalogFailure = t("catalog_load_failed", message)
-                startupPosterPreloadFinished = true
-                completeStartupWhenReady()
-            } },
-        )
-    }
+internal fun DramaAppActivity.preloadCatalog() {
+    preloadShortDramaSdkCatalog()
+}
 
 private fun DramaAppActivity.preloadShortDramaSdkCatalog() {
     shortDramaSdk.initializeIfEnabled { initialization -> runOnUiThread {
@@ -279,8 +235,7 @@ internal fun DramaAppActivity.completeStartupWhenReady() {
         startupContentInitializationStarted = true
         val failure = startupCatalogFailure
         if (failure != null) {
-            val context = if (BuildConfig.SHORT_DRAMA_SDK_ENABLED) "" else "\n${t("current_server", localContentBaseUrl())}"
-            renderFailure("$failure$context")
+            renderFailure(failure)
             return
         }
         updateStartupProgress(100, t("startup_ready"))

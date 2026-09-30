@@ -58,7 +58,6 @@ import com.dramaflow.app.ads.TopOnAdsManager
 import com.dramaflow.app.ads.TopOnSettings
 import com.dramaflow.app.content.ShortDramaSdkManager
 import com.dramaflow.app.local.LocalDrama
-import com.dramaflow.app.local.LocalDramaApiClient
 import com.dramaflow.app.local.LocalEpisode
 import com.dramaflow.app.rewards.RewardsApiClient
 import java.text.NumberFormat
@@ -334,7 +333,7 @@ internal fun DramaAppActivity.formatGems(value: Long): String = String.format(Lo
 
 internal fun DramaAppActivity.createBottomNavigation(): View = LinearLayout(this).apply {
         gravity = Gravity.CENTER; setPadding(dp(14), dp(9), dp(14), dp(10)); background = topRoundedDrawable(COLOR_CARD, 26); elevation = dp(10).toFloat()
-        MainTab.entries.filterNot { BuildConfig.WHITE_PACK && it == MainTab.TASKS }.forEach { tab ->
+        MainTab.entries.forEach { tab ->
             val active = activeTab == tab
             addView(LinearLayout(this@createBottomNavigation).apply {
                 orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER; isClickable = true
