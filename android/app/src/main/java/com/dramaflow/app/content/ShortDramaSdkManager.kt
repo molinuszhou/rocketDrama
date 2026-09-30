@@ -92,23 +92,6 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
             .autoInitVideoPlayer(true)
             .debug(BuildConfig.DEBUG)
             .build()
-        var resultDelivered = false
-        lateinit var initializationTimeout: Runnable
-        fun deliver(result: Initialization) {
-            if (resultDelivered) return
-            resultDelivered = true
-            mainHandler.removeCallbacks(initializationTimeout)
-            onResult(result)
-        }
-        initializationTimeout = Runnable {
-            if (resultDelivered) return@Runnable
-            // Do not keep the calling screen in an unbounded wait. The app shell remains usable
-            // and the coordinator retries initialization in the background. A late SDK success is
-            // still remembered by PSSDK.hasInitialized() and is used by that retry.
-            Log.w(TAG, "短剧 SDK 初始化超时：${SDK_INITIALIZATION_TIMEOUT_MS}ms，转入后台重试")
-            deliver(Initialization.Failed("短剧 SDK 初始化超时，请稍后重试"))
-        }
-        mainHandler.postDelayed(initializationTimeout, SDK_INITIALIZATION_TIMEOUT_MS)
         // SDK 内容语言与界面语言独立：UI 使用六语词典；SDK 请求使用内容方支持的标准语言码。
         runCatching {
             PSSDK.setContentLanguage(contentLanguageFor(AppLanguage.tag(appContext)))
@@ -122,15 +105,15 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
                                 Log.i(TAG, "短剧 SDK 播放服务检测：${result?.name ?: "UNKNOWN"}")
                             }
                         })
-                        deliver(Initialization.Ready)
+                        onResult(Initialization.Ready)
                     } else {
-                        deliver(Initialization.Failed("短剧 SDK 初始化失败：${error?.code ?: -1} ${error?.msg.orEmpty()}"))
+                        onResult(Initialization.Failed("短剧 SDK 初始化失败：${error?.code ?: -1} ${error?.msg.orEmpty()}"))
                     }
                 }
             })
         }.onFailure {
             Log.w(TAG, "短剧 SDK 初始化调用异常", it)
-            deliver(Initialization.Failed("短剧 SDK 初始化调用失败：${it.message.orEmpty()}"))
+            onResult(Initialization.Failed("短剧 SDK 初始化调用失败：${it.message.orEmpty()}"))
         }
     }
 
@@ -334,7 +317,6 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
         private const val TAG = "ShortDramaSdkManager"
         private const val FIRST_PAGE = 1
         private const val DEFAULT_PAGE_SIZE = 20
-        private const val SDK_INITIALIZATION_TIMEOUT_MS = 12_000L
         private const val DISCOVERY_TIMEOUT_MS = 12_000L
         private const val PREFERENCES = "joyedrama.short_drama_sdk"
         private const val INSTALLATION_ID_KEY = "installation_id"

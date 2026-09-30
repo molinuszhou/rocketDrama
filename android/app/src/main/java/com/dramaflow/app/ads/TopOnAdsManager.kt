@@ -99,9 +99,6 @@ class TopOnAdsManager(
     private val pendingInitializationCallbacks = mutableListOf<(Initialization) -> Unit>()
     private val initializationLock = Any()
     private val mainHandler = Handler(Looper.getMainLooper())
-    private var initializationAttempt = 0L
-    private var activeInitializationAttempt = 0L
-    private var initializationTimeout: Runnable? = null
     /** Keeps TopOn ads out of edge-to-edge host mode; creative close controls remain ad-network owned. */
     private val safeAdWindows = mutableMapOf<Activity, SafeAdWindowState>()
     /** Activity-level window mode is owned by the presentation layer and must survive a full-screen ad. */
@@ -137,7 +134,6 @@ class TopOnAdsManager(
         }
 
         var startInitialization = false
-        var attempt = 0L
         synchronized(initializationLock) {
             if (topOnInitialized) {
                 mainHandler.post { onResult(Initialization.Ready) }
@@ -147,29 +143,9 @@ class TopOnAdsManager(
             if (!topOnInitializationInFlight) {
                 topOnInitializationInFlight = true
                 startInitialization = true
-                attempt = ++initializationAttempt
-                activeInitializationAttempt = attempt
             }
         }
         if (!startInitialization) return
-
-        val timeout = Runnable {
-            synchronized(initializationLock) {
-                if (!topOnInitializationInFlight || activeInitializationAttempt != attempt) return@Runnable
-            }
-            Log.w(TAG, "TopOn initialization timed out after ${TOPON_INITIALIZATION_TIMEOUT_MS}ms")
-            auditEvent("INITIALIZATION", "sdk", "", "sdk", result = "TIMEOUT", errorCode = TOPON_INITIALIZATION_TIMEOUT_CODE, detail = "timeout_ms=$TOPON_INITIALIZATION_TIMEOUT_MS")
-            completeInitialization(
-                Initialization.Failed(TOPON_INITIALIZATION_TIMEOUT_CODE, "TopOn 初始化超时"),
-                attempt,
-            )
-        }
-        synchronized(initializationLock) {
-            if (topOnInitializationInFlight && activeInitializationAttempt == attempt) {
-                initializationTimeout = timeout
-            }
-        }
-        mainHandler.postDelayed(timeout, TOPON_INITIALIZATION_TIMEOUT_MS)
 
         runCatching {
             auditEvent("INITIALIZATION", "sdk", "", "sdk", result = "STARTED")
@@ -180,40 +156,31 @@ class TopOnAdsManager(
                 settings.appKey,
                 ATNetworkConfig(),
                 object : ATSDKInitListener {
-                    override fun onSuccess() = completeInitialization(Initialization.Ready, attempt)
+                    override fun onSuccess() = completeInitialization(Initialization.Ready)
 
                     override fun onFail(errorMessage: String) =
-                        completeInitialization(Initialization.Failed(-1, errorMessage), attempt)
+                        completeInitialization(Initialization.Failed(-1, errorMessage))
                 },
             )
         }.onFailure {
             Log.w(TAG, "TopOn initialization invocation failed", it)
             auditEvent("INITIALIZATION", "sdk", "", "sdk", result = "FAILED", errorCode = -1, detail = "initialization_exception")
-            completeInitialization(Initialization.Failed(-1, it.message.orEmpty()), attempt)
+            completeInitialization(Initialization.Failed(-1, it.message.orEmpty()))
         }
     }
 
-    private fun completeInitialization(result: Initialization, attempt: Long) {
+    private fun completeInitialization(result: Initialization) {
         when (result) {
             Initialization.Ready -> auditEvent("INITIALIZATION", "sdk", "", "sdk", result = "READY")
             Initialization.NotConfigured -> Unit
             is Initialization.Failed -> auditEvent("INITIALIZATION", "sdk", "", "sdk", result = "FAILED", errorCode = result.code, detail = "sdk_initialization_failed")
         }
-        val completion = synchronized(initializationLock) {
-            if (activeInitializationAttempt != attempt) return
-            if (!topOnInitializationInFlight) {
-                // A late success after the startup timeout is useful for later user-initiated ads,
-                // but must not revive the original splash request or hold the loading screen.
-                if (result is Initialization.Ready) topOnInitialized = true
-                return
-            }
+        val callbacks = synchronized(initializationLock) {
             topOnInitialized = result is Initialization.Ready
             topOnInitializationInFlight = false
-            val callbacks = pendingInitializationCallbacks.toList().also { pendingInitializationCallbacks.clear() }
-            initializationTimeout.also { initializationTimeout = null } to callbacks
+            pendingInitializationCallbacks.toList().also { pendingInitializationCallbacks.clear() }
         }
-        completion.first?.let(mainHandler::removeCallbacks)
-        mainHandler.post { completion.second.forEach { it(result) } }
+        mainHandler.post { callbacks.forEach { it(result) } }
     }
 
     fun showRewarded(
@@ -801,11 +768,6 @@ class TopOnAdsManager(
         const val TAG = "TopOnAdsManager"
         const val SPLASH_TIMEOUT_MS = 5_000
         const val SPLASH_STARTUP_BUDGET_MS = 5_000L
-        // This protects regular rewarded/interstitial requests only. Splash has its own strict
-        // 5-second end-to-end budget, so a slow SDK bootstrap cannot mark all later ad formats
-        // unavailable just because the cold-start splash was skipped.
-        const val TOPON_INITIALIZATION_TIMEOUT_MS = 15_000L
-        const val TOPON_INITIALIZATION_TIMEOUT_CODE = -407
         const val INTERSTITIAL_LOAD_TIMEOUT_MS = 8_000L
         const val INTERSTITIAL_LOAD_TIMEOUT_CODE = -408
         const val INTERSTITIAL_NOT_READY_CODE = -409
