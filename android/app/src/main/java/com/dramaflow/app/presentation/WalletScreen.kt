@@ -102,10 +102,6 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
             addView(TextView(this@createWithdrawalPage).apply {
                 text = t("wallet"); textSize = 25f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY)
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            addView(TextView(this@createWithdrawalPage).apply {
-                text = t("rules"); textSize = 14f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_ACCENT)
-                setPadding(dp(10), dp(8), 0, dp(8)); isClickable = true; setOnClickListener { showWalletRulesDialog(wallet) }
-            })
         }, matchParams(bottom = 16))
         addView(LinearLayout(this@createWithdrawalPage).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(22), dp(20), dp(22), dp(20))
@@ -135,7 +131,8 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
                     textSize = 12f; setTextColor(0xCCFFFFFF.toInt()); setPadding(0, dp(5), 0, dp(10))
                 })
                 val boostAction = TextView(this@createWithdrawalPage).apply {
-                    textSize = 14f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setPadding(dp(12), dp(10), dp(38), dp(10))
+                    // The cooldown ring overlays the right edge; symmetric insets keep "Claim" centered.
+                    textSize = 14f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setPadding(dp(12), dp(10), dp(12), dp(10))
                 }
                 walletChargeButtons.add(boostAction); updateWalletChargeButton(boostAction)
                 val boostSlot = FrameLayout(this@createWithdrawalPage).apply {

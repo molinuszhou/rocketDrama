@@ -177,6 +177,9 @@ private fun DramaAppActivity.preloadShortDramaSdkCatalog() {
                 sdkDramaCardsByCatalogId.clear()
                 cards.forEach { card -> sdkDramaCardsByCatalogId[sdkCatalogId(card.id)] = card }
                 catalogItems = cards.map(::sdkCatalogDrama)
+                catalogNextPage = 2
+                catalogHasMorePages = discovery.hasMore
+                catalogPageLoadInFlight = false
                 updateStartupProgress(30, t("startup_content_ready"))
                 if (startupContentInitializationStarted) renderActiveTab()
                 preloadCatalogCovers(

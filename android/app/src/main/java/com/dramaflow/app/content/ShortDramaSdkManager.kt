@@ -47,6 +47,7 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
         val popular: List<DramaCard>,
         val latest: List<DramaCard>,
         val categories: List<Category>,
+        val hasMore: Boolean = false,
     )
 
     @Volatile
@@ -173,6 +174,14 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
         pageSize: Int = DEFAULT_PAGE_SIZE,
         onSuccess: (Discovery) -> Unit,
         onFailure: (String) -> Unit,
+    ) = loadDiscoveryPage(FIRST_PAGE, pageSize, onSuccess, onFailure)
+
+    /** Loads a subsequent provider page; the host app owns merging and scroll-trigger timing. */
+    fun loadDiscoveryPage(
+        page: Int,
+        pageSize: Int = DEFAULT_PAGE_SIZE,
+        onSuccess: (Discovery) -> Unit,
+        onFailure: (String) -> Unit,
     ) {
         if (!initialized && !PSSDK.hasInitialized()) {
             onFailure("短剧 SDK 尚未初始化")
@@ -181,6 +190,8 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
 
         var popular: List<DramaCard>? = null
         var latest: List<DramaCard>? = null
+        var popularHasMore = false
+        var latestHasMore = false
         var categories: List<Category>? = null
         var popularFailure: String? = null
         var latestFailure: String? = null
@@ -196,17 +207,18 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
 
         fun tryDeliverContent() {
             if (delivered) return
-            // Home can be rendered from either provider content feed. Categories improve
-            // discovery but are not a first-screen prerequisite, otherwise one delayed category
-            // request makes a complete popular/latest feed appear as a frozen launch.
-            if (popular.orEmpty().isNotEmpty() || latest.orEmpty().isNotEmpty()) {
-                delivered = true
-                mainHandler.removeCallbacks(discoveryTimeout)
-                onSuccess(Discovery(popular.orEmpty(), latest.orEmpty(), categories.orEmpty()))
-            } else if (popularFailure != null && latestFailure != null) {
-                deliverFailure("短剧内容读取失败：${popularFailure}; ${latestFailure}")
-            } else if (popular != null && latest != null) {
-                deliverFailure("短剧目录为空")
+            // Categories are not a first-screen prerequisite. Both feeds are awaited so the
+            // app can reliably honour the provider's hasMore signal and continue paging at the end.
+            val popularDone = popular != null || popularFailure != null
+            val latestDone = latest != null || latestFailure != null
+            if (popularDone && latestDone) {
+                if (popular.orEmpty().isNotEmpty() || latest.orEmpty().isNotEmpty()) {
+                    delivered = true
+                    mainHandler.removeCallbacks(discoveryTimeout)
+                    onSuccess(Discovery(popular.orEmpty(), latest.orEmpty(), categories.orEmpty(), popularHasMore || latestHasMore))
+                } else {
+                    deliverFailure("短剧内容读取失败：${popularFailure.orEmpty()}; ${latestFailure.orEmpty()}")
+                }
             }
         }
 
@@ -217,9 +229,10 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
         }
         mainHandler.postDelayed(discoveryTimeout, DISCOVERY_TIMEOUT_MS)
 
-        PSSDK.requestPopularDrama(FIRST_PAGE, pageSize, object : PSSDK.FeedListResultListener {
+        PSSDK.requestPopularDrama(page.coerceAtLeast(FIRST_PAGE), pageSize, object : PSSDK.FeedListResultListener {
             override fun onSuccess(result: PSSDK.FeedListLoadResult<ShortPlay>?) {
                 popular = result?.dataList.orEmpty().map(::toCard)
+                popularHasMore = result?.hasMore == true
                 tryDeliverContent()
             }
 
@@ -229,9 +242,10 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
             }
         })
 
-        PSSDK.requestNewDrama(FIRST_PAGE, pageSize, object : PSSDK.FeedListResultListener {
+        PSSDK.requestNewDrama(page.coerceAtLeast(FIRST_PAGE), pageSize, object : PSSDK.FeedListResultListener {
             override fun onSuccess(result: PSSDK.FeedListLoadResult<ShortPlay>?) {
                 latest = result?.dataList.orEmpty().map(::toCard)
+                latestHasMore = result?.hasMore == true
                 tryDeliverContent()
             }
 
@@ -241,8 +255,8 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
             }
         })
 
-        // 空字符串沿用历史接入的默认语言策略；SDK 本身将依据 setContentLanguage 的设置返回内容。
-        PSSDK.requestCategoryList("", object : PSSDK.CategoryListResultListener {
+        // Categories are stable across feed pages; only request them with the first page.
+        if (page == FIRST_PAGE) PSSDK.requestCategoryList("", object : PSSDK.CategoryListResultListener {
             override fun onSuccess(result: PSSDK.FeedListLoadResult<ShortPlay.ShortPlayCategory>?) {
                 categories = result?.dataList.orEmpty().map { category ->
                     Category(category.id, category.name.orEmpty(), category.count)

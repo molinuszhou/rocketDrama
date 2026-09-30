@@ -90,6 +90,34 @@ internal fun DramaAppActivity.createHomePage(): View = scrollPage { content ->
     }
     content.addView(createSectionHeader(t("all_dramas"), t("discover_subtitle")), matchParams(bottom = 10))
     addDramaGrid(content, filtered)
+    if (selectedCatalogGenre == null && catalogHasMorePages) {
+        content.addView(createCatalogLoadMoreFooter(), matchParams(top = 2, bottom = 8))
+    }
+}.also { page ->
+    val scrollPage = page as? ScrollView ?: return@also
+    scrollPage.setOnScrollChangeListener { scroll, _, scrollY, _, _ ->
+        val scrollContainer = scroll as? ScrollView ?: return@setOnScrollChangeListener
+        val contentHeight = scrollContainer.getChildAt(0)?.height ?: return@setOnScrollChangeListener
+        if (activeTab == MainTab.HOME && selectedCatalogGenre == null && catalogHasMorePages && !catalogPageLoadInFlight &&
+            scrollY >= (contentHeight - scrollContainer.height - dp(240)).coerceAtLeast(0)
+        ) {
+            loadNextCatalogPage(scrollY)
+        }
+    }
+}
+
+internal fun DramaAppActivity.createCatalogLoadMoreFooter(): View = LinearLayout(this).apply {
+    gravity = Gravity.CENTER
+    setPadding(dp(12), dp(10), dp(12), dp(10))
+    addView(ProgressBar(this@createCatalogLoadMoreFooter).apply {
+        indeterminateTintList = ColorStateList.valueOf(COLOR_CORAL)
+    }, LinearLayout.LayoutParams(dp(20), dp(20)))
+    addView(TextView(this@createCatalogLoadMoreFooter).apply {
+        text = t("catalog_loading")
+        textSize = 12f
+        setTextColor(COLOR_TEXT_MUTED)
+        setPadding(dp(8), 0, 0, 0)
+    })
 }
 
 /** Avoids an empty home page while PSSDK finishes the first remote catalogue request. */
@@ -140,13 +168,16 @@ internal fun DramaAppActivity.createProfilePage(): View = scrollPage { content -
         content.addView(createProfileHero(), matchParams(bottom = 16))
         content.addView(createSectionHeader(t("continue_watching"), t("home_subtitle")), matchParams(bottom = 12))
         val watchedItems = catalogItems.filter { playbackHistory.contains(resumePreferenceKey(it.id, "episode")) }.take(4)
-        if (watchedItems.isEmpty()) content.addView(createInlineNotice(t("watch_history_empty")), matchParams(bottom = 10))
+        if (watchedItems.isEmpty()) content.addView(createInlineNotice(t("watch_history_empty")), matchParams(bottom = 14))
         else watchedItems.forEach { content.addView(createHistoryRow(it), matchParams(bottom = 10)) }
-        content.addView(createSectionHeader(t("my_services"), t("profile_subtitle")), matchParams(top = 10, bottom = 10))
-        content.addView(createSettingsRow(t("favorites"), t("continue_watching"), "›") { toast(t("favorites")) }, matchParams(bottom = 8))
-        content.addView(createSettingsRow(t("reward_ledger"), t("ledger_note"), "›") { showRewardLedgerHint() }, matchParams(bottom = 8))
-        addDebugAuditRows(content)
-        content.addView(createSettingsRow(t("settings"), "${t("ad_settings")} · ${t("privacy_terms")}", "›") { showSettingsCenter() }, matchParams(bottom = 8))
+
+        content.addView(createSectionHeader(t("favorites"), t("favorites_subtitle")), matchParams(top = 4, bottom = 12))
+        val favoriteItems = catalogItems.filter { favorites.getBoolean("favorite_${it.id}", false) }
+        if (favoriteItems.isEmpty()) content.addView(createInlineNotice(t("favorites_empty")), matchParams(bottom = 14))
+        else favoriteItems.forEach { content.addView(createFavoriteRow(it), matchParams(bottom = 10)) }
+
+        content.addView(createSectionHeader(t("my_services"), t("profile_subtitle")), matchParams(top = 4, bottom = 10))
+        content.addView(createSettingsRow(t("settings"), t("privacy_terms"), "›") { showSettingsCenter() }, matchParams(bottom = 8))
         content.addView(createSettingsRow(t("language"), AppLanguage.label(this), "›") { showLanguageSettings() }, matchParams(bottom = 16))
     }
 
@@ -423,6 +454,43 @@ internal fun DramaAppActivity.createDiscoverDramaCard(drama: LocalDrama): View =
 
 internal fun DramaAppActivity.createWalletCard(): View = createRewardsWalletSummary()
 
+internal fun DramaAppActivity.createFavoriteRow(drama: LocalDrama): View = LinearLayout(this).apply {
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(10), dp(10), dp(12), dp(10))
+        background = roundedDrawable(COLOR_CARD, 16)
+        isClickable = true
+        setOnClickListener { showPlayer(drama, savedResumeEpisodeIndex(drama), savedResumePositionSeconds(drama)) }
+        addView(ImageView(this@createFavoriteRow).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            background = posterFallbackDrawable()
+            load(drama.coverImage) { placeholder(posterFallbackDrawable()); error(posterFallbackDrawable()) }
+        }, LinearLayout.LayoutParams(dp(48), dp(64)))
+        addView(LinearLayout(this@createFavoriteRow).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(3), dp(8), 0)
+            addView(TextView(this@createFavoriteRow).apply {
+                text = drama.title.ifBlank { t("drama_fallback") }
+                textSize = 15f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(COLOR_TEXT_PRIMARY)
+                maxLines = 1
+            })
+            addView(TextView(this@createFavoriteRow).apply {
+                text = t("episodes_count", drama.total.coerceAtLeast(1))
+                textSize = 12f
+                setTextColor(COLOR_TEXT_MUTED)
+                setPadding(0, dp(5), 0, 0)
+            })
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        addView(TextView(this@createFavoriteRow).apply {
+            text = "♥"
+            textSize = 20f
+            gravity = Gravity.CENTER
+            setTextColor(COLOR_CORAL)
+            contentDescription = t("favorites")
+        }, LinearLayout.LayoutParams(dp(32), dp(48)))
+    }
+
 internal fun DramaAppActivity.createHistoryRow(drama: LocalDrama): View = LinearLayout(this).apply {
         val resumeEpisode = savedResumeEpisodeIndex(drama)
         val resumeSecond = savedResumePositionSeconds(drama)
@@ -460,10 +528,8 @@ internal fun DramaAppActivity.showSettingsCenter() {
     showBrandedChoiceDialog(
         title = t("settings"),
         message = details,
-        primaryLabel = t("ad_settings"),
-        onPrimary = { showAdPrivacySettings() },
-        secondaryLabel = t("privacy_terms"),
-        onSecondary = { showPrivacyPolicyPage() },
+        primaryLabel = t("privacy_terms"),
+        onPrimary = { showPrivacyPolicyPage() },
     )
 }
 

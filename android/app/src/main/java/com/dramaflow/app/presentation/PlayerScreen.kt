@@ -68,6 +68,8 @@ import java.util.Locale
 import java.util.UUID
 import kotlin.random.Random
 
+internal const val MIDROLL_MAX_UNAVAILABLE_ATTEMPTS = 2
+
 internal fun DramaAppActivity.showPlayer(drama: LocalDrama, startIndex: Int, resumePositionSeconds: Int = 0) {
         val card = sdkDramaCardsByCatalogId[drama.id]
         if (card == null) {
@@ -94,9 +96,7 @@ private fun DramaAppActivity.renderLegacyPlayer(drama: LocalDrama, startIndex: I
         playerSpeed = 1.0f
         playerDescriptionExpanded = false
         playerControlsVisible = true
-        contentWatchSecondsSinceMidroll = 0
-        midrollInterstitialShownInSession = false
-        lastMidrollSamplePositionSeconds = -1
+        resetMidrollInterstitialSession()
         playerShown = true
         root.removeAllViews()
         root.setBackgroundColor(Color.BLACK)
@@ -294,12 +294,13 @@ internal fun DramaAppActivity.createPlayerTopBar(): View {
         // Both controls share the true system safe inset. This avoids the fixed 14dp
         // offset that could overlap a notch/status region on first opening the player.
         shell.addView(back, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.TOP or Gravity.START).apply { topMargin = dp(2); marginStart = dp(8) })
-        shell.addView(assets, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(50), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(8) })
+        shell.addView(assets, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(50), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(2) })
         ViewCompat.setOnApplyWindowInsetsListener(shell) { _, insets ->
             val safeTop = insets.getInsets(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()).top
-            val margin = safeTop + dp(2)
-            (back.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = margin; back.layoutParams = params }
-            (assets.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = margin + dp(6); assets.layoutParams = params }
+            // Keep the controls inside the cutout-safe area but lift their baseline by 10dp.
+            val alignedTop = (safeTop - dp(8)).coerceAtLeast(dp(2))
+            (back.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = alignedTop; back.layoutParams = params }
+            (assets.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = alignedTop; assets.layoutParams = params }
             insets
         }
         ViewCompat.requestApplyInsets(shell)
@@ -371,7 +372,7 @@ internal fun DramaAppActivity.switchDramaBySwipe(forward: Boolean = true) {
 internal fun DramaAppActivity.requestMidEpisodeInterstitialIfEligible(positionSeconds: Int) {
         val snapshot = rewardsSnapshot ?: return
         val policy = snapshot.interstitial
-        if ((!playerShown && !sdkPlayerShown) || playerIsPaused || fullscreenAdInProgress || !policy.midEpisodeEnabled) return
+        if ((!playerShown && !sdkPlayerShown) || playerIsPaused || fullscreenAdInProgress || !policy.midEpisodeEnabled || midrollInterstitialSuppressedForSession) return
         val previousPosition = lastMidrollSamplePositionSeconds
         lastMidrollSamplePositionSeconds = positionSeconds
         if (previousPosition < 0) return
@@ -396,10 +397,17 @@ internal fun DramaAppActivity.requestMidEpisodeInterstitialIfEligible(positionSe
             midrollInterstitialShownInSession = true
             midrollInterstitialRequestInFlight = false
         }, onUnavailable = { message ->
-            // A failed candidate should not retry every ticker; the next candidate occurs after another interval.
+            // VPN/network failures must never trap the viewer in a repeated mid-roll loop. Try at
+            // most twice per viewing session, then silently keep playback running until the next title.
             contentWatchSecondsSinceMidroll = 0
             midrollInterstitialRequestInFlight = false
-            logStatus("Mid-roll unavailable: $message")
+            midrollInterstitialUnavailableAttempts += 1
+            if (midrollInterstitialUnavailableAttempts >= MIDROLL_MAX_UNAVAILABLE_ATTEMPTS) {
+                midrollInterstitialSuppressedForSession = true
+                logStatus("Mid-roll disabled for this session after $midrollInterstitialUnavailableAttempts unavailable attempts: $message")
+            } else {
+                logStatus("Mid-roll unavailable ($midrollInterstitialUnavailableAttempts/$MIDROLL_MAX_UNAVAILABLE_ATTEMPTS): $message")
+            }
         })
     }
 
@@ -611,12 +619,19 @@ internal fun DramaAppActivity.showPlaybackMoreControls() {
     }
 
 internal fun DramaAppActivity.enterImmersivePlayerMode(announce: Boolean = true) {
-        WindowCompat.setDecorFitsSystemWindows(window, false)
-        WindowInsetsControllerCompat(window, root).apply {
-            hide(WindowInsetsCompat.Type.systemBars())
-            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        }
         playerInImmersiveMode = true
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            hide(WindowInsetsCompat.Type.systemBars())
+        }
+        // Provider fragments can re-apply system insets after their own view creation. Re-hide once
+        // on the next frame so PSSDK and the local player honour the same immersive command.
+        root.postDelayed({
+            if (playerInImmersiveMode && (playerShown || sdkPlayerShown)) {
+                WindowInsetsControllerCompat(window, window.decorView).hide(WindowInsetsCompat.Type.systemBars())
+            }
+        }, 140L)
         setPlayerControlsVisible(false)
         if (announce) toast(t("immersive_hint"))
     }

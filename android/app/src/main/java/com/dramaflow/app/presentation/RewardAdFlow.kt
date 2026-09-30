@@ -99,14 +99,14 @@ internal fun DramaAppActivity.requestRewardedAction(
             return
         }
         fullscreenAdRequestInFlight = true
-        showFullscreenAdLoadingOverlay()
-        pauseForFullscreenAd()
         var rewardedWasPresented = false
-        val wasPlayingBeforeRewarded = resumeAfterFullscreenAd
+        val wasPlayingBeforeRewarded = wasPlaybackActiveForAd()
         topOnAds.showRewarded(
             activity = this,
             onWillShow = {
                 rewardedWasPresented = true
+                pauseForFullscreenAd()
+                resumeAfterFullscreenAd = wasPlayingBeforeRewarded
                 fullscreenAdRequestInFlight = false
                 fullscreenAdInProgress = true
                 runOnUiThread { hideFullscreenAdLoadingOverlay() }
@@ -145,6 +145,7 @@ internal fun DramaAppActivity.requestRewardedAction(
                 is TopOnAdsManager.RewardedResult.Unavailable -> {
                     if (deferCashAnimation) deferNextCashFlight = false
                     fullscreenAdInProgress = false
+                    if (rewardedWasPresented) resumeAfterFullscreenAdIfNeeded()
                     val message = t("ad_loading_failed") + " ${result.reason}"
                     if (fallbackToInterstitialWhenUnavailable) showRewardedFallbackInterstitial(wasPlayingBeforeRewarded, message, placementId, targetId, episodeIndex, onSettled, deferCashAnimation)
                     else showRewardedUnavailableNotice(wasPlayingBeforeRewarded, message)
@@ -152,6 +153,7 @@ internal fun DramaAppActivity.requestRewardedAction(
                 is TopOnAdsManager.RewardedResult.Failed -> {
                     if (deferCashAnimation) deferNextCashFlight = false
                     fullscreenAdInProgress = false
+                    if (rewardedWasPresented) resumeAfterFullscreenAdIfNeeded()
                     val message = t("ad_loading_failed") + " (${result.code})"
                     if (fallbackToInterstitialWhenUnavailable) showRewardedFallbackInterstitial(wasPlayingBeforeRewarded, message, placementId, targetId, episodeIndex, onSettled, deferCashAnimation)
                     else showRewardedUnavailableNotice(wasPlayingBeforeRewarded, message)
@@ -312,6 +314,10 @@ internal fun DramaAppActivity.showRewardedFallbackInterstitial(
         )
     }
 
+/** Returns the real local or provider playback state without forcing an ad-request pause. */
+internal fun DramaAppActivity.wasPlaybackActiveForAd(): Boolean =
+    exoPlayer?.isPlaying == true || (sdkPlayerShown && sdkPlaybackActive && !playerIsPaused)
+
 internal fun DramaAppActivity.showFullscreenAdLoadingOverlay() {
         if (isFinishing || isDestroyed) return
         val overlay = fullscreenAdLoadingOverlay ?: FrameLayout(this).apply {
@@ -378,6 +384,10 @@ internal fun DramaAppActivity.resumeAfterFullscreenAdIfNeeded() {
             root.post {
                 if (!isFinishing && !isDestroyed) {
                     if (playerShown || sdkPlayerShown) configurePlayerWindow() else configureCatalogWindow()
+                    playerTopChrome?.let { chrome ->
+                        chrome.requestLayout()
+                        ViewCompat.requestApplyInsets(chrome)
+                    }
                 }
             }
         }
@@ -409,15 +419,15 @@ internal fun DramaAppActivity.showPlaybackActionInterstitial(
         }
         if (fullscreenAdInProgress || fullscreenAdRequestInFlight) { onUnavailable("广告正在展示"); return }
         if (consentStore.read() != AdConsent.GRANTED) { onUnavailable("请先在广告与隐私中启用广告"); return }
-        val shouldResume = resumePlaybackAfter ?: (exoPlayer?.isPlaying == true)
+        val shouldResume = resumePlaybackAfter ?: wasPlaybackActiveForAd()
         fullscreenAdRequestInFlight = true
-        showFullscreenAdLoadingOverlay()
-        pauseForFullscreenAd()
-        resumeAfterFullscreenAd = shouldResume
+        var interstitialWasPresented = false
         topOnAds.showInterstitialForPlaybackAction(
             activity = this,
             bypassGlobalFrequencyCap = bypassSharedFrequencyCaps,
             onWillShow = {
+                interstitialWasPresented = true
+                pauseForFullscreenAd()
                 fullscreenAdRequestInFlight = false
                 fullscreenAdInProgress = true
                 resumeAfterFullscreenAd = shouldResume
@@ -447,8 +457,14 @@ internal fun DramaAppActivity.showPlaybackActionInterstitial(
                         )
                     } else settled()
                 }
-                is TopOnAdsManager.FullscreenResult.Skipped -> { resumeAfterFullscreenAdIfNeeded(); onUnavailable(result.reason) }
-                is TopOnAdsManager.FullscreenResult.Failed -> { resumeAfterFullscreenAdIfNeeded(); onUnavailable("加载失败（${result.code}）") }
+                is TopOnAdsManager.FullscreenResult.Skipped -> {
+                    if (interstitialWasPresented) resumeAfterFullscreenAdIfNeeded()
+                    onUnavailable(result.reason)
+                }
+                is TopOnAdsManager.FullscreenResult.Failed -> {
+                    if (interstitialWasPresented) resumeAfterFullscreenAdIfNeeded()
+                    onUnavailable("加载失败（${result.code}）")
+                }
             }
         } }
     }

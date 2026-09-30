@@ -166,7 +166,7 @@ internal fun DramaAppActivity.createRewardBalance(label: String, value: String, 
     contentDescription = "$label $value"
     setOnClickListener { onClick() }
     val icon = ImageView(this@createRewardBalance).apply {
-        setImageResource(R.drawable.ic_cash_reward)
+        setImageResource(if (isGem) R.drawable.ic_cash_reward else R.drawable.wallet_money)
         scaleType = ImageView.ScaleType.CENTER_INSIDE
     }
     if (isGem) gemBalanceAnchor = icon else cashBalanceAnchor = icon
@@ -425,30 +425,22 @@ internal fun DramaAppActivity.createDailyBenefitsPanel(snapshot: RewardsApiClien
         setImageResource(R.drawable.ic_calendar_reward)
         scaleType = ImageView.ScaleType.CENTER_INSIDE
     }, LinearLayout.LayoutParams(dp(40), dp(40)))
-    header.addView(LinearLayout(this@createDailyBenefitsPanel).apply {
-        orientation = LinearLayout.VERTICAL
-        setPadding(dp(9), 0, 0, 0)
-        addView(TextView(this@createDailyBenefitsPanel).apply {
-            text = t("daily_checkin_cash")
-            textSize = 20f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(COLOR_TEXT_PRIMARY)
-        })
-        addView(TextView(this@createDailyBenefitsPanel).apply {
-            text = snapshot?.let { t("checkin_seven_day_total", formatSevenDayCheckinTotal(it)) } ?: t("checkin_syncing")
-            textSize = 12f
-            setTextColor(COLOR_TEXT_MUTED)
-            setPadding(0, dp(3), 0, 0)
-        })
-    }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
     header.addView(TextView(this@createDailyBenefitsPanel).apply {
-        text = snapshot?.let { formatRewardUnitsAsCash(it, it.checkinNextRewardCoins.toLong()) } ?: "—"
+        text = t("checkin_seven_day_earn")
+        textSize = 18f
+        typeface = Typeface.DEFAULT_BOLD
+        setTextColor(COLOR_TEXT_PRIMARY)
+        maxLines = 1
+        ellipsize = android.text.TextUtils.TruncateAt.END
+    }, LinearLayout.LayoutParams(0, dp(42), 1f))
+    header.addView(TextView(this@createDailyBenefitsPanel).apply {
+        text = snapshot?.let(::formatSevenDayCheckinTotal) ?: "—"
         typeface = Typeface.DEFAULT_BOLD
         setTextColor(COLOR_SUNSET)
-        gravity = Gravity.END
+        gravity = Gravity.END or Gravity.CENTER_VERTICAL
         maxLines = 1
         setAutoSizeTextTypeUniformWithConfiguration(18, 28, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
-    }, LinearLayout.LayoutParams(dp(116), dp(42)))
+    }, LinearLayout.LayoutParams(dp(128), dp(42)))
     addView(header, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
     addView(createCheckinTierStrip(snapshot), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(13) })
     addView(TextView(this@createDailyBenefitsPanel).apply {

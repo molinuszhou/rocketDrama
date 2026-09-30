@@ -7,6 +7,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import androidx.core.view.ViewCompat
 import com.bytedance.sdk.shortplay.api.EpisodeData
 import com.bytedance.sdk.shortplay.api.PSSDK
 import com.bytedance.sdk.shortplay.api.ShortPlayFragment
@@ -42,9 +43,7 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
     playerIsSeeking = false
     playerIsPaused = false
     playerSpeed = 1.0f
-    contentWatchSecondsSinceMidroll = 0
-    midrollInterstitialShownInSession = false
-    lastMidrollSamplePositionSeconds = -1
+    resetMidrollInterstitialSession()
     // This is a real JoyeDrama playback surface even though PSSDK owns the media engine.
     // Keeping the shared player flag true prevents a reward snapshot from rebuilding the
     // catalogue over the provider Fragment and permits shared history/reward chrome.
@@ -77,7 +76,12 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
     // view creation; otherwise a provider-owned video surface can visually cover the lower host
     // controls on some devices.
     val topBar = createPlayerTopBar()
+    playerTopChrome = topBar
     val controlDock = createSdkPlayerControlDock()
+    playerControlsPanel = controlDock
+    val controlsReveal = transparentPlayerTextButton(t("show_controls"), t("show_controls")) { setPlayerControlsVisible(true) }
+    controlsReveal.visibility = View.GONE
+    playerControlsRevealButton = controlsReveal
     val rewardWheel = createFloatingRewardWheel(compact = true)
     root.addView(topBar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(132), Gravity.TOP))
     root.addView(controlDock, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(106), Gravity.BOTTOM).apply {
@@ -89,10 +93,16 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
         marginEnd = 0
         bottomMargin = dp(166)
     })
+    root.addView(controlsReveal, FrameLayout.LayoutParams(dp(86), dp(38), Gravity.END or Gravity.BOTTOM).apply {
+        marginEnd = dp(14)
+        bottomMargin = dp(16)
+    })
     root.post {
         topBar.bringToFront()
         controlDock.bringToFront()
+        controlsReveal.bringToFront()
         rewardWheel.bringToFront()
+        ViewCompat.requestApplyInsets(topBar)
         root.invalidate()
     }
 }
@@ -112,6 +122,8 @@ private fun DramaAppActivity.onSdkEpisodeStarted(episodeIndex: Int, episode: Epi
     playerProgressSeconds = 0
     playerDurationSeconds = 0
     lastPersistedPlaybackSecond = -1
+    // Episode transition restarts the watch clock but retains the session-level unavailable
+    // attempt cap so an ad-network outage cannot prompt on every short episode.
     contentWatchSecondsSinceMidroll = 0
     midrollInterstitialShownInSession = false
     midrollInterstitialRequestInFlight = false

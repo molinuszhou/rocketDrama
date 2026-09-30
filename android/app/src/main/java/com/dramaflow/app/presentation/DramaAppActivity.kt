@@ -150,6 +150,8 @@ class DramaAppActivity : FragmentActivity() {
     internal var playerDescriptionContainer: View? = null
     internal var playerDescriptionExpanded = false
     internal var playerControlsVisible = true
+    /** Retained so ad recovery can ask the active local/PSSDK top bar to reapply its real insets. */
+    internal var playerTopChrome: View? = null
     internal var playerProgressSeconds = 0
     internal var playerDurationSeconds = 0
     /** Mid-roll time is scoped to the current viewing session and excludes pauses, ads and background time. */
@@ -162,6 +164,9 @@ class DramaAppActivity : FragmentActivity() {
     internal var midrollInterstitialShownInSession = false
     internal var lastMidrollSamplePositionSeconds = -1
     internal var midrollInterstitialRequestInFlight = false
+    /** Unavailable mid-roll loads are capped for the current title/session to avoid a VPN no-fill loop. */
+    internal var midrollInterstitialUnavailableAttempts = 0
+    internal var midrollInterstitialSuppressedForSession = false
     internal var pendingResumePositionSeconds = 0
     internal var lastPersistedPlaybackSecond = -1
     internal var playerPauseOverlay: TextView? = null
@@ -172,9 +177,9 @@ class DramaAppActivity : FragmentActivity() {
     internal var lastSwipeNextAtMillis = 0L
     /** Set only while a full-screen creative is actually on screen. */
     internal var fullscreenAdInProgress = false
-    /** Blocks duplicate taps while an ad is loading and pauses playback behind the loading overlay. */
+    /** Blocks duplicate ad requests while the network loads; playback continues until a creative is ready. */
     internal var fullscreenAdRequestInFlight = false
-    /** A semi-transparent input-blocking indicator remains until the ad creative takes over or fails. */
+    /** Reserved for explicit full-screen transitions; ordinary ad network loading does not show this overlay. */
     internal var fullscreenAdLoadingOverlay: View? = null
     internal var episodeTransitionInProgress = false
     internal var resumeAfterFullscreenAd = false
@@ -195,6 +200,9 @@ class DramaAppActivity : FragmentActivity() {
     /** Client-side guard for the server-backed all-placement hourly interstitial cap. */
     internal val playbackInterstitialShownAtElapsedMillis = mutableListOf<Long>()
     internal var dramaSwitchSwipeCount = 0
+    internal var catalogNextPage = 2
+    internal var catalogHasMorePages = false
+    internal var catalogPageLoadInFlight = false
     internal val completedEpisodeKeys = mutableSetOf<String>()
     internal val rewardWatchRecordedEpisodeKeys = mutableSetOf<String>()
     internal val floatingWheelLabels = mutableSetOf<TextView>()
@@ -381,6 +389,9 @@ class DramaAppActivity : FragmentActivity() {
                         sdkDramaCardsByCatalogId.clear()
                         cards.forEach { card -> sdkDramaCardsByCatalogId[sdkCatalogId(card.id)] = card }
                         catalogItems = cards.map(::sdkCatalogDrama)
+                        catalogNextPage = 2
+                        catalogHasMorePages = discovery.hasMore
+                        catalogPageLoadInFlight = false
                         if (catalogItems.isEmpty()) renderFailure(t("catalog_empty")) else renderActiveTab()
                     } },
                     onFailure = { message -> runOnUiThread { renderFailure(t("catalog_load_failed", message)) } },
@@ -390,6 +401,29 @@ class DramaAppActivity : FragmentActivity() {
                 ShortDramaSdkManager.Initialization.Disabled -> renderFailure(t("catalog_load_failed", "Short-drama SDK is disabled in this build"))
             }
         } }
+    }
+
+    internal fun loadNextCatalogPage(restoreScrollY: Int) {
+        if (catalogPageLoadInFlight || !catalogHasMorePages || activeTab != MainTab.HOME) return
+        catalogPageLoadInFlight = true
+        shortDramaSdk.loadDiscoveryPage(catalogNextPage, onSuccess = { discovery -> runOnUiThread {
+            val incoming = (discovery.popular + discovery.latest).filter { it.title.isNotBlank() }
+            val merged = (sdkDramaCardsByCatalogId.values + incoming).distinctBy { it.id }
+            incoming.forEach { sdkDramaCardsByCatalogId[sdkCatalogId(it.id)] = it }
+            catalogItems = merged.map(::sdkCatalogDrama)
+            catalogHasMorePages = discovery.hasMore && incoming.isNotEmpty()
+            catalogNextPage += 1
+            catalogPageLoadInFlight = false
+            renderActiveTab()
+            (catalogPage as? ScrollView)?.post { (catalogPage as? ScrollView)?.scrollTo(0, restoreScrollY) }
+        } }, onFailure = { message -> runOnUiThread {
+            catalogPageLoadInFlight = false
+            // Treat an unavailable next page as the end of the feed. The already visible catalogue remains usable.
+            catalogHasMorePages = false
+            logStatus("PSSDK next catalog page unavailable: $message")
+            renderActiveTab()
+            (catalogPage as? ScrollView)?.post { (catalogPage as? ScrollView)?.scrollTo(0, restoreScrollY) }
+        } })
     }
 
     internal fun sdkCatalogId(shortPlayId: Long): String = "pssdk-$shortPlayId"
@@ -486,6 +520,15 @@ class DramaAppActivity : FragmentActivity() {
 
     internal fun isFavorite(): Boolean = selectedDrama?.id?.let { favorites.getBoolean("favorite_$it", false) } ?: false
 
+    internal fun resetMidrollInterstitialSession() {
+        contentWatchSecondsSinceMidroll = 0
+        midrollInterstitialShownInSession = false
+        midrollInterstitialRequestInFlight = false
+        lastMidrollSamplePositionSeconds = -1
+        midrollInterstitialUnavailableAttempts = 0
+        midrollInterstitialSuppressedForSession = false
+    }
+
     internal fun showCatalog() {
         exitImmersivePlayerMode()
         configureCatalogWindow()
@@ -572,10 +615,11 @@ class DramaAppActivity : FragmentActivity() {
         }
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
-        WindowInsetsControllerCompat(window, root).apply {
+        WindowInsetsControllerCompat(window, window.decorView).apply {
             isAppearanceLightStatusBars = false
             isAppearanceLightNavigationBars = false
-            show(WindowInsetsCompat.Type.systemBars())
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            if (playerInImmersiveMode) hide(WindowInsetsCompat.Type.systemBars()) else show(WindowInsetsCompat.Type.systemBars())
         }
         root.requestLayout()
         ViewCompat.requestApplyInsets(root)
@@ -717,6 +761,9 @@ class DramaAppActivity : FragmentActivity() {
         playerView?.player = null
         playerView = null
         playerPauseOverlay = null
+        playerTopChrome = null
+        playerControlsPanel = null
+        playerControlsRevealButton = null
         exoPlayer?.release()
         exoPlayer = null
     }
