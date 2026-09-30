@@ -5,10 +5,12 @@ import android.animation.ObjectAnimator
 import android.app.AlertDialog
 import android.app.Dialog
 import android.content.Context
+import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.text.Editable
@@ -617,6 +619,7 @@ internal fun DramaAppActivity.showSettingsCenter() {
 /** Shows the remotely maintained privacy policy without leaving the app. */
 internal fun DramaAppActivity.showPrivacyPolicyPage() {
     val dialog = Dialog(this)
+    val privacyPolicyUrl = "https://xuanfeather.com/joyedrama/privacy-policy.html"
     val page = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         setBackgroundColor(COLOR_BACKGROUND)
@@ -633,6 +636,24 @@ internal fun DramaAppActivity.showPrivacyPolicyPage() {
         setTextColor(COLOR_TEXT_PRIMARY)
     }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
     toolbar.addView(TextView(this).apply {
+        text = t("open_in_browser")
+        textSize = 12f
+        typeface = Typeface.DEFAULT_BOLD
+        gravity = Gravity.CENTER
+        setTextColor(COLOR_SUNSET)
+        setPadding(dp(8), 0, dp(8), 0)
+        isClickable = true
+        setOnClickListener {
+            val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(privacyPolicyUrl))
+            if (browserIntent.resolveActivity(packageManager) != null) {
+                dialog.dismiss()
+                startActivity(browserIntent)
+            } else {
+                toast(t("browser_unavailable"))
+            }
+        }
+    }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(48)))
+    toolbar.addView(TextView(this).apply {
         text = "×"
         textSize = 28f
         gravity = Gravity.CENTER
@@ -648,7 +669,7 @@ internal fun DramaAppActivity.showPrivacyPolicyPage() {
         settings.domStorageEnabled = false
         settings.builtInZoomControls = false
         settings.displayZoomControls = false
-        loadUrl("https://xuanfeather.com/joyedrama/privacy-policy.html")
+        loadUrl(privacyPolicyUrl)
     }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
     dialog.setContentView(page)
     dialog.setCanceledOnTouchOutside(true)
