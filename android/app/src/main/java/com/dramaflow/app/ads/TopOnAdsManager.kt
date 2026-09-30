@@ -103,7 +103,7 @@ class TopOnAdsManager(
     private val safeAdWindows = mutableMapOf<Activity, SafeAdWindowState>()
     /** Activity-level window mode is owned by the presentation layer and must survive a full-screen ad. */
     private val hostEdgeToEdge = mutableMapOf<Activity, Boolean>()
-    /** Local, shareable record for reconciling returned ADN with the mediation dashboard. */
+    /** Debug-only internal record for reconciling returned ADN with the mediation dashboard. */
     private val adNetworkAudit = AdNetworkAuditLog.get(applicationContext)
 
     private data class SafeAdWindowState(

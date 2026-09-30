@@ -12,6 +12,10 @@ TOPON_APP_KEY=
 TOPON_REWARDED_PLACEMENT_ID=
 TOPON_INTERSTITIAL_PLACEMENT_ID=
 TOPON_SPLASH_PLACEMENT_ID=
+# Android 的同一 applicationId 只能配置一个 AdMob App ID，格式必须为
+# ca-app-pub-...~...。这是 Google Mobile Ads SDK 初始化参数，不是广告位 ID。
+# 正式参数表中的另外两个 ca-app-pub-.../... 是 AdMob Ad Unit ID：请在 TopOn
+# 瀑布流（或 TopOn 内 MAX Custom Network 的服务端 Extras）配置，禁止写入此文件或 Manifest。
 ADMOB_APP_ID=
 # 激励广告加载超时默认 10 秒，允许范围 1000–60000 毫秒。
 TOPON_REWARDED_LOAD_TIMEOUT_MS=10000
@@ -23,6 +27,8 @@ RELEASE_AB_ROUTING_ENABLED=true
 # 外部上报：AppsFlyer、Firebase、炫羽。完成三方联调后再开启。
 EXTERNAL_REPORTING_ENABLED=true
 ANALYTICS_DEBUG=false
+# ADN/Appsflyer/Firebase/炫羽的本地 CSV 核对与导出仅存在于 Debug 包；Release 固定关闭，
+# 不需要也不支持通过 local.properties 开启。
 # 炫羽正式接口当前仅提供 HTTP。客户端仅对 api.eventtrack.top 放行明文流量；
 # 请勿改成 HTTPS，也不要将其他域名加入明文白名单。
 XUANYU_EVENT_BASE_URL=http://api.eventtrack.top

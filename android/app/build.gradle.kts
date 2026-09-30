@@ -39,6 +39,10 @@ val topOnSplashPlacementId = if (topOnDemoMode) topOnDemoSplashPlacementId else 
 val topOnDemoAdmobAppId = "ca-app-pub-9488501426181082~6354662111"
 val partnerAdmobAppId = integrationValue("ADMOB_APP_ID")
 val topOnAdmobAppId = if (topOnDemoMode) topOnDemoAdmobAppId else partnerAdmobAppId
+fun isAdmobAndroidAppId(value: String): Boolean {
+    val normalized = value.trim()
+    return normalized.startsWith("ca-app-pub-") && normalized.contains('~') && !normalized.contains('/')
+}
 // Configurable from local.properties, -P or environment: TOPON_REWARDED_LOAD_TIMEOUT_MS.
 // Keep the app responsive while allowing slow mediation waterfalls enough time to return a fill.
 val topOnRewardedLoadTimeoutMillis = integrationTimeoutMillis("TOPON_REWARDED_LOAD_TIMEOUT_MS", 10_000L)
@@ -80,6 +84,9 @@ if (commercialReleaseRequested) {
         "REWARDS_API_BASE_URL" to rewardsApiBaseUrl.takeUnless { it.contains("10.0.2.2") }.orEmpty(),
     ).filter { (_, value) -> value.isBlank() }.map { (name, _) -> name }
     check(missing.isEmpty()) { "Commercial Release requires explicit advertising configuration: ${missing.joinToString()}" }
+    check(isAdmobAndroidAppId(partnerAdmobAppId)) {
+        "ADMOB_APP_ID must be the one Android AdMob App ID in ca-app-pub-...~... format, not a ca-app-pub-.../... ad unit ID."
+    }
 }
 
 val validateCommercialReleaseAdConfig = tasks.register("validateCommercialReleaseAdConfig") {
@@ -97,6 +104,9 @@ val validateCommercialReleaseAdConfig = tasks.register("validateCommercialReleas
         val required = listOf("TOPON_APP_ID", "TOPON_APP_KEY", "TOPON_REWARDED_PLACEMENT_ID", "TOPON_INTERSTITIAL_PLACEMENT_ID", "TOPON_SPLASH_PLACEMENT_ID", "ADMOB_APP_ID")
         val missing = required.filter { key -> inputs.properties[key].toString().isBlank() }
         check(missing.isEmpty()) { "Commercial Release requires explicit advertising configuration: ${missing.joinToString()}" }
+        check(isAdmobAndroidAppId(inputs.properties["ADMOB_APP_ID"].toString())) {
+            "ADMOB_APP_ID must be the one Android AdMob App ID in ca-app-pub-...~... format, not a ca-app-pub-.../... ad unit ID."
+        }
     }
 }
 tasks.configureEach {
@@ -144,8 +154,8 @@ android {
         minSdk = 26
         targetSdk = 35
         // Android 客户端每次代码改动递增补丁版本；服务端/文档单独改动不变更此版本。
-        versionCode = 55
-        versionName = "1.7.1"
+        versionCode = 56
+        versionName = "1.7.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -171,6 +181,9 @@ android {
         buildConfigField("boolean", "ANALYTICS_DEBUG", analyticsDebug.toString())
         buildConfigField("boolean", "EXTERNAL_REPORTING_ENABLED", externalReportingEnabled.toString())
         buildConfigField("boolean", "RELEASE_AB_ROUTING_ENABLED", releaseAbRoutingEnabled.toString())
+        // Local ADN/reporting reconciliation is an internal Debug-only tool. Production packages
+        // never create its files, expose its UI, or include its FileProvider.
+        buildConfigField("boolean", "LOCAL_AUDIT_ENABLED", "false")
         resValue("string", "app_name", "JoyeDrama")
         buildConfigField("String", "REWARDS_API_BASE_URL", "\"${escapeBuildConfig(rewardsApiBaseUrl)}\"")
         manifestPlaceholders["ADMOB_APP_ID"] = topOnAdmobAppId
@@ -179,11 +192,13 @@ android {
     buildTypes {
         debug {
             buildConfigField("boolean", "SCREENSHOT_PROTECTION_ENABLED", "false")
+            buildConfigField("boolean", "LOCAL_AUDIT_ENABLED", "true")
             // Debug 使用 TOPON_DEMO_MODE 的构建参数；默认 false，显式开启后自动使用官方 Demo 凭据。
         }
         release {
             // Release activity enables FLAG_SECURE; debug remains screenshot-friendly for device verification.
             buildConfigField("boolean", "SCREENSHOT_PROTECTION_ENABLED", "true")
+            buildConfigField("boolean", "LOCAL_AUDIT_ENABLED", "false")
             // A commercial release never inherits Demo IDs, even if a developer has enabled Demo mode locally.
             buildConfigField("String", "TOPON_APP_ID", "\"${escapeBuildConfig(partnerTopOnAppId)}\"")
             buildConfigField("String", "TOPON_APP_KEY", "\"${escapeBuildConfig(partnerTopOnAppKey)}\"")
@@ -211,6 +226,13 @@ android {
     kotlinOptions { jvmTarget = "17" }
 
     buildFeatures { buildConfig = true }
+    // This legacy project keeps shared Kotlin under src/main/java. Register the variant-only
+    // Kotlin directories explicitly so Debug owns the audit implementation and Release owns
+    // the no-op implementation without packaging both.
+    sourceSets {
+        getByName("debug").java.srcDir("src/debug/kotlin")
+        getByName("release").java.srcDir("src/release/kotlin")
+    }
     packaging { resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" } }
 }
 

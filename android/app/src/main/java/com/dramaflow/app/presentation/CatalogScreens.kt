@@ -113,8 +113,7 @@ internal fun DramaAppActivity.createProfilePage(): View = scrollPage { content -
         content.addView(createSectionHeader(t("my_services"), t("profile_subtitle")), matchParams(top = 10, bottom = 10))
         content.addView(createSettingsRow(t("favorites"), t("continue_watching"), "›") { toast(t("favorites")) }, matchParams(bottom = 8))
         content.addView(createSettingsRow(t("reward_ledger"), t("ledger_note"), "›") { showRewardLedgerHint() }, matchParams(bottom = 8))
-        content.addView(createSettingsRow(t("ad_network_audit"), t("ad_network_audit_subtitle"), "›") { showAdNetworkAuditLog() }, matchParams(bottom = 8))
-        content.addView(createSettingsRow(t("reporting_audit"), t("reporting_audit_subtitle"), "›") { showReportingAuditLog() }, matchParams(bottom = 8))
+        addDebugAuditRows(content)
         content.addView(createSettingsRow(t("settings"), "${t("ad_settings")} · ${t("privacy_terms")}", "›") { showSettingsCenter() }, matchParams(bottom = 8))
         content.addView(createSettingsRow(t("language"), AppLanguage.label(this), "›") { showLanguageSettings() }, matchParams(bottom = 16))
     }

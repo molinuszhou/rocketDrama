@@ -96,8 +96,9 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
     private fun attributionConversionListener(): AppsFlyerConversionListener = object : AppsFlyerConversionListener {
         override fun onConversionDataSuccess(conversionData: MutableMap<String, Any>?) {
             val experience = attributionExperience.applyConversionData(conversionData)
-            // Keep only the attribution decision and media-source label in the local diagnostic file.
-            // Campaign IDs, click IDs, and raw conversion payload values are intentionally never logged.
+            // Debug builds keep only the attribution decision and media-source label in a local
+            // diagnostic file. Release has a no-op sink; campaign IDs, click IDs, and raw
+            // conversion payload values are never retained locally.
             reportingAudit.recordProvider(
                 APPSFLYER,
                 "attribution_surface",
