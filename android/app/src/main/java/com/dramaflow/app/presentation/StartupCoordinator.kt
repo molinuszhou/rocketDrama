@@ -82,6 +82,8 @@ internal fun DramaAppActivity.beginStartupExperience() {
         pendingShortDramaDiagnostic = null
         shownShortDramaDiagnostic = null
         shortDramaDiagnosticDialogShowing = false
+        shortDramaDiagnosticNotBeforeElapsedMillis = 0L
+        shortDramaDiagnosticDialog = null
         renderStartupLoading()
         updateStartupProgress(0, t("startup_preparing"))
         if (rewardsApi.isConfigured) refreshRewardsSnapshot() else completeStartupWhenReady()
@@ -156,7 +158,7 @@ private fun DramaAppActivity.preloadShortDramaSdkCatalog() {
                 }
                 shortDramaRetryAttempt = 0
                 shortDramaRetryScheduled = false
-                pendingShortDramaDiagnostic = null
+                clearShortDramaCatalogDiagnostic()
                 sdkDramaCardsByCatalogId.clear()
                 cards.forEach { card -> sdkDramaCardsByCatalogId[sdkCatalogId(card.id)] = card }
                 catalogItems = cards.map(::sdkCatalogDrama)
@@ -192,18 +194,25 @@ private fun DramaAppActivity.preloadShortDramaSdkCatalog() {
     } }
 }
 
-/** Shows raw provider code/message only after the startup reward prompt is no longer in front. */
+/** Delays transient provider failures so a late PSSDK success does not interrupt the first experience. */
 internal fun DramaAppActivity.queueShortDramaCatalogDiagnostic(message: String) {
     if (message.isBlank()) return
     pendingShortDramaDiagnostic = message.take(MAX_SHORT_DRAMA_DIAGNOSTIC_LENGTH)
-    showPendingShortDramaCatalogDiagnostic()
+    shortDramaDiagnosticNotBeforeElapsedMillis = android.os.SystemClock.elapsedRealtime() + SHORT_DRAMA_DIAGNOSTIC_GRACE_MS
+    root.postDelayed(::showPendingShortDramaCatalogDiagnostic, SHORT_DRAMA_DIAGNOSTIC_GRACE_MS)
 }
 
 internal fun DramaAppActivity.showPendingShortDramaCatalogDiagnostic() {
     val message = pendingShortDramaDiagnostic ?: return
-    if (!startupCheckinPromptShown || shortDramaDiagnosticDialogShowing || shownShortDramaDiagnostic == message || isFinishing || isDestroyed) return
+    if (catalogItems.isNotEmpty() || isFinishing || isDestroyed) return
+    val remainingGrace = shortDramaDiagnosticNotBeforeElapsedMillis - android.os.SystemClock.elapsedRealtime()
+    if (remainingGrace > 0L) {
+        root.postDelayed(::showPendingShortDramaCatalogDiagnostic, remainingGrace)
+        return
+    }
+    if (!startupCheckinPromptShown || shortDramaDiagnosticDialogShowing || shownShortDramaDiagnostic == message) return
     shortDramaDiagnosticDialogShowing = true
-    showBrandedChoiceDialog(
+    val dialog = showBrandedChoiceDialog(
         title = t("short_drama_diagnostic_title"),
         message = message,
         primaryLabel = t("retry"),
@@ -223,6 +232,23 @@ internal fun DramaAppActivity.showPendingShortDramaCatalogDiagnostic() {
             shortDramaDiagnosticDialogShowing = false
         },
     )
+    shortDramaDiagnosticDialog = dialog
+    dialog.setOnDismissListener {
+        if (shortDramaDiagnosticDialog === dialog) {
+            shortDramaDiagnosticDialog = null
+            shortDramaDiagnosticDialogShowing = false
+        }
+    }
+}
+
+/** Clears a pending or visible transient diagnostic as soon as usable catalogue data arrives. */
+internal fun DramaAppActivity.clearShortDramaCatalogDiagnostic() {
+    pendingShortDramaDiagnostic = null
+    shownShortDramaDiagnostic = null
+    shortDramaDiagnosticNotBeforeElapsedMillis = 0L
+    shortDramaDiagnosticDialog?.dismiss()
+    shortDramaDiagnosticDialog = null
+    shortDramaDiagnosticDialogShowing = false
 }
 
 /** Retries only transient PSSDK bootstrap/catalog failures; the application shell stays interactive. */
@@ -322,3 +348,4 @@ internal fun DramaAppActivity.completeStartupWhenReady() {
 private const val MAX_SHORT_DRAMA_RETRY_ATTEMPTS = 3
 private val SHORT_DRAMA_RETRY_DELAYS_MS = longArrayOf(3_000L, 6_000L, 12_000L)
 private const val MAX_SHORT_DRAMA_DIAGNOSTIC_LENGTH = 1_000
+private const val SHORT_DRAMA_DIAGNOSTIC_GRACE_MS = 8_000L

@@ -114,6 +114,8 @@ class DramaAppActivity : FragmentActivity() {
     internal var pendingShortDramaDiagnostic: String? = null
     internal var shownShortDramaDiagnostic: String? = null
     internal var shortDramaDiagnosticDialogShowing = false
+    internal var shortDramaDiagnosticNotBeforeElapsedMillis = 0L
+    internal var shortDramaDiagnosticDialog: AlertDialog? = null
     internal var startupProgressBar: ProgressBar? = null
     internal var startupProgressLabel: TextView? = null
     internal var startupProgressPercentLabel: TextView? = null
