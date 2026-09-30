@@ -68,11 +68,38 @@ ss -ltnp | grep ':18100' || true
 
 没有输出即可启动：
 
+先检查服务器使用的是哪种 Compose 命令：
+
+```bash
+docker compose version || true
+docker-compose --version || true
+```
+
+**Docker Compose v2（推荐）**使用：
+
 ```bash
 docker compose -p joyedrama-rewards \
   --env-file .env.production \
   -f docker-compose.production.yml \
   up -d --build
+```
+
+**旧版 Docker Compose v1**（服务器存在 `docker-compose`、但没有 `docker compose`）使用下方命令。注意它是带连字符的一个命令，不能写成 `docker compose`：
+
+```bash
+docker-compose -p joyedrama-rewards \
+  --env-file .env.production \
+  -f docker-compose.production.yml \
+  up -d --build
+```
+
+如果旧版 `docker-compose` 不支持 `--env-file`，先临时将环境变量导入当前终端再执行：
+
+```bash
+set -a
+. ./.env.production
+set +a
+docker-compose -p joyedrama-rewards -f docker-compose.production.yml up -d --build
 ```
 
 `-p joyedrama-rewards` 会隔离该项目的容器名、Docker 网络和 PostgreSQL 数据卷，不与服务器上其他 Compose 项目混用。
