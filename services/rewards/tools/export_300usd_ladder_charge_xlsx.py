@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export the v1.7.0.5 US$300 reward policy in the v1.6.5.1 ladder-model format.
+"""Export the v1.7.0.6 US$300 reward policy in the v1.6.5.1 ladder-model format.
 
 This workbook follows the established JoyeDrama modelling pattern:
 blue editable Inputs -> hidden event-level Engine sheets -> Daily scenario sheets
@@ -229,7 +229,7 @@ def formulas_for_engine(row: int, phase: str) -> tuple[str, ...]:
 
 
 def build_readme(ws) -> None:
-    title(ws, "JoyeDrama v1.7.0.5 — 三日300美元阶梯充能广告测算模型", "公式驱动模型：仅修改 Inputs 蓝色单元格；隐藏 Engine 逐笔结算层和展示表会自动重算。", 7)
+    title(ws, "JoyeDrama v1.7.0.6 — 三日300美元阶梯充能广告测算模型", "公式驱动模型：仅修改 Inputs 蓝色单元格；隐藏 Engine 逐笔结算层和展示表会自动重算。", 7)
     section(ws, 6, "使用方法", 7)
     notes = [
         "1. 仅修改 Inputs 中蓝色单元格。当前模型将服务端 300 美元上限、三日 290 美元高参与度资格路径、皇冠之路与阻尼参数集中在该页。",
@@ -251,7 +251,7 @@ def build_readme(ws) -> None:
         ("新人奖励", "首日 600,000 内部单位，并统计 1 条内容流激励广告。", "welcome_rewards / market_wallet_policy"),
         ("追剧任务", "每日 1、3、6、9、12、15、18、24、30、36、42、48、54、60 集为固定金额节点；每个节点 1 条激励广告。", "reward_policy 的四档固定任务金额"),
         ("皇冠与钱包", "皇冠主动加速与钱包加速均为每天 10 次；每条皇冠广告增加 1 点成长积分，钱包每条奖励 5,500 单位。", "Crown Road / wallet redpacket policy"),
-        ("阻尼", "US$290（2,900,000 单位）前全额按 1.00x 结算；达到后从下一笔奖励起依次采用 0.50x / 0.25x / 0.12x / 0.06x / 0.01x，直至 3,000,000 上限。", "reward_policy gems_earned_cap 与 damping tiers"),
+        ("阻尼", "US$290（2,900,000 单位）前全额按 1.00000x 结算；达到后从下一笔奖励起依次采用 0.20000x / 0.04000x / 0.00100x / 0.00010x / 0.00001x，直至 3,000,000 上限。", "reward_policy gems_earned_cap 与 damping tiers"),
         ("广告", "前 3 集免费；每条解锁激励连续解锁 2 集；集包插屏系数 0.5；不在本模型中叠加播放时长计时插屏。", "用于运营频率估算，实际展示以客户端频控为准"),
     ]
     for row, values in enumerate(rules, start=17):
@@ -263,7 +263,7 @@ def build_readme(ws) -> None:
 
 
 def build_inputs(ws) -> None:
-    title(ws, "JoyeDrama v1.7.0.5 — 三日300美元阶梯充能广告参数", "蓝色 = 可调输入；绿色 = 公式结果。修改蓝色单元格后请重新计算工作簿。", 7)
+    title(ws, "JoyeDrama v1.7.0.6 — 三日300美元阶梯充能广告参数", "蓝色 = 可调输入；绿色 = 公式结果。修改蓝色单元格后请重新计算工作簿。", 7)
     section(ws, 6, "模型范围与用户情景", 7)
     headers(ws, 8, ["参数", "当前值", "单位", "分类", "说明"], 3)
     input_row(ws, R["summary_days"], "汇总统计天数", 3, "天", "模型范围", "Summary 统计前 N 天累计表现；三日资格目标默认使用 3。")
@@ -352,7 +352,7 @@ def build_inputs(ws) -> None:
     for index, (threshold, multiplier) in enumerate(model.DAMPING_TIERS):
         row = R["damping_start"] + index
         ws.cell(row, 3, f"第{index + 1}档").font = text_font(bold=True)
-        for col, value, fmt in ((4, threshold, "#,##0"), (5, float(multiplier), "0.00x")):
+        for col, value, fmt in ((4, threshold, "#,##0"), (5, float(multiplier), "0.00000x")):
             c = ws.cell(row, col, value)
             c.fill = fill(INPUT_BLUE)
             c.font = text_font(bold=True)
@@ -390,7 +390,7 @@ def build_engine(ws, scenario_label: str, hours_input_row: int) -> None:
                 ws.cell(row, col, formula).font = formula_font()
             for col in (8, 9, 11, 12, 13, 14, 16, 17, 18, 19, 20):
                 ws.cell(row, col).number_format = "#,##0"
-            ws.cell(row, 10).number_format = "0.00x"
+            ws.cell(row, 10).number_format = "0.00000x"
             ws.cell(row, 15).number_format = '$#,##0.00'
             row += 1
             index += 1

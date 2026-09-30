@@ -297,7 +297,7 @@ def build_workbook(output: Path) -> None:
     readme["A10"].font = Font(size=13, bold=True, color=NAVY)
     readme.merge_cells("A11:H14")
     readme["A11"] = (
-        "This workbook mirrors the v1.7.0.5 server settlement order: reward events use the cumulative credited "
+        "This workbook mirrors the v1.7.0.6 server settlement order: reward events use the cumulative credited "
         "balance immediately before settlement to determine the damping multiplier, floor the credited units, and "
         "apply the 3,000,000-unit hard cap. The path assumes three consecutive days, 80 completed episodes per day, "
         "all configured watch tasks, daily check-in, ten Crown Road accelerations and ten wallet boosts each day."
@@ -366,7 +366,7 @@ def build_workbook(output: Path) -> None:
         inputs.cell(index, 8).fill = PatternFill("solid", fgColor=INPUT_YELLOW)
         inputs.cell(index, 9).fill = PatternFill("solid", fgColor=INPUT_YELLOW)
         inputs.cell(index, 8).number_format = "#,##0"
-        inputs.cell(index, 9).number_format = "0.00x"
+        inputs.cell(index, 9).number_format = "0.00000x"
     inputs["K4"] = "Crown Road"
     inputs["L4"] = "Trigger points"
     inputs["M4"] = "Reward (units)"
@@ -429,7 +429,7 @@ def build_workbook(output: Path) -> None:
                 settlement.cell(index, column).fill = PatternFill("solid", fgColor="F8FBFE")
         for column in (7, 8, 10, 11, 12, 13):
             settlement.cell(index, column).number_format = "#,##0"
-        settlement.cell(index, 9).number_format = "0.00x"
+        settlement.cell(index, 9).number_format = "0.00000x"
         settlement.cell(index, 14).number_format = 'US$#,##0.00'
         # Keep a hidden numerical snapshot immediately next to the formulas, making both model traceability and Excel recalculation clear.
     snapshot_col = 17
@@ -446,7 +446,7 @@ def build_workbook(output: Path) -> None:
         static = [value["raw_units"], value["prior_units"], value["damping_multiplier"], value["potential_units"], value["cap_remaining"], value["credited_units"], value["cumulative_units"], value["credited_usd"]]
         for offset, number in enumerate(static):
             settlement.cell(index, snapshot_col + offset, number)
-            settlement.cell(index, snapshot_col + offset).number_format = 'US$#,##0.00' if offset == 7 else ("0.00x" if offset == 2 else "#,##0")
+            settlement.cell(index, snapshot_col + offset).number_format = 'US$#,##0.00' if offset == 7 else ("0.00000x" if offset == 2 else "#,##0")
     settlement.column_dimensions["Q"].hidden = True
     for col in range(18, 25):
         settlement.column_dimensions[get_column_letter(col)].hidden = True
@@ -736,7 +736,7 @@ def localize_chinese(output: Path) -> None:
         "Use Daily Summary and Source Mix for\nmanagement review; both sheets\ncalculate from Settlement.": "管理复核请使用“每日汇总”和“来源构成”；两者均由“结算明细”计算。",
         "For changes to crown threshold timing\nor task counts, rerun the paired Python\nexporter to rebuild event rows.": "如修改皇冠触发时点或任务数量，请重新运行配套 Python 导出器以重建事件行。",
         "Model boundary": "模型边界",
-        "This workbook mirrors the v1.7.0.5 server settlement order: reward events use the cumulative credited balance immediately before settlement to determine the damping multiplier, floor the credited units, and apply the 3,000,000-unit hard cap. The path assumes three consecutive days, 80 completed episodes per day, all configured watch tasks, daily check-in, ten Crown Road accelerations and ten wallet boosts each day.": "本工作簿复刻 v1.7.0.5 服务端结算顺序：每笔奖励在结算前按累计已入账余额确定阻尼系数，对结果向下取整后再应用 3,000,000 内部单位硬上限。该路径假设连续活跃三天、每日完成 80 集、完成全部配置的追剧任务、每日签到，并每天完成 10 次皇冠之路加速和 10 次钱包加速。",
+        "This workbook mirrors the v1.7.0.6 server settlement order: reward events use the cumulative credited balance immediately before settlement to determine the damping multiplier, floor the credited units, and apply the 3,000,000-unit hard cap. The path assumes three consecutive days, 80 completed episodes per day, all configured watch tasks, daily check-in, ten Crown Road accelerations and ten wallet boosts each day.": "本工作簿复刻 v1.7.0.6 服务端结算顺序：每笔奖励在结算前按累计已入账余额确定阻尼系数，对结果向下取整后再应用 3,000,000 内部单位硬上限。该路径假设连续活跃三天、每日完成 80 集、完成全部配置的追剧任务、每日签到，并每天完成 10 次皇冠之路加速和 10 次钱包加速。",
         "Expected default result": "默认预期结果",
         "Final credited amount": "最终入账金额",
         "Lifetime cap": "生命周期上限",

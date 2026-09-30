@@ -93,7 +93,7 @@ def run() -> None:
     assert len(initial["crown_progress"]) == 5
     assert all(item["gems"] > 0 for item in initial["crown_progress"])
 
-    # v1.7.0.5 keeps the two-hour/three-day US$290 qualification curve on
+    # v1.7.0.6 keeps the two-hour/three-day US$290 qualification curve on
     # clean 500-unit reward increments while retaining the 600,000 welcome
     # reward and raising recurring episode and wallet acceleration rewards.
     # Query the effective migrated policy so
@@ -114,7 +114,22 @@ def run() -> None:
     assert current_policy["episode_task_tier3_min_gems"] == current_policy["episode_task_tier3_max_gems"] == 6_000
     assert current_policy["episode_task_tier4_min_gems"] == current_policy["episode_task_tier4_max_gems"] == 6_000
     assert current_policy["wallet_redpacket_min_gems"] == current_policy["wallet_redpacket_max_gems"] == 5_500
-    assert current_policy["gem_damping_tier1_threshold"] == 2_900_000
+    assert [
+        int(current_policy["gem_damping_tier1_threshold"]),
+        int(current_policy["gem_damping_tier2_threshold"]),
+        int(current_policy["gem_damping_tier3_threshold"]),
+        int(current_policy["gem_damping_tier4_threshold"]),
+        int(current_policy["gem_damping_tier5_threshold"]),
+        int(current_policy["gems_earned_cap"]),
+    ] == [2_900_000, 2_950_000, 2_975_000, 2_990_000, 2_998_000, 3_000_000]
+    assert [
+        float(current_policy["gem_damping_tier1_multiplier"]),
+        float(current_policy["gem_damping_tier2_multiplier"]),
+        float(current_policy["gem_damping_tier3_multiplier"]),
+        float(current_policy["gem_damping_tier4_multiplier"]),
+        float(current_policy["gem_damping_tier5_multiplier"]),
+        float(current_policy["gem_damping_tier6_multiplier"]),
+    ] == [1.0, 0.2, 0.04, 0.001, 0.0001, 0.00001]
     assert gold_reward is not None and gold_reward["reward_gems"] == 67_000
     assert silver_multiplier is not None and float(silver_multiplier["episode_reward_multiplier"]) == 1.20
 
@@ -513,6 +528,8 @@ def run() -> None:
     br_initial = service.bootstrap(br_user, "BR")
     assert br_initial["wallet"]["currency"]["code"] == "BRL"
     assert br_initial["wallet"]["currency"]["symbol"] == "R$"
+    assert br_initial["wallet"]["exchange_value_per_10000_gems"] == "5.00"
+    assert br_initial["withdrawal"]["threshold"] == "1500.00"
     br_welcome, _ = rewarded(service, br_user, "rv_welcome_bonus")
     assert br_welcome["result"]["cash_added"] == br_initial["welcome"]["cash"]
     assert float(br_welcome["result"]["cash_added_usd_reference"]) > 0
@@ -521,6 +538,8 @@ def run() -> None:
     id_initial = service.bootstrap(id_user, "ID")
     assert id_initial["wallet"]["currency"]["code"] == "IDR"
     assert id_initial["wallet"]["currency"]["fraction_digits"] == 0
+    assert id_initial["wallet"]["exchange_value_per_10000_gems"] == "20000"
+    assert id_initial["withdrawal"]["threshold"] == "6000000"
     id_welcome, _ = rewarded(service, id_user, "rv_welcome_bonus")
     assert id_welcome["result"]["cash_added"] == id_initial["welcome"]["cash"]
     assert float(id_welcome["result"]["cash_added_usd_reference"]) > 0

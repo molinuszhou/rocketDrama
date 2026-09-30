@@ -193,3 +193,28 @@ docker compose -p joyedrama-rewards \
 ```
 
 升级前请备份 PostgreSQL 数据卷；不要使用 `docker compose down -v`，该命令会删除数据库卷。
+
+### 已确认可清空 Rewards 账本时的全新重建
+
+仅当确认**无需保留既有 Rewards 用户、钱包、广告事件和运营审计数据**时，才可使用下面流程。它只会删除 `-p joyedrama-rewards` 这个 Compose 项目的 PostgreSQL 数据卷，不会改动宿主机 Nginx、证书或其他 Compose 项目。
+
+```bash
+cd /home/ubuntu/apps/joyedrama-release
+git pull --ff-only origin release/formal-production
+cd services/rewards
+
+# 破坏性操作：删除 joyedrama-rewards 的 PostgreSQL 数据卷。
+docker compose -p joyedrama-rewards \
+  --env-file .env.production \
+  -f docker-compose.production.yml down -v
+
+# 首次创建空卷时执行 001_init.sql；Rewards API 启动后会依次补跑 002–035 迁移。
+docker compose -p joyedrama-rewards \
+  --env-file .env.production \
+  -f docker-compose.production.yml up -d --build
+
+curl -fsS http://127.0.0.1:18100/health
+curl -fsS https://www.joyelleasia.com/joyedrama-rewards/health
+```
+
+若服务器使用旧版 Compose v1，请将每条 `docker compose` 替换为 `docker-compose`；如其不支持 `--env-file`，按本文件第二节先 `set -a; . ./.env.production; set +a` 后执行。

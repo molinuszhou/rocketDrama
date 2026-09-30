@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reproduce the v1.7.0.5 US$300 reward-curve qualification model.
+"""Reproduce the v1.7.0.6 US$300 reward-curve qualification model.
 
 The model mirrors the settlement ordering in RewardsService._credit_gems:
 settlement uses the user's credited total immediately before each event to pick
@@ -33,16 +33,16 @@ WALLET_BOOSTS_PER_DAY = 10
 CROWN_ACTIVE_BOOSTS_PER_DAY = 10
 CROWN_REWARDED_AD_PROGRESS_POINTS = 1
 
-# Mirrors services/rewards/sql/031_v1702_damping_starts_after_290usd.sql.
-# US$290 is settled at the full rate. The 0.50x attenuation starts from the
-# next settlement after the balance reaches 2,900,000 internal units.
+# Mirrors services/rewards/sql/035_v1706_regional_caps_and_precision_damping.sql.
+# US$290 is settled at the full rate. The requested 0.20x attenuation starts
+# from the next settlement after the balance reaches 2,900,000 internal units.
 DAMPING_TIERS: tuple[tuple[int, Decimal], ...] = (
     (2_900_000, Decimal("1.00")),
-    (2_950_000, Decimal("0.50")),
-    (2_975_000, Decimal("0.25")),
-    (2_990_000, Decimal("0.12")),
-    (2_998_000, Decimal("0.06")),
-    (3_000_000, Decimal("0.01")),
+    (2_950_000, Decimal("0.20")),
+    (2_975_000, Decimal("0.04")),
+    (2_990_000, Decimal("0.001")),
+    (2_998_000, Decimal("0.0001")),
+    (3_000_000, Decimal("0.00001")),
 )
 TASK_REWARDS = {
     1: 5_000,
@@ -110,7 +110,7 @@ def settle(day: int, source: str, raw_units: int, cumulative_units: int) -> tupl
             day=day,
             source=source,
             raw_units=raw_units,
-            damping_multiplier=f"{multiplier:.2f}",
+            damping_multiplier=f"{multiplier:.5f}",
             credited_units=credited,
             cumulative_units=total,
         ),
@@ -129,7 +129,7 @@ def run_model() -> list[Settlement]:
     """Model the server settlement order for the full qualification path.
 
     Each business day uses the seven-day sign-in schedule, then ten Crown Road
-    active ads, sixty completed episodes, all task claims, the daily aggregate
+    active ads, eighty completed episodes, all task claims, the daily aggregate
     episode claim, and ten wallet boosts. Crown ads contribute progress points
     but no direct wallet units; reaching a level changes only subsequent episode
     claims, matching ``record_watch_event`` and ``complete_rewarded_ad``.
@@ -205,7 +205,7 @@ def summary(settlements: list[Settlement]) -> dict[str, object]:
         raw_by_day[item.day] += item.raw_units
     final_units = settlements[-1].cumulative_units
     return {
-        "model": "v1.7.0.5-high-episode-wallet-rounded-after-290usd",
+        "model": "v1.7.0.6-high-episode-wallet-rounded-precision-damping",
         "assumptions": {
             "days": DAYS,
             "episodes_per_day": EPISODES_PER_DAY,
@@ -300,7 +300,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output-dir", type=Path, default=Path("docs/reward-model-300usd-3days"))
     args = parser.parse_args()
-    if multiplier_for(2_899_999) != Decimal("1.00") or multiplier_for(2_900_000) != Decimal("0.50"):
+    if multiplier_for(2_899_999) != Decimal("1.00") or multiplier_for(2_900_000) != Decimal("0.20"):
         raise SystemExit("invalid damping boundary: attenuation must start after US$290.00")
     settlements = run_model()
     args.output_dir.mkdir(parents=True, exist_ok=True)
