@@ -102,10 +102,11 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
         }
         initializationTimeout = Runnable {
             if (resultDelivered) return@Runnable
-            // PSSDK can complete its first remote bootstrap after the request timeout supplied to
-            // the SDK. This is only diagnostic: do not consume the callback or force the user to
-            // tap retry, because the original initialization may still become ready moments later.
-            Log.w(TAG, "短剧 SDK 初始化较慢：已等待 ${SDK_INITIALIZATION_TIMEOUT_MS}ms，继续等待 SDK 回调")
+            // Do not keep the calling screen in an unbounded wait. The app shell remains usable
+            // and the coordinator retries initialization in the background. A late SDK success is
+            // still remembered by PSSDK.hasInitialized() and is used by that retry.
+            Log.w(TAG, "短剧 SDK 初始化超时：${SDK_INITIALIZATION_TIMEOUT_MS}ms，转入后台重试")
+            deliver(Initialization.Failed("短剧 SDK 初始化超时，请稍后重试"))
         }
         mainHandler.postDelayed(initializationTimeout, SDK_INITIALIZATION_TIMEOUT_MS)
         // SDK 内容语言与界面语言独立：UI 使用六语词典；SDK 请求使用内容方支持的标准语言码。

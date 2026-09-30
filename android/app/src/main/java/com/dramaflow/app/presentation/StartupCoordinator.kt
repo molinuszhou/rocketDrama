@@ -76,6 +76,8 @@ internal fun DramaAppActivity.beginStartupExperience() {
         startupPosterPreloadFinished = false
         startupRewardsFinished = !rewardsApi.isConfigured
         startupPosterPreloadPercent = 0
+        catalogRetryAttempt = 0
+        catalogRetryScheduled = false
         renderStartupLoading()
         updateStartupProgress(0, t("startup_preparing"))
         // Rewards and the PSSDK catalog continue in the background. A slow content SDK must never
@@ -132,7 +134,7 @@ private fun DramaAppActivity.preloadShortDramaSdkCatalog() {
                 ShortDramaSdkManager.Initialization.Ready -> error("unreachable")
             }
             completeStartupWhenReady()
-            if (startupContentInitializationStarted) renderFailure(startupCatalogFailure.orEmpty())
+            if (startupContentInitializationStarted) handleBackgroundCatalogFailure(startupCatalogFailure.orEmpty())
             return@runOnUiThread
         }
         shortDramaSdk.loadDiscovery(
@@ -145,8 +147,11 @@ private fun DramaAppActivity.preloadShortDramaSdkCatalog() {
                     startupCatalogFailure = t("catalog_empty")
                     startupPosterPreloadFinished = true
                     completeStartupWhenReady()
+                    if (startupContentInitializationStarted) handleBackgroundCatalogFailure(startupCatalogFailure.orEmpty())
                     return@runOnUiThread
                 }
+                catalogRetryAttempt = 0
+                catalogRetryScheduled = false
                 sdkDramaCardsByCatalogId.clear()
                 cards.forEach { card -> sdkDramaCardsByCatalogId[sdkCatalogId(card.id)] = card }
                 catalogItems = cards.map(::sdkCatalogDrama)
@@ -178,10 +183,29 @@ private fun DramaAppActivity.preloadShortDramaSdkCatalog() {
                 startupPosterPreloadFinished = true
                 startupCatalogFailure = t("catalog_load_failed", message)
                 completeStartupWhenReady()
-                if (startupContentInitializationStarted) renderFailure(startupCatalogFailure.orEmpty())
+                if (startupContentInitializationStarted) handleBackgroundCatalogFailure(startupCatalogFailure.orEmpty())
             } },
         )
     } }
+}
+
+/** Keeps the rest of the app usable when the provider catalogue is temporarily unavailable. */
+internal fun DramaAppActivity.handleBackgroundCatalogFailure(message: String) {
+    if (!isFinishing && !isDestroyed && catalogItems.isEmpty()) renderCatalogUnavailableShell(message)
+    scheduleCatalogRetry()
+}
+
+internal fun DramaAppActivity.scheduleCatalogRetry(immediate: Boolean = false) {
+    if (catalogRetryScheduled || isFinishing || isDestroyed || catalogItems.isNotEmpty()) return
+    catalogRetryScheduled = true
+    val retryDelay = if (immediate) 0L else (2_000L shl catalogRetryAttempt.coerceAtMost(3))
+    root.postDelayed({
+        catalogRetryScheduled = false
+        if (!isFinishing && !isDestroyed && catalogItems.isEmpty()) {
+            catalogRetryAttempt += 1
+            preloadShortDramaSdkCatalog()
+        }
+    }, retryDelay)
 }
 
     /** Preloads first-screen poster resources after the app shell is already interactive. */

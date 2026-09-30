@@ -107,6 +107,8 @@ class DramaAppActivity : FragmentActivity() {
     internal var startupRewardsFinished = false
     internal var startupPosterPreloadPercent = 0
     internal var startupCatalogFailure: String? = null
+    internal var catalogRetryAttempt = 0
+    internal var catalogRetryScheduled = false
     internal var startupProgressBar: ProgressBar? = null
     internal var startupProgressLabel: TextView? = null
     internal var startupProgressPercentLabel: TextView? = null
@@ -354,7 +356,8 @@ class DramaAppActivity : FragmentActivity() {
      * 先显示 JoyeDrama Logo 加载页；开屏关闭、跳过或无填充后，再进入签到与内容初始化。
      */
     internal fun loadCatalog() {
-        loadShortDramaSdkCatalog()
+        renderCatalogLoadingShell()
+        scheduleCatalogRetry(immediate = true)
     }
 
     private fun loadShortDramaSdkCatalog() {
@@ -413,10 +416,9 @@ class DramaAppActivity : FragmentActivity() {
     }
 
     internal fun renderActiveTab() {
-        if (catalogItems.isEmpty()) {
-            renderCatalogLoadingShell()
-            return
-        }
+        // The catalogue may still be loading, but Home/Discover/Rewards/Profile must remain
+        // independently navigable. Returning the loading shell here made every bottom-nav tap
+        // render the same page and effectively locked the app until PSSDK responded.
         withdrawalPageShown = false
         playerShown = false
         configureCatalogWindow()
@@ -478,6 +480,34 @@ class DramaAppActivity : FragmentActivity() {
                 gravity = Gravity.CENTER
                 setTextColor(COLOR_TEXT_MUTED)
             })
+        }
+        root.removeAllViews()
+        root.addView(shell, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        root.addView(createPersistentAssetHeader(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(120), Gravity.TOP))
+        root.addView(createBottomNavigation(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(68), Gravity.BOTTOM))
+    }
+
+    /** A provider error never removes navigation; retry runs in the background and can be requested manually. */
+    internal fun renderCatalogUnavailableShell(message: String) {
+        withdrawalPageShown = false
+        playerShown = false
+        configureCatalogWindow()
+        val shell = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(24), dp(186), dp(24), dp(114))
+            addView(TextView(this@DramaAppActivity).apply {
+                text = t("catalog_load_failed", message)
+                textSize = 17f
+                typeface = Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER
+                setTextColor(COLOR_TEXT_PRIMARY)
+            })
+            addView(Button(this@DramaAppActivity).apply {
+                text = t("retry")
+                isAllCaps = false
+                setOnClickListener { scheduleCatalogRetry(immediate = true) }
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(46)).apply { topMargin = dp(16) })
         }
         root.removeAllViews()
         root.addView(shell, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
