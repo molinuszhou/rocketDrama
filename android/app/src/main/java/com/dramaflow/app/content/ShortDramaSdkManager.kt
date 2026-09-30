@@ -1,6 +1,8 @@
 package com.dramaflow.app.content
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import com.bytedance.sdk.shortplay.api.PSSDK
 import com.bytedance.sdk.shortplay.api.ShortPlay
@@ -49,6 +51,7 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
 
     @Volatile
     private var initialized = false
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     /**
      * 不在 SDK 开关关闭时做任何网络或播放器初始化，确保本地视频测试完全独立于外部短剧服务。
@@ -85,30 +88,50 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
             .licenseAssertPath(licenseAsset)
             .securityKey(securityKey)
             .userId(installationId())
-            // The formal launcher no longer waits for this provider call, so allow cold mobile
-            // networks enough time to complete PSSDK bootstrap before treating it as a failure.
-            .requestTimeout(30_000L)
+            .requestTimeout(10_000L)
             .autoInitVideoPlayer(true)
             .debug(BuildConfig.DEBUG)
             .build()
+        var resultDelivered = false
+        lateinit var initializationTimeout: Runnable
+        fun deliver(result: Initialization) {
+            if (resultDelivered) return
+            resultDelivered = true
+            mainHandler.removeCallbacks(initializationTimeout)
+            onResult(result)
+        }
+        initializationTimeout = Runnable {
+            if (resultDelivered) return@Runnable
+            // Do not keep the calling screen in an unbounded wait. The app shell remains usable
+            // and the coordinator retries initialization in the background. A late SDK success is
+            // still remembered by PSSDK.hasInitialized() and is used by that retry.
+            Log.w(TAG, "短剧 SDK 初始化超时：${SDK_INITIALIZATION_TIMEOUT_MS}ms，转入后台重试")
+            deliver(Initialization.Failed("短剧 SDK 初始化超时，请稍后重试"))
+        }
+        mainHandler.postDelayed(initializationTimeout, SDK_INITIALIZATION_TIMEOUT_MS)
         // SDK 内容语言与界面语言独立：UI 使用六语词典；SDK 请求使用内容方支持的标准语言码。
-        PSSDK.setContentLanguage(contentLanguageFor(AppLanguage.tag(appContext)))
-        PSSDK.init(appContext, config, object : PSSDK.PSSDKInitListener {
-            override fun onInitFinished(success: Boolean, error: PSSDK.ErrorInfo?) {
-                initialized = success
-                if (success) {
-                    PSSDK.setEligibleAudience(true)
-                    PSSDK.checkPlayStatus(object : PSSDK.ServiceCheckResultListener {
-                        override fun onCheckResult(result: PSSDK.ServiceAvailableResult?) {
-                            Log.i(TAG, "短剧 SDK 播放服务检测：${result?.name ?: "UNKNOWN"}")
-                        }
-                    })
-                    onResult(Initialization.Ready)
-                } else {
-                    onResult(Initialization.Failed("短剧 SDK 初始化失败：${error?.code ?: -1} ${error?.msg.orEmpty()}"))
+        runCatching {
+            PSSDK.setContentLanguage(contentLanguageFor(AppLanguage.tag(appContext)))
+            PSSDK.init(appContext, config, object : PSSDK.PSSDKInitListener {
+                override fun onInitFinished(success: Boolean, error: PSSDK.ErrorInfo?) {
+                    initialized = success
+                    if (success) {
+                        PSSDK.setEligibleAudience(true)
+                        PSSDK.checkPlayStatus(object : PSSDK.ServiceCheckResultListener {
+                            override fun onCheckResult(result: PSSDK.ServiceAvailableResult?) {
+                                Log.i(TAG, "短剧 SDK 播放服务检测：${result?.name ?: "UNKNOWN"}")
+                            }
+                        })
+                        deliver(Initialization.Ready)
+                    } else {
+                        deliver(Initialization.Failed("短剧 SDK 初始化失败：${error?.code ?: -1} ${error?.msg.orEmpty()}"))
+                    }
                 }
-            }
-        })
+            })
+        }.onFailure {
+            Log.w(TAG, "短剧 SDK 初始化调用异常", it)
+            deliver(Initialization.Failed("短剧 SDK 初始化调用失败：${it.message.orEmpty()}"))
+        }
     }
 
     /** 读取 SDK 的热门、最新和分类数据，供首页推荐、发现页分类和后续搜索模块复用。 */
@@ -126,13 +149,29 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
         var latest: List<DramaCard>? = null
         var categories: List<Category>? = null
         var delivered = false
+        lateinit var discoveryTimeout: Runnable
+
+        fun deliverFailure(message: String) {
+            if (delivered) return
+            delivered = true
+            mainHandler.removeCallbacks(discoveryTimeout)
+            onFailure(message)
+        }
 
         fun tryDeliver() {
             if (!delivered && popular != null && latest != null && categories != null) {
                 delivered = true
+                mainHandler.removeCallbacks(discoveryTimeout)
                 onSuccess(Discovery(popular.orEmpty(), latest.orEmpty(), categories.orEmpty()))
             }
         }
+
+        discoveryTimeout = Runnable {
+            if (delivered) return@Runnable
+            Log.w(TAG, "短剧目录请求超时：${DISCOVERY_TIMEOUT_MS}ms")
+            deliverFailure("短剧目录加载超时，请检查网络后重试")
+        }
+        mainHandler.postDelayed(discoveryTimeout, DISCOVERY_TIMEOUT_MS)
 
         PSSDK.requestPopularDrama(FIRST_PAGE, pageSize, object : PSSDK.FeedListResultListener {
             override fun onSuccess(result: PSSDK.FeedListLoadResult<ShortPlay>?) {
@@ -141,10 +180,7 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
             }
 
             override fun onFail(error: PSSDK.ErrorInfo?) {
-                if (!delivered) {
-                    delivered = true
-                    onFailure("短剧热门内容读取失败：${error?.code ?: -1} ${error?.msg.orEmpty()}")
-                }
+                deliverFailure("短剧热门内容读取失败：${error?.code ?: -1} ${error?.msg.orEmpty()}")
             }
         })
 
@@ -155,10 +191,7 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
             }
 
             override fun onFail(error: PSSDK.ErrorInfo?) {
-                if (!delivered) {
-                    delivered = true
-                    onFailure("短剧最新内容读取失败：${error?.code ?: -1} ${error?.msg.orEmpty()}")
-                }
+                deliverFailure("短剧最新内容读取失败：${error?.code ?: -1} ${error?.msg.orEmpty()}")
             }
         })
 
@@ -172,10 +205,7 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
             }
 
             override fun onFail(error: PSSDK.ErrorInfo?) {
-                if (!delivered) {
-                    delivered = true
-                    onFailure("短剧分类读取失败：${error?.code ?: -1} ${error?.msg.orEmpty()}")
-                }
+                deliverFailure("短剧分类读取失败：${error?.code ?: -1} ${error?.msg.orEmpty()}")
             }
         })
     }
@@ -299,6 +329,8 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
         private const val TAG = "ShortDramaSdkManager"
         private const val FIRST_PAGE = 1
         private const val DEFAULT_PAGE_SIZE = 20
+        private const val DISCOVERY_TIMEOUT_MS = 12_000L
+        private const val SDK_INITIALIZATION_TIMEOUT_MS = 12_000L
         private const val PREFERENCES = "joyedrama.short_drama_sdk"
         private const val INSTALLATION_ID_KEY = "installation_id"
 
