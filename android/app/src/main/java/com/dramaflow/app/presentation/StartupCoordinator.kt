@@ -78,6 +78,10 @@ internal fun DramaAppActivity.beginStartupExperience() {
         startupPosterPreloadPercent = 0
         shortDramaRetryAttempt = 0
         shortDramaRetryScheduled = false
+        shortDramaRetryGeneration += 1
+        pendingShortDramaDiagnostic = null
+        shownShortDramaDiagnostic = null
+        shortDramaDiagnosticDialogShowing = false
         renderStartupLoading()
         updateStartupProgress(0, t("startup_preparing"))
         if (rewardsApi.isConfigured) refreshRewardsSnapshot() else completeStartupWhenReady()
@@ -132,6 +136,7 @@ private fun DramaAppActivity.preloadShortDramaSdkCatalog() {
                 ShortDramaSdkManager.Initialization.Ready -> error("unreachable")
             }
             if (startupContentInitializationStarted) renderActiveTab() else completeStartupWhenReady()
+            queueShortDramaCatalogDiagnostic(startupCatalogFailure.orEmpty())
             if (retryAllowed) scheduleShortDramaCatalogRetry(startupCatalogFailure.orEmpty())
             return@runOnUiThread
         }
@@ -145,11 +150,13 @@ private fun DramaAppActivity.preloadShortDramaSdkCatalog() {
                     startupCatalogFailure = t("catalog_empty")
                     startupPosterPreloadFinished = true
                     if (startupContentInitializationStarted) renderActiveTab() else completeStartupWhenReady()
+                    queueShortDramaCatalogDiagnostic(startupCatalogFailure.orEmpty())
                     scheduleShortDramaCatalogRetry(startupCatalogFailure.orEmpty())
                     return@runOnUiThread
                 }
                 shortDramaRetryAttempt = 0
                 shortDramaRetryScheduled = false
+                pendingShortDramaDiagnostic = null
                 sdkDramaCardsByCatalogId.clear()
                 cards.forEach { card -> sdkDramaCardsByCatalogId[sdkCatalogId(card.id)] = card }
                 catalogItems = cards.map(::sdkCatalogDrama)
@@ -178,10 +185,44 @@ private fun DramaAppActivity.preloadShortDramaSdkCatalog() {
                 startupPosterPreloadFinished = true
                 startupCatalogFailure = t("catalog_load_failed", message)
                 if (startupContentInitializationStarted) renderActiveTab() else completeStartupWhenReady()
+                queueShortDramaCatalogDiagnostic(message)
                 scheduleShortDramaCatalogRetry(message)
             } },
         )
     } }
+}
+
+/** Shows raw provider code/message only after the startup reward prompt is no longer in front. */
+internal fun DramaAppActivity.queueShortDramaCatalogDiagnostic(message: String) {
+    if (message.isBlank()) return
+    pendingShortDramaDiagnostic = message.take(MAX_SHORT_DRAMA_DIAGNOSTIC_LENGTH)
+    showPendingShortDramaCatalogDiagnostic()
+}
+
+internal fun DramaAppActivity.showPendingShortDramaCatalogDiagnostic() {
+    val message = pendingShortDramaDiagnostic ?: return
+    if (!startupCheckinPromptShown || shortDramaDiagnosticDialogShowing || shownShortDramaDiagnostic == message || isFinishing || isDestroyed) return
+    shortDramaDiagnosticDialogShowing = true
+    showBrandedChoiceDialog(
+        title = t("short_drama_diagnostic_title"),
+        message = message,
+        primaryLabel = t("retry"),
+        onPrimary = {
+            shownShortDramaDiagnostic = message
+            pendingShortDramaDiagnostic = null
+            shortDramaDiagnosticDialogShowing = false
+            shortDramaRetryGeneration += 1
+            shortDramaRetryScheduled = false
+            shortDramaRetryAttempt = 0
+            preloadShortDramaSdkCatalog()
+        },
+        secondaryLabel = t("close"),
+        onSecondary = {
+            shownShortDramaDiagnostic = message
+            pendingShortDramaDiagnostic = null
+            shortDramaDiagnosticDialogShowing = false
+        },
+    )
 }
 
 /** Retries only transient PSSDK bootstrap/catalog failures; the application shell stays interactive. */
@@ -190,8 +231,10 @@ private fun DramaAppActivity.scheduleShortDramaCatalogRetry(reason: String) {
     shortDramaRetryScheduled = true
     val nextAttempt = shortDramaRetryAttempt + 1
     val delayMillis = SHORT_DRAMA_RETRY_DELAYS_MS[shortDramaRetryAttempt]
+    val generation = shortDramaRetryGeneration
     logStatus("短剧目录加载未完成，${delayMillis / 1_000} 秒后进行第 $nextAttempt 次后台重试：$reason")
     root.postDelayed({
+        if (generation != shortDramaRetryGeneration) return@postDelayed
         shortDramaRetryScheduled = false
         if (!isFinishing && !isDestroyed && catalogItems.isEmpty()) {
             shortDramaRetryAttempt = nextAttempt
@@ -278,3 +321,4 @@ internal fun DramaAppActivity.completeStartupWhenReady() {
 
 private const val MAX_SHORT_DRAMA_RETRY_ATTEMPTS = 3
 private val SHORT_DRAMA_RETRY_DELAYS_MS = longArrayOf(3_000L, 6_000L, 12_000L)
+private const val MAX_SHORT_DRAMA_DIAGNOSTIC_LENGTH = 1_000

@@ -110,6 +110,10 @@ class DramaAppActivity : FragmentActivity() {
     /** PSSDK can fail its first remote bootstrap on a cold network; retries never block navigation. */
     internal var shortDramaRetryAttempt = 0
     internal var shortDramaRetryScheduled = false
+    internal var shortDramaRetryGeneration = 0
+    internal var pendingShortDramaDiagnostic: String? = null
+    internal var shownShortDramaDiagnostic: String? = null
+    internal var shortDramaDiagnosticDialogShowing = false
     internal var startupProgressBar: ProgressBar? = null
     internal var startupProgressLabel: TextView? = null
     internal var startupProgressPercentLabel: TextView? = null

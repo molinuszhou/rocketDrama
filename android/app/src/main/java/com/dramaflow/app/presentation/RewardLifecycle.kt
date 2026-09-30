@@ -252,6 +252,7 @@ internal fun DramaAppActivity.showStartupCheckinWhenReady() {
             startupCheckinPromptRequested = false
             showWelcomeRewardDialog(snapshot) {
                 startupCheckinPromptShown = true
+                showPendingShortDramaCatalogDiagnostic()
                 root.postDelayed({
                     if (!isFinishing && !isDestroyed && rewardsSnapshot?.checkinSignedToday != true) showCheckinRewardDialog(rewardsSnapshot ?: snapshot)
                 }, 15_000L)
@@ -266,6 +267,7 @@ internal fun DramaAppActivity.showStartupCheckinWhenReady() {
             snapshot.checkinSignedToday -> Unit
             else -> showCheckinRewardDialog(snapshot)
         }
+        showPendingShortDramaCatalogDiagnostic()
     }
 
 /** Full-screen welcome celebration: content is genuinely centered inside a transparent full-window Dialog. */
