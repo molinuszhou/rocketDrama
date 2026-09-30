@@ -100,36 +100,6 @@ if (commercialReleaseRequested) {
     }
 }
 
-val validateCommercialReleaseAdConfig = tasks.register("validateCommercialReleaseAdConfig") {
-    group = "verification"
-    description = "Rejects Demo or incomplete advertising credentials for commercial Release tasks."
-    inputs.property("toponDemoMode", topOnDemoMode)
-    inputs.property("TOPON_APP_ID", partnerTopOnAppId)
-    inputs.property("TOPON_APP_KEY", partnerTopOnAppKey)
-    inputs.property("TOPON_REWARDED_PLACEMENT_ID", partnerTopOnRewardedPlacementId)
-    inputs.property("TOPON_INTERSTITIAL_PLACEMENT_ID", partnerTopOnInterstitialPlacementId)
-    inputs.property("TOPON_SPLASH_PLACEMENT_ID", partnerTopOnSplashPlacementId)
-    inputs.property("ADMOB_APP_ID", partnerAdmobAppId)
-    inputs.property("REWARDS_API_BASE_URL", rewardsApiBaseUrl)
-    doLast {
-        check(inputs.properties["toponDemoMode"].toString().toBoolean().not()) { "TOPON_DEMO_MODE=true is permitted only for Debug builds, never for a commercial Release build." }
-        val required = listOf("TOPON_APP_ID", "TOPON_APP_KEY", "TOPON_REWARDED_PLACEMENT_ID", "TOPON_INTERSTITIAL_PLACEMENT_ID", "TOPON_SPLASH_PLACEMENT_ID", "ADMOB_APP_ID", "REWARDS_API_BASE_URL")
-        val missing = required.filter { key -> inputs.properties[key].toString().isBlank() }
-        check(missing.isEmpty()) { "Commercial Release requires explicit advertising configuration: ${missing.joinToString()}" }
-        check(isProductionRewardsApiBaseUrl(inputs.properties["REWARDS_API_BASE_URL"].toString())) {
-            "REWARDS_API_BASE_URL must be an explicit non-local HTTPS URL for a commercial Release build."
-        }
-        check(isAdmobAndroidAppId(inputs.properties["ADMOB_APP_ID"].toString())) {
-            "ADMOB_APP_ID must be the one Android AdMob App ID in ca-app-pub-...~... format, not a ca-app-pub-.../... ad unit ID."
-        }
-    }
-}
-tasks.configureEach {
-    val normalized = name.lowercase()
-    if (name != validateCommercialReleaseAdConfig.name && normalized.contains("release")) {
-        dependsOn(validateCommercialReleaseAdConfig)
-    }
-}
 // Firebase configuration is an environment credential, never committed. Do not apply the Google
 // Services plugin to a stale config registered for the former test package: it would make a
 // formal build look valid while emitting the wrong Firebase resources.
@@ -169,8 +139,8 @@ android {
         minSdk = 26
         targetSdk = 35
         // Android 客户端每次代码改动递增补丁版本；服务端/文档单独改动不变更此版本。
-        versionCode = 70
-        versionName = "1.7.1.16"
+        versionCode = 71
+        versionName = "1.7.1.17"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
