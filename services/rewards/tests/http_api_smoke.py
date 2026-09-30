@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import time
 import urllib.error
 import urllib.request
-from urllib.parse import urlencode
 import uuid
 
 BASE_URL = os.environ.get("REWARDS_TEST_BASE_URL", "http://127.0.0.1:8110").rstrip("/")
@@ -41,7 +39,7 @@ def event_id(prefix: str) -> str:
 
 def rewarded(placement: str, target_id: str | None = None, episode_index: int | None = None) -> tuple[int, dict, str]:
     ad_event_id = event_id(placement)
-    payload = {"user_id": USER_ID, "ad_event_id": ad_event_id, "placement_id": placement, "proof": "TEST_TOPON_REWARD"}
+    payload = {"user_id": USER_ID, "ad_event_id": ad_event_id, "placement_id": placement, "proof": "TEST_PANGLE_REWARD"}
     if target_id is not None:
         payload["target_id"] = target_id
     if episode_index is not None:
@@ -116,35 +114,6 @@ def run() -> None:
     )
     assert mediation_retry["data"]["idempotent"] is True
 
-    # TopOn S2S reward: Android registers the action first; only the signed GET
-    # callback may settle it. The callback response is deliberately an empty 200.
-    s2s_user = f"http-topon-s2s-{uuid.uuid4()}"
-    _, s2s_bootstrap = post("/v2/bootstrap", {"user_id": s2s_user})
-    _, s2s_intent = post("/v2/ads/topon/rewarded/intents", {"user_id": s2s_user, "placement_id": "rv_welcome_bonus"})
-    s2s_data = s2s_intent["data"]
-    s2s_callback = {
-        "user_id": s2s_user,
-        "trans_id": event_id("topon-trans"),
-        "reward_amount": "1",
-        "reward_name": "rewarded",
-        "placement_id": "topon-rewarded-http-smoke",
-        "adsource_id": "66",
-        "extra_data": s2s_data["topon_custom_data"],
-        "network_firm_id": "66",
-        "scenario_id": "http-smoke",
-    }
-    s2s_signature = (
-        f"trans_id={s2s_callback['trans_id']}&placement_id={s2s_callback['placement_id']}"
-        f"&adsource_id={s2s_callback['adsource_id']}&reward_amount={s2s_callback['reward_amount']}"
-        f"&reward_name={s2s_callback['reward_name']}&sec_key=http-smoke-topon-s2s-secret"
-    )
-    s2s_callback["sign"] = hashlib.md5(s2s_signature.encode("utf-8")).hexdigest()
-    with urllib.request.urlopen(f"{BASE_URL}/v2/ads/topon/rewarded/callback?{urlencode(s2s_callback)}", timeout=10) as response:
-        assert response.status == 200
-    _, s2s_status = request("GET", f"/v2/ads/topon/rewarded/intents/{s2s_data['intent_id']}?user_id={s2s_user}")
-    assert s2s_status["data"]["status"] == "SETTLED"
-    assert s2s_status["data"]["result"]["cash_added"] == s2s_bootstrap["data"]["welcome"]["cash"]
-
     # Organic A cash actions settle after an actual incentive interstitial, not a rewarded creative.
     organic_user = f"http-organic-a-{uuid.uuid4()}"
     _, organic_bootstrap = post("/v2/bootstrap", {"user_id": organic_user})
@@ -177,7 +146,7 @@ def run() -> None:
     # 前 3 集免费；第 4 集通过激励广告获得解锁权益。
     _, free_rejection = post(
         "/v2/ads/rewarded/complete",
-        {"user_id": USER_ID, "ad_event_id": event_id("free"), "placement_id": "rv_episode_pass", "target_id": "episode-3", "episode_index": 3, "proof": "TEST_TOPON_REWARD"},
+        {"user_id": USER_ID, "ad_event_id": event_id("free"), "placement_id": "rv_episode_pass", "target_id": "episode-3", "episode_index": 3, "proof": "TEST_PANGLE_REWARD"},
         expected_status=409,
     )
     assert free_rejection["code"] == 1100
@@ -187,7 +156,7 @@ def run() -> None:
     # 低频广告版本关闭单集翻倍，避免单集完成后再叠加额外激励广告位。
     _, boost_disabled = post(
         "/v2/ads/rewarded/complete",
-        {"user_id": USER_ID, "ad_event_id": event_id("boost"), "placement_id": "rv_episode_reward_boost", "target_id": "episode-1", "proof": "TEST_TOPON_REWARD"},
+        {"user_id": USER_ID, "ad_event_id": event_id("boost"), "placement_id": "rv_episode_reward_boost", "target_id": "episode-1", "proof": "TEST_PANGLE_REWARD"},
         expected_status=409,
     )
     assert boost_disabled["code"] == 1214

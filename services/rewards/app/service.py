@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import hmac
 import math
 import secrets
@@ -62,307 +61,126 @@ class RewardsService:
         proof: str | None,
         timestamp_ms: int | None,
     ) -> dict[str, Any]:
-        """Development-only direct settlement retained for local smoke tests.
-
-        A production Android client must instead register a TopOn intent and wait for
-        ``settle_topon_rewarded_callback``.  Keeping this endpoint guarded makes test
-        workflows explicit without allowing a released client callback to mint cash.
-        """
         self._verify_ad_proof(proof)
         with self._transaction() as connection:
             self._ensure_user(connection, user_id)
-            return self._settle_verified_rewarded_action(
+            business_date = self._business_date()
+            existing = self._one(
+                connection,
+                "SELECT placement_id, result_payload FROM rewarded_ad_events WHERE ad_event_id = %s",
+                (ad_event_id,),
+            )
+            if existing:
+                return {"idempotent": True, "result": existing["result_payload"], "snapshot": self._snapshot(connection, user_id)}
+
+            policy = self._policy(connection)
+            counters = self._daily_counter(connection, user_id, business_date, lock=True)
+            rv_daily_limit = int(policy["rv_daily_limit"])
+            if rv_daily_limit > 0 and int(counters["rv_count"]) >= rv_daily_limit:
+                raise ServiceError(1001, "今日激励广告次数已达上限，请明天再来", 429)
+            cooldown_policy = {
+                "rv_crown_upgrade": ("crown_rewarded_cooldown_seconds", "皇冠成长正在充能，请稍后再试"),
+                "rv_release_boost": ("release_boost_cooldown_seconds", "钱包额外奖励正在充能，请稍后再试"),
+            }
+            if placement_id in cooldown_policy:
+                cooldown_field, message = cooldown_policy[placement_id]
+                cooldown_seconds = int(policy.get(cooldown_field, 30))
+                if cooldown_seconds > 0:
+                    last_charge = self._one(
+                        connection,
+                        """SELECT processed_at FROM rewarded_ad_events
+                           WHERE user_id = %s AND placement_id = %s
+                           ORDER BY processed_at DESC LIMIT 1""",
+                        (user_id, placement_id),
+                    )
+                    if last_charge:
+                        elapsed = int((self._now() - last_charge["processed_at"]).total_seconds())
+                        remaining = cooldown_seconds - elapsed
+                        if remaining > 0:
+                            raise ServiceError(1004, f"{message}（{remaining} 秒后可再次领取）", 429)
+            if placement_id == "rv_crown_upgrade":
+                crown_daily_limit = int(policy.get("crown_rewarded_daily_limit", 0))
+                crown_used_today = int(self._one(
+                    connection,
+                    "SELECT COUNT(*) AS count FROM rewarded_ad_events WHERE user_id = %s AND business_date = %s AND placement_id = 'rv_crown_upgrade'",
+                    (user_id, business_date),
+                )["count"])
+                if crown_daily_limit > 0 and crown_used_today >= crown_daily_limit:
+                    raise ServiceError(1003, "今日皇冠成长广告次数已达上限，请明天继续", 429)
+
+            # 先执行业务前置检查，避免无效事件消耗用户的日频控。
+            result = self._rewarded_action(
                 connection=connection,
                 user_id=user_id,
-                ad_event_id=ad_event_id,
+                business_date=business_date,
                 placement_id=placement_id,
                 target_id=target_id,
                 episode_index=episode_index,
-                verification_method="debug_test_proof",
-                timestamp_ms=timestamp_ms,
+                policy=policy,
             )
-
-    def prepare_topon_rewarded_intent(
-        self,
-        *,
-        user_id: str,
-        placement_id: str,
-        target_id: str | None,
-        episode_index: int | None,
-    ) -> dict[str, Any]:
-        """Creates opaque TopOn USER_CUSTOM_DATA before a rewarded ad is loaded."""
-        with self._transaction() as connection:
-            self._ensure_user(connection, user_id)
-            self._expire_topon_rewarded_intents(connection, user_id)
-            intent_id = f"ti-{secrets.token_urlsafe(24)}"
+            verification_method = "debug_test_proof" if self.settings.allow_debug_ad_proof else "server_callback"
             self._execute(
                 connection,
                 """
-                INSERT INTO topon_rewarded_intents
-                (intent_id, user_id, business_date, placement_id, target_id, episode_index)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                """,
-                (intent_id, user_id, self._business_date(), placement_id, target_id, episode_index),
-            )
-            return {
-                "intent_id": intent_id,
-                "topon_user_id": user_id,
-                "topon_custom_data": intent_id,
-                "expires_in_seconds": 30 * 60,
-            }
-
-    def topon_rewarded_intent_status(self, *, user_id: str, intent_id: str) -> dict[str, Any]:
-        with self._transaction() as connection:
-            self._ensure_user(connection, user_id)
-            self._expire_topon_rewarded_intents(connection, user_id)
-            intent = self._one(
-                connection,
-                """
-                SELECT status, result_payload, settled_at, expires_at
-                FROM topon_rewarded_intents
-                WHERE intent_id = %s AND user_id = %s
-                """,
-                (intent_id, user_id),
-            )
-            if not intent:
-                raise ServiceError(1607, "激励广告结算请求不存在或不属于当前用户", 404)
-            response: dict[str, Any] = {
-                "status": intent["status"],
-                "settled_at": intent["settled_at"].isoformat() if intent["settled_at"] else None,
-                "expires_at": intent["expires_at"].isoformat(),
-            }
-            if intent["status"] == "SETTLED":
-                response["result"] = intent["result_payload"] or {}
-                response["snapshot"] = self._snapshot(connection, user_id)
-            return response
-
-    def settle_topon_rewarded_callback(self, callback: dict[str, str]) -> None:
-        """Verifies one TopOn S2S callback, then settles its pre-registered action.
-
-        This method intentionally does all database work in one transaction and has no
-        outbound I/O: TopOn expects a response in at most two seconds and may retry.
-        """
-        required = ("user_id", "trans_id", "reward_amount", "reward_name", "placement_id", "adsource_id", "extra_data", "sign")
-        if any(not callback.get(key, "").strip() for key in required):
-            raise ServiceError(1603, "TopOn 激励回调缺少必要参数", 422)
-        self._verify_topon_rewarded_signature(callback)
-        expected_placement = self.settings.topon_rewarded_placement_id
-        if expected_placement and callback["placement_id"] != expected_placement:
-            raise ServiceError(1605, "TopOn 激励广告位与正式配置不匹配", 422)
-
-        intent_id = callback["extra_data"].strip()
-        trans_id = callback["trans_id"].strip()
-        user_id = callback["user_id"].strip()
-        ad_event_id = f"topon-s2s-{trans_id}"
-        with self._transaction() as connection:
-            self._ensure_user(connection, user_id)
-            previous = self._one(
-                connection,
-                "SELECT intent_id FROM topon_rewarded_callback_events WHERE trans_id = %s",
-                (trans_id,),
-            )
-            if previous:
-                # The prior transaction was already fully committed. Return 200 so
-                # TopOn stops retrying the exact same verified callback.
-                if previous["intent_id"] != intent_id:
-                    raise ServiceError(1606, "TopOn 交易号与业务意图不一致", 409)
-                return
-
-            intent = self._one(
-                connection,
-                """
-                SELECT * FROM topon_rewarded_intents
-                WHERE intent_id = %s FOR UPDATE
-                """,
-                (intent_id,),
-            )
-            if not intent or intent["user_id"] != user_id:
-                raise ServiceError(1607, "TopOn 激励回调找不到匹配的业务意图", 404)
-            if intent["status"] == "SETTLED":
-                raise ServiceError(1606, "该业务意图已经由另一条交易结算", 409)
-            if intent["status"] != "PENDING" or intent["expires_at"] <= self._now():
-                self._execute(
-                    connection,
-                    "UPDATE topon_rewarded_intents SET status = 'EXPIRED' WHERE intent_id = %s AND status = 'PENDING'",
-                    (intent_id,),
-                )
-                raise ServiceError(1608, "TopOn 激励业务意图已过期", 409)
-
-            settled = self._settle_verified_rewarded_action(
-                connection=connection,
-                user_id=user_id,
-                ad_event_id=ad_event_id,
-                placement_id=intent["placement_id"],
-                target_id=intent["target_id"],
-                episode_index=intent["episode_index"],
-                verification_method="topon_s2s",
-                timestamp_ms=None,
-            )
-            result = settled["result"]
-            self._execute(
-                connection,
-                """
-                INSERT INTO topon_rewarded_callback_events (trans_id, intent_id, user_id, callback_payload)
-                VALUES (%s, %s, %s, %s::jsonb)
-                """,
-                (trans_id, intent_id, user_id, self._json(callback)),
-            )
-            self._execute(
-                connection,
-                """
-                UPDATE topon_rewarded_intents
-                SET status = 'SETTLED', topon_trans_id = %s, topon_placement_id = %s,
-                    adsource_id = %s, network_firm_id = %s, scenario_id = %s,
-                    reward_name = %s, reward_amount = %s, ilrd = %s,
-                    result_payload = %s::jsonb, settled_at = NOW()
-                WHERE intent_id = %s
+                INSERT INTO rewarded_ad_events
+                (ad_event_id, user_id, business_date, placement_id, target_id, ad_timestamp, verification_method, result_payload)
+                VALUES (%s, %s, %s, %s, %s, COALESCE(to_timestamp(%s / 1000.0), NOW()), %s, %s::jsonb)
                 """,
                 (
-                    trans_id, callback["placement_id"], callback["adsource_id"],
-                    callback.get("network_firm_id", ""), callback.get("scenario_id", ""),
-                    callback["reward_name"], callback["reward_amount"], callback.get("ilrd", ""),
-                    self._json(result), intent_id,
+                    ad_event_id,
+                    user_id,
+                    business_date,
+                    placement_id,
+                    target_id,
+                    timestamp_ms,
+                    verification_method,
+                    self._json(result),
                 ),
             )
-
-    def _settle_verified_rewarded_action(
-        self,
-        *,
-        connection: psycopg.Connection[Any],
-        user_id: str,
-        ad_event_id: str,
-        placement_id: str,
-        target_id: str | None,
-        episode_index: int | None,
-        verification_method: str,
-        timestamp_ms: int | None,
-    ) -> dict[str, Any]:
-        business_date = self._business_date()
-        existing = self._one(
-            connection,
-            "SELECT placement_id, result_payload FROM rewarded_ad_events WHERE ad_event_id = %s",
-            (ad_event_id,),
-        )
-        if existing:
-            return {"idempotent": True, "result": existing["result_payload"], "snapshot": self._snapshot(connection, user_id)}
-
-        policy = self._policy(connection)
-        counters = self._daily_counter(connection, user_id, business_date, lock=True)
-        rv_daily_limit = int(policy["rv_daily_limit"])
-        if rv_daily_limit > 0 and int(counters["rv_count"]) >= rv_daily_limit:
-            raise ServiceError(1001, "今日激励广告次数已达上限，请明天再来", 429)
-        cooldown_policy = {
-            "rv_crown_upgrade": ("crown_rewarded_cooldown_seconds", "皇冠成长正在充能，请稍后再试"),
-            "rv_release_boost": ("release_boost_cooldown_seconds", "钱包额外奖励正在充能，请稍后再试"),
-        }
-        if placement_id in cooldown_policy:
-            cooldown_field, message = cooldown_policy[placement_id]
-            cooldown_seconds = int(policy.get(cooldown_field, 30))
-            if cooldown_seconds > 0:
-                last_charge = self._one(
-                    connection,
-                    """SELECT processed_at FROM rewarded_ad_events
-                       WHERE user_id = %s AND placement_id = %s
-                       ORDER BY processed_at DESC LIMIT 1""",
-                    (user_id, placement_id),
-                )
-                if last_charge:
-                    elapsed = int((self._now() - last_charge["processed_at"]).total_seconds())
-                    remaining = cooldown_seconds - elapsed
-                    if remaining > 0:
-                        raise ServiceError(1004, f"{message}（{remaining} 秒后可再次领取）", 429)
-        if placement_id == "rv_crown_upgrade":
-            crown_daily_limit = int(policy.get("crown_rewarded_daily_limit", 0))
-            crown_used_today = int(self._one(
+            self._execute(
                 connection,
-                "SELECT COUNT(*) AS count FROM rewarded_ad_events WHERE user_id = %s AND business_date = %s AND placement_id = 'rv_crown_upgrade'",
+                """
+                UPDATE daily_counters
+                SET rv_count = rv_count + 1,
+                    last_rv_at = NOW(),
+                    last_interstitial_at = NOW(),
+                    rewarded_decline_count = 0,
+                    last_rewarded_declined_at = NULL
+                WHERE user_id = %s AND business_date = %s
+                """,
                 (user_id, business_date),
-            )["count"])
-            if crown_daily_limit > 0 and crown_used_today >= crown_daily_limit:
-                raise ServiceError(1003, "今日皇冠成长广告次数已达上限，请明天继续", 429)
-
-        result = self._rewarded_action(
-            connection=connection,
-            user_id=user_id,
-            business_date=business_date,
-            placement_id=placement_id,
-            target_id=target_id,
-            episode_index=episode_index,
-            policy=policy,
-        )
-        self._execute(
-            connection,
-            """
-            INSERT INTO rewarded_ad_events
-            (ad_event_id, user_id, business_date, placement_id, target_id, ad_timestamp, verification_method, result_payload)
-            VALUES (%s, %s, %s, %s, %s, COALESCE(to_timestamp(%s / 1000.0), NOW()), %s, %s::jsonb)
-            """,
-            (ad_event_id, user_id, business_date, placement_id, target_id, timestamp_ms, verification_method, self._json(result)),
-        )
-        self._execute(
-            connection,
-            """
-            UPDATE daily_counters
-            SET rv_count = rv_count + 1,
-                last_rv_at = NOW(),
-                last_interstitial_at = NOW(),
-                rewarded_decline_count = 0,
-                last_rewarded_declined_at = NULL
-            WHERE user_id = %s AND business_date = %s
-            """,
-            (user_id, business_date),
-        )
-        credited_units = self._link_rewarded_event(connection, user_id, business_date, placement_id, target_id, ad_event_id)
-        if credited_units is not None:
-            wallet_policy = self._wallet_policy(connection, user_id)
-            credited_micros = self._reward_units_to_micros(credited_units, wallet_policy)
-            result["gems_added"] = credited_units
-            result["cash_added"] = self._money(credited_micros, wallet_policy)
-            result["cash_added_usd_reference"] = self._usd_reference_money(credited_micros, wallet_policy)
-        achievements = self._award_achievements_if_due(connection, user_id, policy)
-        result["achievements_awarded"] = achievements
-        achievement_units = sum(int(item["gems"]) for item in achievements)
-        if achievement_units > 0:
-            wallet_policy = self._wallet_policy(connection, user_id)
-            total_units = int(result.get("gems_added", 0)) + achievement_units
-            total_micros = self._reward_units_to_micros(total_units, wallet_policy)
-            result["gems_added"] = total_units
-            result["cash_added"] = self._money(total_micros, wallet_policy)
-            result["cash_added_usd_reference"] = self._usd_reference_money(total_micros, wallet_policy)
-        result["ad_event_id"] = ad_event_id
-        self._execute(
-            connection,
-            "UPDATE rewarded_ad_events SET result_payload = %s::jsonb WHERE ad_event_id = %s",
-            (self._json(result), ad_event_id),
-        )
-        result["reset_int_timer"] = True
-        return {"idempotent": False, "result": result, "snapshot": self._snapshot(connection, user_id)}
-
-    def _expire_topon_rewarded_intents(self, connection: psycopg.Connection[Any], user_id: str) -> None:
-        self._execute(
-            connection,
-            """
-            UPDATE topon_rewarded_intents SET status = 'EXPIRED'
-            WHERE user_id = %s AND status = 'PENDING' AND expires_at <= NOW()
-            """,
-            (user_id,),
-        )
-
-    def _verify_topon_rewarded_signature(self, callback: dict[str, str]) -> None:
-        secret = self.settings.topon_rewarded_s2s_secret
-        if not secret:
-            raise ServiceError(1604, "TopOn 服务端激励验签尚未配置", 403)
-        base = (
-            f"trans_id={callback['trans_id']}&placement_id={callback['placement_id']}"
-            f"&adsource_id={callback['adsource_id']}&reward_amount={callback['reward_amount']}"
-            f"&reward_name={callback['reward_name']}&sec_key={secret}"
-        )
-        ilrd = callback.get("ilrd", "")
-        if ilrd:
-            base += f"&ilrd={ilrd}"
-        expected = hashlib.md5(base.encode("utf-8")).hexdigest()
-        if not hmac.compare_digest(expected, callback["sign"].strip().lower()):
-            raise ServiceError(1604, "TopOn 服务端激励签名验证失败", 403)
+            )
+            # Associate the ad with the entitlement and settle cash directly into the single wallet.
+            # The historical Gems field remains an internal damping/progress unit only.
+            credited_units = self._link_rewarded_event(connection, user_id, business_date, placement_id, target_id, ad_event_id)
+            if credited_units is not None:
+                wallet_policy = self._wallet_policy(connection, user_id)
+                credited_micros = self._reward_units_to_micros(credited_units, wallet_policy)
+                result["gems_added"] = credited_units  # legacy API compatibility; never presented as Gems by v1.6.4.
+                result["cash_added"] = self._money(credited_micros, wallet_policy)
+                result["cash_added_usd_reference"] = self._usd_reference_money(credited_micros, wallet_policy)
+            achievements = self._award_achievements_if_due(connection, user_id, policy)
+            result["achievements_awarded"] = achievements
+            # A Crown level may be reached by this completed rewarded ad. Fold that
+            # cash into the same result so the client uses the standard receipt and
+            # transparent wallet-flight animation rather than a silent balance jump.
+            achievement_units = sum(int(item["gems"]) for item in achievements)
+            if achievement_units > 0:
+                wallet_policy = self._wallet_policy(connection, user_id)
+                total_units = int(result.get("gems_added", 0)) + achievement_units
+                total_micros = self._reward_units_to_micros(total_units, wallet_policy)
+                result["gems_added"] = total_units
+                result["cash_added"] = self._money(total_micros, wallet_policy)
+                result["cash_added_usd_reference"] = self._usd_reference_money(total_micros, wallet_policy)
+            # Persist the final payload only after all direct and Crown-level cash has
+            # been settled; idempotent retries must return the same receipt amount.
+            self._execute(
+                connection,
+                "UPDATE rewarded_ad_events SET result_payload = %s::jsonb WHERE ad_event_id = %s",
+                (self._json(result), ad_event_id),
+            )
+            result["reset_int_timer"] = True
+            return {"idempotent": False, "result": result, "snapshot": self._snapshot(connection, user_id)}
 
     def record_watch_event(
         self,
@@ -2730,9 +2548,11 @@ class RewardsService:
             raise ServiceError(1902, "管理员令牌无效", 401)
 
     def _verify_ad_proof(self, proof: str | None) -> None:
-        # 仅 development + ALLOW_DEBUG_AD_PROOF 环境可直接结算本地测试证明；
-        # 生产一律要求 TopOn 的服务端激励回调验签。
-        if self.settings.allow_debug_ad_proof and proof == "TEST_TOPON_REWARD":
+        # 仅 development + ALLOW_DEBUG_AD_PROOF 环境接受客户端测试证明。兼容历史
+        # Pangle 联调和当前 TopOn 白包迁移；生产仍必须使用服务端回调/签名验证。
+        if self.settings.allow_debug_ad_proof and proof in {"TEST_PANGLE_REWARD", "TEST_TOPON_REWARD"}:
+            return
+        if self.settings.pangle_callback_secret and proof == self.settings.pangle_callback_secret:
             return
         raise ServiceError(1403, "广告奖励尚未由服务端验证", 403)
 

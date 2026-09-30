@@ -59,8 +59,6 @@ val analyticsDebug = integrationValue("ANALYTICS_DEBUG").trim().equals("true", i
 // 测试阶段默认关闭 AppsFlyer、Firebase 和炫羽的实际事件上报；SDK 与事件代码保留，正式联调时显式开启。
 val externalReportingEnabled = integrationValue("EXTERNAL_REPORTING_ENABLED").trim().equals("true", ignoreCase = true)
 val releaseAbRoutingEnabled = integrationValue("RELEASE_AB_ROUTING_ENABLED").trim().equals("true", ignoreCase = true)
-// Debug 可保留本地测试证明；正式 Release 固定启用 TopOn 服务端激励回调结算。
-val topOnS2sRewardedEnabled = integrationValue("TOPON_S2S_REWARDED_ENABLED").trim().equals("true", ignoreCase = true)
 val localContentApiBaseUrl = integrationValue("LOCAL_CONTENT_API_BASE_URL").ifBlank { "http://10.0.2.2:8000" }
 val rewardsApiBaseUrl = integrationValue("REWARDS_API_BASE_URL").ifBlank { "http://10.0.2.2:8100" }
 val commercialReleaseRequested = gradle.startParameter.taskNames.any { task ->
@@ -149,8 +147,8 @@ android {
         minSdk = 26
         targetSdk = 35
         // Android 客户端每次代码改动递增补丁版本；服务端/文档单独改动不变更此版本。
-        versionCode = 55
-        versionName = "1.7.1"
+        versionCode = 54
+        versionName = "1.7.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -175,7 +173,6 @@ android {
         buildConfigField("boolean", "ANALYTICS_DEBUG", analyticsDebug.toString())
         buildConfigField("boolean", "EXTERNAL_REPORTING_ENABLED", externalReportingEnabled.toString())
         buildConfigField("boolean", "RELEASE_AB_ROUTING_ENABLED", releaseAbRoutingEnabled.toString())
-        buildConfigField("boolean", "TOPON_S2S_REWARDED_ENABLED", topOnS2sRewardedEnabled.toString())
         buildConfigField("boolean", "WHITE_PACK", "false")
         buildConfigField("boolean", "ADS_ENABLED", "true")
         buildConfigField("boolean", "REWARDS_ENABLED", "true")
@@ -205,7 +202,6 @@ android {
             // organic/non-organic monetization split; local content remains Debug-only.
             buildConfigField("boolean", "SHORT_DRAMA_SDK_ENABLED", "true")
             buildConfigField("boolean", "RELEASE_AB_ROUTING_ENABLED", "true")
-            buildConfigField("boolean", "TOPON_S2S_REWARDED_ENABLED", "true")
             manifestPlaceholders["ADMOB_APP_ID"] = partnerAdmobAppId
             isMinifyEnabled = true
             isShrinkResources = true
@@ -234,7 +230,6 @@ android {
             // White release is content-only; never start attribution or send analytics side-channel events.
             buildConfigField("boolean", "EXTERNAL_REPORTING_ENABLED", "false")
             buildConfigField("boolean", "RELEASE_AB_ROUTING_ENABLED", "false")
-            buildConfigField("boolean", "TOPON_S2S_REWARDED_ENABLED", "false")
             resValue("string", "app_name", "JoyeDrama White")
         }
     }

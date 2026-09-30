@@ -17,7 +17,6 @@ import android.widget.FrameLayout
 import com.dramaflow.app.BuildConfig
 import com.dramaflow.app.analytics.EngagementAnalytics
 import com.secmtp.sdk.core.api.ATAdInfo
-import com.secmtp.sdk.core.api.ATAdConst
 import com.secmtp.sdk.core.api.ATAdRevenueListener
 import com.secmtp.sdk.core.api.ATNetworkConfirmInfo
 import com.secmtp.sdk.core.api.ATNetworkConfig
@@ -89,12 +88,6 @@ class TopOnAdsManager(
         data class Skipped(val reason: String) : FullscreenResult
         data class Failed(val code: Int, val message: String) : FullscreenResult
     }
-
-    /** Values TopOn forwards to its configured service-side rewarded callback. */
-    data class RewardedServerSideContext(
-        val userId: String,
-        val customData: String,
-    )
 
     private enum class RewardState { NOT_REWARDED, REWARDED, REWARD_FAILED }
 
@@ -192,7 +185,6 @@ class TopOnAdsManager(
 
     fun showRewarded(
         activity: Activity,
-        serverSideContext: RewardedServerSideContext? = null,
         onWillShow: () -> Unit = {},
         onResult: (RewardedResult) -> Unit,
     ) {
@@ -234,7 +226,7 @@ class TopOnAdsManager(
 
         initialize { init ->
             when (init) {
-                Initialization.Ready -> loadAndShowRewarded(activity, serverSideContext, onWillShow, ::deliver)
+                Initialization.Ready -> loadAndShowRewarded(activity, onWillShow, ::deliver)
                 Initialization.NotConfigured -> deliver(RewardedResult.Unavailable("尚未配置 TopOn 激励广告参数"))
                 is Initialization.Failed -> deliver(RewardedResult.Failed(init.code, init.message))
             }
@@ -512,19 +504,10 @@ class TopOnAdsManager(
 
     private fun loadAndShowRewarded(
         activity: Activity,
-        serverSideContext: RewardedServerSideContext?,
         onWillShow: () -> Unit,
         deliver: (RewardedResult) -> Unit,
     ) {
         val ad = ATRewardVideoAd(applicationContext, settings.rewardedPlacementId)
-        serverSideContext?.let { context ->
-            ad.setLocalExtra(
-                hashMapOf<String, Any>(
-                    ATAdConst.KEY.USER_ID to context.userId,
-                    ATAdConst.KEY.USER_CUSTOM_DATA to context.customData,
-                ),
-            )
-        }
         var rewardState = RewardState.NOT_REWARDED
         var latestInfo: ATAdInfo? = null
         var timedOut = false

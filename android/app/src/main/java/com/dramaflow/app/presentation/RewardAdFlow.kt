@@ -104,133 +104,62 @@ internal fun DramaAppActivity.requestRewardedAction(
         pauseForFullscreenAd()
         var rewardedWasPresented = false
         val wasPlayingBeforeRewarded = resumeAfterFullscreenAd
-        fun presentRewarded(serverIntent: RewardsApiClient.TopOnRewardedIntent?) {
-            topOnAds.showRewarded(
-                activity = this,
-                serverSideContext = serverIntent?.let {
-                    TopOnAdsManager.RewardedServerSideContext(it.toponUserId, it.toponCustomData)
-                },
-                onWillShow = {
-                    rewardedWasPresented = true
-                    fullscreenAdRequestInFlight = false
-                    fullscreenAdInProgress = true
-                    runOnUiThread { hideFullscreenAdLoadingOverlay() }
-                },
-            ) { result -> runOnUiThread {
+        topOnAds.showRewarded(
+            activity = this,
+            onWillShow = {
+                rewardedWasPresented = true
                 fullscreenAdRequestInFlight = false
-                hideFullscreenAdLoadingOverlay()
-                when (result) {
-                    TopOnAdsManager.RewardedResult.RewardEarned -> {
-                        fullscreenAdInProgress = false
-                        if (serverIntent != null) {
-                            awaitTopOnRewardedSettlement(
-                                intentId = serverIntent.intentId,
-                                shouldResume = wasPlayingBeforeRewarded,
-                                onSettled = onSettled,
-                                onSettlementUnavailable = onSettlementUnavailable,
-                                deferCashAnimation = deferCashAnimation,
-                            )
-                        } else {
-                            // Debug and pre-S2S QA only. Production Release forces the S2S branch above.
-                            rewardsApi.completeRewarded(
-                                userId = anonymousInstallationId(), placementId = placementId, targetId = targetId,
-                                episodeIndex = episodeIndex, proof = testRewardProof(),
-                                onSuccess = { action -> runOnUiThread {
-                                    playbackInterstitialShownAtElapsedMillis.clear()
-                                    playbackInterstitialShownAtElapsedMillis.add(SystemClock.elapsedRealtime())
-                                    handleSettledRewardAction(action, onSettled, deferCashAnimation)
-                                } },
-                                onFailure = { message -> runOnUiThread {
-                                    if (deferCashAnimation) deferNextCashFlight = false
-                                    if (onSettlementUnavailable != null) onSettlementUnavailable.invoke(message) else {
-                                        episodeTransitionInProgress = false; resumeAfterFullscreenAdIfNeeded()
-                                        toast(t("reward_settlement_pending")); logStatus("广告奖励同步失败：$message")
-                                    }
-                                } },
-                            )
-                        }
-                    }
-                    TopOnAdsManager.RewardedResult.Cancelled -> {
-                        if (deferCashAnimation) deferNextCashFlight = false
-                        fullscreenAdInProgress = false
-                        recordRewardedSkipThenMaybeShowInterstitial(wasPlayingBeforeRewarded)
-                    }
-                    is TopOnAdsManager.RewardedResult.Unavailable -> {
-                        if (deferCashAnimation) deferNextCashFlight = false
-                        fullscreenAdInProgress = false
-                        val message = t("ad_loading_failed") + " ${result.reason}"
-                        if (fallbackToInterstitialWhenUnavailable) showRewardedFallbackInterstitial(wasPlayingBeforeRewarded, message, placementId, targetId, episodeIndex, onSettled, deferCashAnimation)
-                        else showRewardedUnavailableNotice(wasPlayingBeforeRewarded, message)
-                    }
-                    is TopOnAdsManager.RewardedResult.Failed -> {
-                        if (deferCashAnimation) deferNextCashFlight = false
-                        fullscreenAdInProgress = false
-                        val message = t("ad_loading_failed") + " (${result.code})"
-                        if (fallbackToInterstitialWhenUnavailable) showRewardedFallbackInterstitial(wasPlayingBeforeRewarded, message, placementId, targetId, episodeIndex, onSettled, deferCashAnimation)
-                        else showRewardedUnavailableNotice(wasPlayingBeforeRewarded, message)
-                    }
+                fullscreenAdInProgress = true
+                runOnUiThread { hideFullscreenAdLoadingOverlay() }
+            },
+        ) { result -> runOnUiThread {
+            fullscreenAdRequestInFlight = false
+            hideFullscreenAdLoadingOverlay()
+            when (result) {
+                TopOnAdsManager.RewardedResult.RewardEarned -> {
+                    fullscreenAdInProgress = false
+                    if (rewardedWasPresented && wasPlayingBeforeRewarded) { resumeAfterFullscreenAd = true; resumeAfterFullscreenAdIfNeeded() }
+                    rewardsApi.completeRewarded(
+                        userId = anonymousInstallationId(), placementId = placementId, targetId = targetId,
+                        episodeIndex = episodeIndex, proof = testRewardProof(),
+                        onSuccess = { action -> runOnUiThread {
+                            fullscreenAdInProgress = false
+                            playbackInterstitialShownAtElapsedMillis.clear()
+                            playbackInterstitialShownAtElapsedMillis.add(SystemClock.elapsedRealtime())
+                            handleSettledRewardAction(action, onSettled, deferCashAnimation)
+                        } },
+                        onFailure = { message -> runOnUiThread {
+                            if (deferCashAnimation) deferNextCashFlight = false
+                            fullscreenAdInProgress = false
+                            if (onSettlementUnavailable != null) onSettlementUnavailable.invoke(message) else {
+                                episodeTransitionInProgress = false; resumeAfterFullscreenAdIfNeeded()
+                                toast(t("reward_settlement_pending")); logStatus("广告奖励同步失败：$message")
+                            }
+                        } },
+                    )
                 }
-            } }
-        }
-        if (BuildConfig.TOPON_S2S_REWARDED_ENABLED) {
-            rewardsApi.prepareTopOnRewardedIntent(
-                userId = anonymousInstallationId(), placementId = placementId, targetId = targetId, episodeIndex = episodeIndex,
-                onSuccess = { intent -> runOnUiThread { presentRewarded(intent) } },
-                onFailure = { reason -> runOnUiThread {
-                    fullscreenAdRequestInFlight = false
-                    hideFullscreenAdLoadingOverlay()
-                    resumeAfterFullscreenAd = wasPlayingBeforeRewarded
-                    resumeAfterFullscreenAdIfNeeded()
+                TopOnAdsManager.RewardedResult.Cancelled -> {
                     if (deferCashAnimation) deferNextCashFlight = false
-                    onSettlementUnavailable?.invoke(reason) ?: toast(t("reward_settlement_pending"))
-                } },
-            )
-        } else {
-            presentRewarded(null)
-        }
-    }
-
-private fun DramaAppActivity.awaitTopOnRewardedSettlement(
-    intentId: String,
-    shouldResume: Boolean,
-    onSettled: ((RewardsApiClient.RewardAction) -> Unit)?,
-    onSettlementUnavailable: ((String) -> Unit)?,
-    deferCashAnimation: Boolean,
-) {
-    val deadline = SystemClock.elapsedRealtime() + 15_000L
-    val retryHandler = Handler(Looper.getMainLooper())
-    showFullscreenAdLoadingOverlay()
-    fun poll() {
-        rewardsApi.getTopOnRewardedSettlement(anonymousInstallationId(), intentId, { settlement -> runOnUiThread {
-            when {
-                settlement.status == "SETTLED" && settlement.action != null -> {
-                    hideFullscreenAdLoadingOverlay()
-                    playbackInterstitialShownAtElapsedMillis.clear()
-                    playbackInterstitialShownAtElapsedMillis.add(SystemClock.elapsedRealtime())
-                    handleSettledRewardAction(settlement.action, onSettled, deferCashAnimation)
+                    fullscreenAdInProgress = false
+                    recordRewardedSkipThenMaybeShowInterstitial(wasPlayingBeforeRewarded)
                 }
-                settlement.status == "PENDING" && SystemClock.elapsedRealtime() < deadline -> retryHandler.postDelayed(::poll, 800L)
-                else -> {
-                    hideFullscreenAdLoadingOverlay()
+                is TopOnAdsManager.RewardedResult.Unavailable -> {
                     if (deferCashAnimation) deferNextCashFlight = false
-                    resumeAfterFullscreenAd = shouldResume
-                    resumeAfterFullscreenAdIfNeeded()
-                    val reason = "TopOn 服务端奖励结算仍在处理中"
-                    if (onSettlementUnavailable != null) onSettlementUnavailable.invoke(reason)
-                    else { toast(t("reward_settlement_pending")); logStatus(reason) }
+                    fullscreenAdInProgress = false
+                    val message = t("ad_loading_failed") + " ${result.reason}"
+                    if (fallbackToInterstitialWhenUnavailable) showRewardedFallbackInterstitial(wasPlayingBeforeRewarded, message, placementId, targetId, episodeIndex, onSettled, deferCashAnimation)
+                    else showRewardedUnavailableNotice(wasPlayingBeforeRewarded, message)
+                }
+                is TopOnAdsManager.RewardedResult.Failed -> {
+                    if (deferCashAnimation) deferNextCashFlight = false
+                    fullscreenAdInProgress = false
+                    val message = t("ad_loading_failed") + " (${result.code})"
+                    if (fallbackToInterstitialWhenUnavailable) showRewardedFallbackInterstitial(wasPlayingBeforeRewarded, message, placementId, targetId, episodeIndex, onSettled, deferCashAnimation)
+                    else showRewardedUnavailableNotice(wasPlayingBeforeRewarded, message)
                 }
             }
-        } }, { reason -> runOnUiThread {
-            hideFullscreenAdLoadingOverlay()
-            if (deferCashAnimation) deferNextCashFlight = false
-            resumeAfterFullscreenAd = shouldResume
-            resumeAfterFullscreenAdIfNeeded()
-            if (onSettlementUnavailable != null) onSettlementUnavailable.invoke(reason)
-            else { toast(t("reward_settlement_pending")); logStatus("TopOn 服务端奖励状态查询失败：$reason") }
-        } })
+        } }
     }
-    poll()
-}
 
 /** Organic A surface: a shown incentive interstitial, not a rewarded creative, settles the action once. */
 internal fun DramaAppActivity.requestOrganicInterstitialIncentive(

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import sys
 import uuid
 import math
@@ -36,7 +35,7 @@ def rewarded(
             placement_id=placement,
             target_id=target_id,
             episode_index=episode_index,
-            proof="TEST_TOPON_REWARD",
+            proof="TEST_PANGLE_REWARD",
             timestamp_ms=None,
         ),
         ad_event_id,
@@ -93,48 +92,6 @@ def run() -> None:
     assert all(item["gems"] > 0 for item in initial["checkin"]["tiers"][:7])
     assert len(initial["crown_progress"]) == 5
     assert all(item["gems"] > 0 for item in initial["crown_progress"])
-
-    # Production-style TopOn S2S: the client registers an opaque action intent before
-    # load; only a callback whose TopOn MD5 signature is valid may settle that intent.
-    s2s_settings = replace(
-        settings,
-        topon_rewarded_s2s_secret="smoke-topon-s2s-secret",
-        topon_rewarded_placement_id="topon-rewarded-smoke",
-    )
-    s2s_service = RewardsService(s2s_settings)
-    s2s_user = f"topon-s2s-smoke-{uuid.uuid4()}"
-    s2s_initial = s2s_service.bootstrap(s2s_user)
-    s2s_intent = s2s_service.prepare_topon_rewarded_intent(
-        user_id=s2s_user,
-        placement_id="rv_welcome_bonus",
-        target_id=None,
-        episode_index=None,
-    )
-    s2s_callback = {
-        "user_id": s2s_user,
-        "trans_id": f"topon-trans-{uuid.uuid4()}",
-        "reward_amount": "1",
-        "reward_name": "rewarded",
-        "placement_id": "topon-rewarded-smoke",
-        "adsource_id": "66",
-        "extra_data": s2s_intent["topon_custom_data"],
-        "network_firm_id": "66",
-        "scenario_id": "smoke",
-    }
-    s2s_signature = (
-        f"trans_id={s2s_callback['trans_id']}&placement_id={s2s_callback['placement_id']}"
-        f"&adsource_id={s2s_callback['adsource_id']}&reward_amount={s2s_callback['reward_amount']}"
-        f"&reward_name={s2s_callback['reward_name']}&sec_key=smoke-topon-s2s-secret"
-    )
-    s2s_callback["sign"] = hashlib.md5(s2s_signature.encode("utf-8")).hexdigest()
-    s2s_service.settle_topon_rewarded_callback(s2s_callback)
-    s2s_status = s2s_service.topon_rewarded_intent_status(user_id=s2s_user, intent_id=s2s_intent["intent_id"])
-    assert s2s_status["status"] == "SETTLED"
-    assert s2s_status["result"]["action"] == "WELCOME_BONUS"
-    assert s2s_status["result"]["cash_added"] == s2s_initial["welcome"]["cash"]
-    # A TopOn retry with the same trans_id is a no-op and must never credit twice.
-    s2s_service.settle_topon_rewarded_callback(s2s_callback)
-    assert s2s_service.bootstrap(s2s_user)["wallet"]["cash_wallet"] == s2s_status["snapshot"]["wallet"]["cash_wallet"]
 
     # Advertising operations telemetry stores only an installation hash, de-duplicates
     # client retries and separates shown counts from paid-impression revenue.
