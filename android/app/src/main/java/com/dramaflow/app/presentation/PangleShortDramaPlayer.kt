@@ -24,12 +24,19 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
     startIndex: Int,
 ) {
     releasePlayer()
+    // The provider fragment must share the same edge-to-edge window policy as the legacy player;
+    // otherwise the status-bar inset leaves the JoyeDrama back/wallet controls visibly too low.
+    configurePlayerWindow()
     supportFragmentManager.findFragmentByTag(SDK_PLAYER_FRAGMENT_TAG)?.let { fragment ->
         supportFragmentManager.beginTransaction().remove(fragment).commitNowAllowingStateLoss()
     }
     selectedDrama = catalogDrama
     currentEpisodeIndex = startIndex.coerceIn(0, catalogDrama.episodes.lastIndex.coerceAtLeast(0))
     sdkPlayerShown = true
+    sdkPlaybackActive = false
+    contentWatchSecondsSinceMidroll = 0
+    midrollInterstitialShownInSession = false
+    lastMidrollSamplePositionSeconds = -1
     playerShown = false
     root.removeAllViews()
     root.setBackgroundColor(Color.BLACK)
@@ -44,15 +51,22 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
         requestEpisodeUnlock = ::requestSdkEpisodeUnlock,
         onEpisodeStarted = { episodeIndex, episode -> onSdkEpisodeStarted(episodeIndex, episode) },
         onEpisodeCompleted = ::onSdkEpisodeCompleted,
+        onPlaybackProgress = { episodeIndex, progress, duration -> onSdkPlaybackProgress(episodeIndex, progress, duration) },
+        onOverScroll = ::onSdkOverScroll,
     )
     supportFragmentManager.beginTransaction()
         .replace(container.id, fragment, SDK_PLAYER_FRAGMENT_TAG)
         .commitNowAllowingStateLoss()
-    // The provider owns media controls; JoyeDrama keeps the existing wallet/reward entry.
+    // The provider owns video controls; JoyeDrama retains wallet, reward and savings-jar entry.
     root.addView(createPlayerTopBar(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(132), Gravity.TOP))
+    root.addView(createFloatingRewardWheel(compact = true), FrameLayout.LayoutParams(dp(112), dp(96), Gravity.END or Gravity.BOTTOM).apply {
+        marginEnd = dp(12)
+        bottomMargin = dp(166)
+    })
 }
 
 private fun DramaAppActivity.onSdkEpisodeStarted(episodeIndex: Int, episode: EpisodeData?) {
+    sdkPlaybackActive = true
     currentEpisodeIndex = episodeIndex.coerceIn(0, selectedDrama?.episodes?.lastIndex ?: 0)
     // Keep the local display model only as state; the PSSDK remains the authority for media info.
     episode?.let { logStatus("PSSDK 开始播放分集：${episodeIndex + 1}") }
@@ -63,7 +77,48 @@ private fun DramaAppActivity.onSdkEpisodeCompleted(episodeIndex: Int) {
     val key = episodeKey(safeIndex)
     if (!completedEpisodeKeys.add(key)) return
     currentEpisodeIndex = safeIndex
-    recordCompletedEpisodeForRewards(safeIndex) { }
+    // Auto-play is disabled in the PSSDK configuration so JoyeDrama can run the exact same
+    // completion, reward and interstitial rules before selecting the next provider episode.
+    recordCompletedEpisodeForRewards(safeIndex) {
+        startNextSdkEpisodeAfterCompletion(safeIndex)
+    }
+}
+
+private fun DramaAppActivity.onSdkPlaybackProgress(episodeIndex: Int, rawProgress: Int, rawDuration: Int) {
+    if (!sdkPlayerShown || fullscreenAdInProgress || fullscreenAdRequestInFlight) return
+    currentEpisodeIndex = episodeIndex.coerceIn(0, selectedDrama?.episodes?.lastIndex ?: 0)
+    // PSSDK currently reports seconds; normalize defensively for integrations returning millis.
+    val progress = if (rawDuration > 10_000) rawProgress.coerceAtLeast(0) / 1_000 else rawProgress.coerceAtLeast(0)
+    val duration = if (rawDuration > 10_000) rawDuration.coerceAtLeast(0) / 1_000 else rawDuration.coerceAtLeast(0)
+    sdkPlaybackActive = true
+    playerIsPaused = false
+    updatePlayerProgress(progress, duration)
+    persistPlaybackProgressIfNeeded(progress)
+    requestMidEpisodeInterstitialIfEligible(progress)
+}
+
+private fun DramaAppActivity.onSdkOverScroll(direction: Int) {
+    // PSSDK keeps ordinary in-video swipes. It tells us only when the viewer reaches a feed
+    // boundary, which is the safe point to hand off to the neighbouring JoyeDrama title.
+    if (direction != 0) switchDramaBySwipe(forward = direction > 0)
+}
+
+private fun DramaAppActivity.startNextSdkEpisodeAfterCompletion(completedIndex: Int) {
+    if (!sdkPlayerShown) return
+    val drama = selectedDrama ?: return
+    val nextIndex = completedIndex + 1
+    if (nextIndex >= drama.total.coerceAtLeast(1)) {
+        switchDramaBySwipe(forward = true)
+        return
+    }
+    if (needsUnlock(nextIndex)) {
+        val fragment = supportFragmentManager.findFragmentByTag(SDK_PLAYER_FRAGMENT_TAG) as? com.bytedance.sdk.shortplay.api.ShortPlayFragment
+        requestSdkEpisodeUnlock(nextIndex, object : PSSDK.ShortPlayBlockResultListener {
+            override fun onShortPlayUnlocked() { fragment?.startPlayIndex(nextIndex) }
+        })
+    } else {
+        (supportFragmentManager.findFragmentByTag(SDK_PLAYER_FRAGMENT_TAG) as? com.bytedance.sdk.shortplay.api.ShortPlayFragment)?.startPlayIndex(nextIndex)
+    }
 }
 
 private fun DramaAppActivity.requestSdkEpisodeUnlock(
@@ -106,5 +161,7 @@ internal fun DramaAppActivity.dismissSdkDramaPlayerIfShown() {
         supportFragmentManager.beginTransaction().remove(fragment).commitNowAllowingStateLoss()
     }
     sdkPlayerShown = false
+    sdkPlaybackActive = false
+    resumeSdkPlaybackWhenForeground = false
     sdkPlayerContainerId = View.NO_ID
 }

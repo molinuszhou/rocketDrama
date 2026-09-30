@@ -224,7 +224,7 @@ class TopOnAdsManager(
         adNetworkAudit.recordConfiguration(settings)
         if (!settings.canShowRewarded) {
             auditEvent("REQUEST", "rewarded", settings.rewardedPlacementId, "rewarded", result = "NOT_CONFIGURED")
-            onResult(RewardedResult.Unavailable("尚未配置 TopOn App ID、App Key 或激励广告位"))
+            onResult(RewardedResult.Unavailable("尚未配置 TopOn 广告参数"))
             return
         }
         if (rewardedRequestInFlight) {
@@ -260,7 +260,7 @@ class TopOnAdsManager(
         initialize { init ->
             when (init) {
                 Initialization.Ready -> loadAndShowRewarded(activity, onWillShow, ::deliver)
-                Initialization.NotConfigured -> deliver(RewardedResult.Unavailable("尚未配置 TopOn 激励广告参数"))
+                Initialization.NotConfigured -> deliver(RewardedResult.Unavailable("尚未配置 TopOn 广告参数"))
                 is Initialization.Failed -> deliver(RewardedResult.Failed(init.code, init.message))
             }
         }
@@ -291,7 +291,7 @@ class TopOnAdsManager(
         adNetworkAudit.recordConfiguration(settings)
         if (!settings.canShowSplash) {
             auditEvent("REQUEST", "splash", settings.splashPlacementId, "splash", result = "NOT_CONFIGURED")
-            onResult(FullscreenResult.Skipped("尚未配置 TopOn App ID、App Key 或开屏广告位"))
+            onResult(FullscreenResult.Skipped("尚未配置 TopOn 广告参数"))
             return
         }
         if (splashRequestInFlight) {
@@ -399,7 +399,7 @@ class TopOnAdsManager(
                     splash!!.setAdRevenueListener(TopOnRevenueListener("splash", settings.splashPlacementId, "splash", analytics, adNetworkAudit, adMediationReporter))
                     splash!!.loadAd()
                 }
-                Initialization.NotConfigured -> deliver(FullscreenResult.Skipped("尚未配置 TopOn 开屏广告参数"))
+                Initialization.NotConfigured -> deliver(FullscreenResult.Skipped("尚未配置 TopOn 广告参数"))
                 is Initialization.Failed -> deliver(FullscreenResult.Failed(init.code, init.message))
             }
         }
@@ -416,7 +416,7 @@ class TopOnAdsManager(
         adNetworkAudit.recordConfiguration(settings)
         if (!settings.canShowInterstitial) {
             auditEvent("REQUEST", logicalPlacement, settings.interstitialPlacementId, "interstitial", result = "NOT_CONFIGURED")
-            onResult(FullscreenResult.Skipped("尚未配置 TopOn App ID、App Key 或插屏广告位"))
+            onResult(FullscreenResult.Skipped("尚未配置 TopOn 广告参数"))
             return
         }
         if (interstitialRequestInFlight) {
@@ -543,7 +543,7 @@ class TopOnAdsManager(
                     })
                     ad.load()
                 }
-                Initialization.NotConfigured -> deliver(FullscreenResult.Skipped("尚未配置 TopOn 插屏广告参数"))
+                Initialization.NotConfigured -> deliver(FullscreenResult.Skipped("尚未配置 TopOn 广告参数"))
                 is Initialization.Failed -> deliver(FullscreenResult.Failed(init.code, init.message))
             }
         }
@@ -801,7 +801,10 @@ class TopOnAdsManager(
         const val TAG = "TopOnAdsManager"
         const val SPLASH_TIMEOUT_MS = 5_000
         const val SPLASH_STARTUP_BUDGET_MS = 5_000L
-        const val TOPON_INITIALIZATION_TIMEOUT_MS = 5_000L
+        // This protects regular rewarded/interstitial requests only. Splash has its own strict
+        // 5-second end-to-end budget, so a slow SDK bootstrap cannot mark all later ad formats
+        // unavailable just because the cold-start splash was skipped.
+        const val TOPON_INITIALIZATION_TIMEOUT_MS = 15_000L
         const val TOPON_INITIALIZATION_TIMEOUT_CODE = -407
         const val INTERSTITIAL_LOAD_TIMEOUT_MS = 8_000L
         const val INTERSTITIAL_LOAD_TIMEOUT_CODE = -408

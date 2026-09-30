@@ -78,7 +78,10 @@ internal fun DramaAppActivity.beginStartupExperience() {
         startupPosterPreloadPercent = 0
         renderStartupLoading()
         updateStartupProgress(0, t("startup_preparing"))
-        if (rewardsApi.isConfigured) refreshRewardsSnapshot() else completeStartupWhenReady()
+        // Rewards and the PSSDK catalog continue in the background. A slow content SDK must never
+        // hold the entire application on its launch screen; welcome/check-in is shown as soon as
+        // the rewards snapshot arrives after the shell is visible.
+        if (rewardsApi.isConfigured) refreshRewardsSnapshot()
         preloadCatalog()
         // 等待 onPostResume 后再发起开屏请求，确保窗口已就绪；目录和开屏并行预热。
     }
@@ -129,6 +132,7 @@ private fun DramaAppActivity.preloadShortDramaSdkCatalog() {
                 ShortDramaSdkManager.Initialization.Ready -> error("unreachable")
             }
             completeStartupWhenReady()
+            if (startupContentInitializationStarted) renderFailure(startupCatalogFailure.orEmpty())
             return@runOnUiThread
         }
         shortDramaSdk.loadDiscovery(
@@ -147,6 +151,9 @@ private fun DramaAppActivity.preloadShortDramaSdkCatalog() {
                 cards.forEach { card -> sdkDramaCardsByCatalogId[sdkCatalogId(card.id)] = card }
                 catalogItems = cards.map(::sdkCatalogDrama)
                 updateStartupProgress(30, t("startup_content_ready"))
+                // The catalogue is usable immediately; poster preloading is purely an optional
+                // visual optimization and must not delay first interaction.
+                if (startupContentInitializationStarted) renderActiveTab()
                 preloadCatalogCovers(
                     items = catalogItems,
                     onProgress = { percent ->
@@ -159,8 +166,9 @@ private fun DramaAppActivity.preloadShortDramaSdkCatalog() {
                         completeStartupWhenReady()
                     },
                     onTimedOut = {
-                        startupCatalogFailure = t("startup_resources_timeout")
                         startupPosterPreloadFinished = true
+                        // Coil will continue to resolve any late posters lazily in their cards.
+                        // A poster cache miss is not a content failure.
                         completeStartupWhenReady()
                     },
                 )
@@ -170,12 +178,13 @@ private fun DramaAppActivity.preloadShortDramaSdkCatalog() {
                 startupPosterPreloadFinished = true
                 startupCatalogFailure = t("catalog_load_failed", message)
                 completeStartupWhenReady()
+                if (startupContentInitializationStarted) renderFailure(startupCatalogFailure.orEmpty())
             } },
         )
     } }
 }
 
-    /** Preloads the first screen’s real poster resources. Main UI never opens until all requests settle. */
+    /** Preloads first-screen poster resources after the app shell is already interactive. */
 internal fun DramaAppActivity.preloadCatalogCovers(
     items: List<LocalDrama>,
     onProgress: (Int) -> Unit,
@@ -204,7 +213,7 @@ internal fun DramaAppActivity.preloadCatalogCovers(
                 onTimedOut()
             }
         }
-        // A terminal error is an acceptable settled resource; a hung request is a startup failure, never false readiness.
+        // A terminal error is acceptable: cards fall back to their ordinary image placeholders.
         root.postDelayed(timeout, 12_000L)
         urls.forEach { url ->
             imageLoader.enqueue(
@@ -231,13 +240,10 @@ internal fun DramaAppActivity.computeStartupProgress(): Int {
     }
 
 internal fun DramaAppActivity.completeStartupWhenReady() {
-        if (startupContentInitializationStarted || !startupAdFinished || !startupCatalogFinished || !startupPosterPreloadFinished || !startupRewardsFinished || isFinishing || isDestroyed) return
+        // Only the optional splash owns the launch-screen deadline. PSSDK discovery, poster
+        // caching and rewards bootstrap all complete after the regular application shell appears.
+        if (startupContentInitializationStarted || !startupAdFinished || isFinishing || isDestroyed) return
         startupContentInitializationStarted = true
-        val failure = startupCatalogFailure
-        if (failure != null) {
-            renderFailure(failure)
-            return
-        }
         updateStartupProgress(100, t("startup_ready"))
         if (restorePlayerAfterCatalog) {
             val drama = catalogItems.firstOrNull { it.id == restoredDramaId } ?: catalogItems.firstOrNull()
@@ -250,5 +256,9 @@ internal fun DramaAppActivity.completeStartupWhenReady() {
             }
         }
         renderActiveTab()
+        // If the rewards response won the startup race this shows immediately; otherwise the
+        // response callback retries it. The short posted retry also handles the first layout pass
+        // so welcome/check-in is never attached to the outgoing loading view.
         showStartupCheckinWhenReady()
+        root.postDelayed({ showStartupCheckinWhenReady() }, 350L)
     }

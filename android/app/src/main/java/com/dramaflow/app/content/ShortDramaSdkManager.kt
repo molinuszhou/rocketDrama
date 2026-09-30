@@ -102,8 +102,10 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
         }
         initializationTimeout = Runnable {
             if (resultDelivered) return@Runnable
-            Log.w(TAG, "短剧 SDK 初始化超时：${SDK_INITIALIZATION_TIMEOUT_MS}ms")
-            deliver(Initialization.Failed("短剧 SDK 初始化超时，请检查网络或 SDK 配置"))
+            // PSSDK can complete its first remote bootstrap after the request timeout supplied to
+            // the SDK. This is only diagnostic: do not consume the callback or force the user to
+            // tap retry, because the original initialization may still become ready moments later.
+            Log.w(TAG, "短剧 SDK 初始化较慢：已等待 ${SDK_INITIALIZATION_TIMEOUT_MS}ms，继续等待 SDK 回调")
         }
         mainHandler.postDelayed(initializationTimeout, SDK_INITIALIZATION_TIMEOUT_MS)
         // SDK 内容语言与界面语言独立：UI 使用六语词典；SDK 请求使用内容方支持的标准语言码。
@@ -241,6 +243,8 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
         requestEpisodeUnlock: (episodeIndex: Int, listener: PSSDK.ShortPlayBlockResultListener?) -> Unit,
         onEpisodeStarted: (episodeIndex: Int, episode: com.bytedance.sdk.shortplay.api.EpisodeData?) -> Unit,
         onEpisodeCompleted: (episodeIndex: Int) -> Unit,
+        onPlaybackProgress: (episodeIndex: Int, progress: Int, duration: Int) -> Unit,
+        onOverScroll: (direction: Int) -> Unit,
     ): ShortPlayFragment {
         return PSSDK.createDetailFragment(
             card.nativeShortPlay,
@@ -248,12 +252,15 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
                 .hideLeftTopCloseAndTitle(true, object : PSSDK.ShortPlayDetailPageCloseListener {
                     override fun onCloseClicked(): Boolean { onClose(); return true }
                 })
-                .enableAutoPlayNext(true)
+                // JoyeDrama advances the next provider episode after its completion callback so
+                // natural-break ads and rewards are applied before the new episode starts.
+                .enableAutoPlayNext(false)
                 .displayBottomExtraView(false)
                 .build(),
             object : PSSDK.ShortPlayDetailPageListener {
-                override fun onOverScroll(direction: Int) = Unit
-                override fun onProgressChange(shortPlay: ShortPlay?, episodeIndex: Int, progress: Int, duration: Int) = Unit
+                override fun onOverScroll(direction: Int) = onOverScroll(direction)
+                override fun onProgressChange(shortPlay: ShortPlay?, episodeIndex: Int, progress: Int, duration: Int) =
+                    onPlaybackProgress(episodeIndex, progress, duration)
                 override fun onPlayFailed(error: PSSDK.ErrorInfo?): Boolean = false
                 override fun onShortPlayPlayed(shortPlay: ShortPlay?, episodeIndex: Int, episode: com.bytedance.sdk.shortplay.api.EpisodeData?) {
                     onEpisodeStarted(episodeIndex, episode)

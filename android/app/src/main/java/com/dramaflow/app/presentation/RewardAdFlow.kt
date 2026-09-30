@@ -336,13 +336,16 @@ internal fun DramaAppActivity.hideFullscreenAdLoadingOverlay() {
     }
 
 internal fun DramaAppActivity.pauseForFullscreenAd() {
-        resumeAfterFullscreenAd = exoPlayer?.isPlaying == true
+        resumeAfterFullscreenAd = exoPlayer?.isPlaying == true || (sdkPlayerShown && sdkPlaybackActive)
         // 第三方广告关闭按钮由广告网络渲染，不能由宿主移动或覆盖。展示前退出沉浸模式，
         // 并让广告 SDK 以有系统栏的安全窗口展示，避免弧形屏顶部边缘难以点击关闭按钮。
         restoreImmersiveAfterFullscreenAd = playerShown && playerInImmersiveMode
         if (playerInImmersiveMode) exitImmersivePlayerMode()
         navigationBackCallback?.isEnabled = false
         exoPlayer?.pause()
+        if (sdkPlayerShown && sdkPlaybackActive) {
+            (supportFragmentManager.findFragmentByTag("joyedrama.pssdk.player") as? com.bytedance.sdk.shortplay.api.ShortPlayFragment)?.pausePlay()
+        }
         playerIsPaused = true
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
@@ -352,6 +355,9 @@ internal fun DramaAppActivity.resumeAfterFullscreenAdIfNeeded() {
         if (resumeAfterFullscreenAd && !isFinishing && !isDestroyed) {
             ignoreVideoTapsUntilMillis = System.currentTimeMillis() + 750L
             exoPlayer?.play()
+            if (sdkPlayerShown) {
+                (supportFragmentManager.findFragmentByTag("joyedrama.pssdk.player") as? com.bytedance.sdk.shortplay.api.ShortPlayFragment)?.startPlay()
+            }
             playerIsPaused = false
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
@@ -364,10 +370,10 @@ internal fun DramaAppActivity.resumeAfterFullscreenAdIfNeeded() {
         // now-stale checkpoint instead of the user's normal catalog entry.
         clearExternalAdReturnCheckpoint()
         if (!isFinishing && !isDestroyed) {
-            if (playerShown) configurePlayerWindow() else configureCatalogWindow()
+            if (playerShown || sdkPlayerShown) configurePlayerWindow() else configureCatalogWindow()
             root.post {
                 if (!isFinishing && !isDestroyed) {
-                    if (playerShown) configurePlayerWindow() else configureCatalogWindow()
+                    if (playerShown || sdkPlayerShown) configurePlayerWindow() else configureCatalogWindow()
                 }
             }
         }
@@ -399,7 +405,7 @@ internal fun DramaAppActivity.showPlaybackActionInterstitial(
         }
         if (fullscreenAdInProgress || fullscreenAdRequestInFlight) { onUnavailable("广告正在展示"); return }
         if (consentStore.read() != AdConsent.GRANTED) { onUnavailable("请先在广告与隐私中启用广告"); return }
-        val shouldResume = resumePlaybackAfter ?: (exoPlayer?.isPlaying == true)
+        val shouldResume = resumePlaybackAfter ?: (exoPlayer?.isPlaying == true || (sdkPlayerShown && sdkPlaybackActive))
         fullscreenAdRequestInFlight = true
         showFullscreenAdLoadingOverlay()
         pauseForFullscreenAd()

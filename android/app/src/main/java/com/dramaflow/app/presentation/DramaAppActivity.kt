@@ -111,6 +111,9 @@ class DramaAppActivity : FragmentActivity() {
     internal var startupProgressLabel: TextView? = null
     internal var startupProgressPercentLabel: TextView? = null
     internal var resumePlaybackWhenForeground = false
+    /** Mirrors the background/resume policy for the provider-owned PSSDK player. */
+    internal var resumeSdkPlaybackWhenForeground = false
+    internal var sdkPlaybackActive = false
     internal var restorePlayerAfterCatalog = false
     /** Prevents a second app-open ad while recovering from an ad click's external destination. */
     internal var restoringExternalAdReturn = false
@@ -290,6 +293,11 @@ class DramaAppActivity : FragmentActivity() {
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             resumePlaybackWhenForeground = false
         }
+        if (resumeSdkPlaybackWhenForeground && sdkPlayerShown && !fullscreenAdInProgress) {
+            (supportFragmentManager.findFragmentByTag("joyedrama.pssdk.player") as? com.bytedance.sdk.shortplay.api.ShortPlayFragment)?.startPlay()
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            resumeSdkPlaybackWhenForeground = false
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -298,7 +306,7 @@ class DramaAppActivity : FragmentActivity() {
         // Google Play may relaunch the launcher route after an ad click. LauncherActivity forwards
         // that intent to this single-task Activity with CLEAR_TOP/SINGLE_TOP, so retain the
         // existing player rather than starting a fresh loading experience.
-        if (playerShown) {
+        if (playerShown || sdkPlayerShown) {
             logStatus("已复用现有播放器 Activity 处理外部返回")
             if (fullscreenAdInProgress || fullscreenAdRequestInFlight) {
                 // Returning via a fresh launcher intent can remove the mediation Activity without
@@ -317,12 +325,16 @@ class DramaAppActivity : FragmentActivity() {
         if (fullscreenAdInProgress || fullscreenAdRequestInFlight) saveExternalAdReturnCheckpoint()
         resumePlaybackWhenForeground = playerShown && exoPlayer?.isPlaying == true && !fullscreenAdInProgress
         if (resumePlaybackWhenForeground) exoPlayer?.pause()
+        resumeSdkPlaybackWhenForeground = sdkPlayerShown && sdkPlaybackActive && !fullscreenAdInProgress
+        if (resumeSdkPlaybackWhenForeground) {
+            (supportFragmentManager.findFragmentByTag("joyedrama.pssdk.player") as? com.bytedance.sdk.shortplay.api.ShortPlayFragment)?.pausePlay()
+        }
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         super.onStop()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
-        outState.putBoolean(STATE_PLAYER_VISIBLE, playerShown)
+        outState.putBoolean(STATE_PLAYER_VISIBLE, playerShown || sdkPlayerShown)
         outState.putString(STATE_DRAMA_ID, selectedDrama?.id)
         outState.putInt(STATE_EPISODE_INDEX, currentEpisodeIndex)
         outState.putInt(STATE_POSITION_SECONDS, exoPlayer?.currentPosition?.div(1_000L)?.toInt() ?: playerProgressSeconds)
@@ -402,7 +414,7 @@ class DramaAppActivity : FragmentActivity() {
 
     internal fun renderActiveTab() {
         if (catalogItems.isEmpty()) {
-            renderLoading(t("home_greeting"))
+            renderCatalogLoadingShell()
             return
         }
         withdrawalPageShown = false
@@ -438,6 +450,39 @@ class DramaAppActivity : FragmentActivity() {
             marginEnd = 0
             bottomMargin = dp(80)
         })
+    }
+
+    /** Regular application chrome shown while the formal PSSDK discovers the first catalogue page. */
+    internal fun renderCatalogLoadingShell() {
+        withdrawalPageShown = false
+        playerShown = false
+        configureCatalogWindow()
+        val shell = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(24), dp(186), dp(24), dp(114))
+            addView(ProgressBar(this@DramaAppActivity).apply {
+                indeterminateTintList = android.content.res.ColorStateList.valueOf(COLOR_CORAL)
+            }, LinearLayout.LayoutParams(dp(44), dp(44)))
+            addView(TextView(this@DramaAppActivity).apply {
+                text = t("catalog_loading")
+                textSize = 19f
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER
+                setTextColor(COLOR_TEXT_PRIMARY)
+                setPadding(0, dp(16), 0, dp(5))
+            })
+            addView(TextView(this@DramaAppActivity).apply {
+                text = t("catalog_loading_hint")
+                textSize = 13f
+                gravity = Gravity.CENTER
+                setTextColor(COLOR_TEXT_MUTED)
+            })
+        }
+        root.removeAllViews()
+        root.addView(shell, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        root.addView(createPersistentAssetHeader(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(120), Gravity.TOP))
+        root.addView(createBottomNavigation(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(68), Gravity.BOTTOM))
     }
 
     internal fun showAdPrivacySettings() {

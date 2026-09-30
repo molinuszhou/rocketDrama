@@ -149,35 +149,40 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
             val usdBalance = wallet.availableBalanceUsdReference.toBigDecimalOrNull()
                 ?: wallet.cashWalletUsdReference.toBigDecimalOrNull()
                 ?: balance
-            // The reward model has a single US$300 ceiling. Showing additional $750/$1,200
-            // milestones contradicted that model and diluted the primary goal.
-            val goalUsd = java.math.BigDecimal("300.00")
-            val remainingUsd = goalUsd.subtract(usdBalance).coerceAtLeast(java.math.BigDecimal.ZERO)
             addView(TextView(this@createWithdrawalPage).apply {
                 text = t("cashout_goal_cap")
                 textSize = 13f
                 typeface = Typeface.DEFAULT_BOLD
                 setTextColor(0xCCFFFFFF.toInt())
-                setPadding(0, dp(4), 0, dp(4))
+                setPadding(0, dp(4), 0, dp(9))
             })
-            addView(TextView(this@createWithdrawalPage).apply {
-                text = "US$300"
-                textSize = 30f
-                typeface = Typeface.DEFAULT_BOLD
-                setTextColor(COLOR_SUNSET)
-                includeFontPadding = false
-            })
-            addView(ProgressBar(this@createWithdrawalPage, null, android.R.attr.progressBarStyleHorizontal).apply {
-                max = 100
-                progress = usdBalance.multiply(java.math.BigDecimal(100)).divide(goalUsd, 0, java.math.RoundingMode.DOWN).toInt().coerceIn(0, 100)
-                progressTintList = ColorStateList.valueOf(COLOR_SUNSET)
-                backgroundTintList = ColorStateList.valueOf(0x44FFFFFF)
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(7)).apply { topMargin = dp(8); bottomMargin = dp(7) })
-            addView(TextView(this@createWithdrawalPage).apply {
-                text = t("cashout_goal_progress", "US$300", "US$${remainingUsd.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString()}")
-                textSize = 12f
-                setTextColor(0xCCFFFFFF.toInt())
-            })
+            listOf("200.00", "500.00", "800.00", "1000.00").forEachIndexed { index, rawGoal ->
+                val goalUsd = java.math.BigDecimal(rawGoal)
+                val goalLabel = "US$${goalUsd.setScale(0).toPlainString()}"
+                val remainingUsd = goalUsd.subtract(usdBalance).coerceAtLeast(java.math.BigDecimal.ZERO)
+                addView(LinearLayout(this@createWithdrawalPage).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(13), dp(10), dp(13), dp(10))
+                    background = roundedDrawable(if (index == 0) 0x28FFFFFF else 0x18FFFFFF, 15)
+                    addView(TextView(this@createWithdrawalPage).apply {
+                        text = goalLabel
+                        textSize = if (index == 0) 24f else 18f
+                        typeface = Typeface.DEFAULT_BOLD
+                        setTextColor(if (index == 0) COLOR_SUNSET else Color.WHITE)
+                    })
+                    addView(ProgressBar(this@createWithdrawalPage, null, android.R.attr.progressBarStyleHorizontal).apply {
+                        max = 100
+                        progress = usdBalance.multiply(java.math.BigDecimal(100)).divide(goalUsd, 0, java.math.RoundingMode.DOWN).toInt().coerceIn(0, 100)
+                        progressTintList = ColorStateList.valueOf(if (index == 0) COLOR_SUNSET else COLOR_ACCENT)
+                        backgroundTintList = ColorStateList.valueOf(0x44FFFFFF)
+                    }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(6)).apply { topMargin = dp(6); bottomMargin = dp(6) })
+                    addView(TextView(this@createWithdrawalPage).apply {
+                        text = t("cashout_goal_progress", goalLabel, "US$${remainingUsd.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString()}")
+                        textSize = 12f
+                        setTextColor(0xCCFFFFFF.toInt())
+                    })
+                }, matchParams(bottom = if (index == 3) 0 else 8))
+            }
             addView(TextView(this@createWithdrawalPage).apply {
                 text = t("cashout_watch_action")
                 textSize = 14f
