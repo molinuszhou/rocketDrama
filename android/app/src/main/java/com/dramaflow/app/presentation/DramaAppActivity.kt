@@ -107,6 +107,8 @@ class DramaAppActivity : FragmentActivity() {
     internal var startupRewardsFinished = false
     /** Keeps the branded loading view visible long enough to avoid a home-page flash. */
     internal var startupMinimumVisualFinished = false
+    /** Bounded launch handoff that gives the first PSSDK catalogue request time to populate. */
+    internal var startupContentHandoffFinished = false
     internal var startupPosterPreloadPercent = 0
     internal var startupCatalogFailure: String? = null
     /** PSSDK can fail its first remote bootstrap on a cold network; retries never block navigation. */
@@ -650,7 +652,7 @@ class DramaAppActivity : FragmentActivity() {
 
     internal fun persistPlaybackProgress(positionSeconds: Int = playerProgressSeconds) {
         val drama = selectedDrama ?: return
-        if (!playerShown || currentEpisodeIndex !in drama.episodes.indices) return
+        if ((!playerShown && !sdkPlayerShown) || currentEpisodeIndex !in drama.episodes.indices) return
         val safePosition = positionSeconds.coerceAtLeast(0)
         playbackHistory.edit()
             .putInt(resumePreferenceKey(drama.id, "episode"), currentEpisodeIndex)
@@ -665,7 +667,7 @@ class DramaAppActivity : FragmentActivity() {
      */
     internal fun saveExternalAdReturnCheckpoint() {
         val drama = selectedDrama ?: return
-        if (!playerShown || currentEpisodeIndex !in drama.episodes.indices) return
+        if ((!playerShown && !sdkPlayerShown) || currentEpisodeIndex !in drama.episodes.indices) return
         val positionSeconds = (exoPlayer?.currentPosition?.div(1_000L)?.toInt() ?: playerProgressSeconds)
             .coerceAtLeast(playerProgressSeconds)
             .coerceAtLeast(0)

@@ -69,6 +69,7 @@ import kotlin.random.Random
 internal fun DramaAppActivity.showWithdrawalPage(wallet: RewardsApiClient.Wallet) {
         withdrawalPageShown = true
         if (playerShown) releasePlayer()
+        if (sdkPlayerShown) dismissSdkDramaPlayerIfShown()
         playerShown = false
         window.statusBarColor = COLOR_BACKGROUND
         WindowInsetsControllerCompat(window, root).apply {

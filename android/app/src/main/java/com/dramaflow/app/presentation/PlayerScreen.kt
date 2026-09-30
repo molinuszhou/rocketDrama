@@ -75,7 +75,7 @@ internal fun DramaAppActivity.showPlayer(drama: LocalDrama, startIndex: Int, res
             renderFailure(t("player_not_ready"))
             return
         }
-        showSdkDramaPlayer(drama, card, startIndex)
+        showSdkDramaPlayer(drama, card, startIndex, resumePositionSeconds)
     }
 
 private fun DramaAppActivity.renderLegacyPlayer(drama: LocalDrama, startIndex: Int, resumePositionSeconds: Int = 0) {

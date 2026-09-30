@@ -76,6 +76,7 @@ internal fun DramaAppActivity.beginStartupExperience() {
         startupPosterPreloadFinished = false
         startupRewardsFinished = !rewardsApi.isConfigured
         startupMinimumVisualFinished = false
+        startupContentHandoffFinished = false
         startupPosterPreloadPercent = 0
         shortDramaRetryAttempt = 0
         shortDramaRetryScheduled = false
@@ -93,6 +94,12 @@ internal fun DramaAppActivity.beginStartupExperience() {
             startupMinimumVisualFinished = true
             completeStartupWhenReady()
         }, MINIMUM_STARTUP_VISUAL_MS)
+        // Keep the branded launch surface visible while the first PSSDK feed races to return.
+        // This remains bounded, so an unhealthy provider cannot recreate the historic 35% block.
+        root.postDelayed({
+            startupContentHandoffFinished = true
+            completeStartupWhenReady()
+        }, STARTUP_CONTENT_HANDOFF_GRACE_MS)
         if (rewardsApi.isConfigured) refreshRewardsSnapshot() else completeStartupWhenReady()
         preloadCatalog()
         // 等待 onPostResume 后再发起开屏请求，确保窗口已就绪；目录和开屏并行预热。
@@ -155,6 +162,7 @@ private fun DramaAppActivity.preloadShortDramaSdkCatalog() {
                     .distinctBy { it.id }
                     .filter { it.title.isNotBlank() }
                 startupCatalogFinished = true
+                startupContentHandoffFinished = true
                 if (cards.isEmpty()) {
                     startupCatalogFailure = t("catalog_empty")
                     startupPosterPreloadFinished = true
@@ -191,6 +199,7 @@ private fun DramaAppActivity.preloadShortDramaSdkCatalog() {
             } },
             onFailure = { message -> runOnUiThread {
                 startupCatalogFinished = true
+                startupContentHandoffFinished = true
                 startupPosterPreloadFinished = true
                 startupCatalogFailure = t("catalog_load_failed", message)
                 if (startupContentInitializationStarted) renderActiveTab() else completeStartupWhenReady()
@@ -335,7 +344,7 @@ internal fun DramaAppActivity.completeStartupWhenReady() {
         // PSSDK catalogue and Rewards data are provider/network work, not launch prerequisites.
         // Requiring them here is valid for main's local content service but leaves formal builds
         // permanently at 35% when the provider's first catalogue callback is delayed.
-        if (startupContentInitializationStarted || !startupAdFinished || !startupMinimumVisualFinished || isFinishing || isDestroyed) return
+        if (startupContentInitializationStarted || !startupAdFinished || !startupMinimumVisualFinished || !startupContentHandoffFinished || isFinishing || isDestroyed) return
         startupContentInitializationStarted = true
         updateStartupProgress(100, t("startup_ready"))
         if (restorePlayerAfterCatalog) {
@@ -353,7 +362,8 @@ internal fun DramaAppActivity.completeStartupWhenReady() {
     }
 
 private const val MAX_SHORT_DRAMA_RETRY_ATTEMPTS = 3
-private const val MINIMUM_STARTUP_VISUAL_MS = 1_200L
+private const val MINIMUM_STARTUP_VISUAL_MS = 1_500L
+private const val STARTUP_CONTENT_HANDOFF_GRACE_MS = 4_500L
 private val SHORT_DRAMA_RETRY_DELAYS_MS = longArrayOf(3_000L, 6_000L, 12_000L)
 private const val MAX_SHORT_DRAMA_DIAGNOSTIC_LENGTH = 1_000
 private const val SHORT_DRAMA_DIAGNOSTIC_GRACE_MS = 8_000L

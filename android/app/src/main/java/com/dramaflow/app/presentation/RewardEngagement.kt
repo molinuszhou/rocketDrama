@@ -71,7 +71,7 @@ internal fun DramaAppActivity.createFloatingRewardWheel(compact: Boolean = false
         val gem = ImageView(this).apply {
             setImageResource(R.drawable.ic_cash_reward)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            alpha = 0.96f
+            alpha = 0.74f
             contentDescription = t("claim_all")
             isClickable = true
             setOnClickListener {
@@ -85,8 +85,8 @@ internal fun DramaAppActivity.createFloatingRewardWheel(compact: Boolean = false
         }
         val label = TextView(this).apply {
             gravity = Gravity.CENTER; textSize = if (compact) 11f else 12f; typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.WHITE); setPadding(dp(10), dp(5), dp(10), dp(5)); background = gradientDrawable(intArrayOf(0xDE292027.toInt(), 0xC81D1D22.toInt()), 14)
-            alpha = 0.96f
+            setTextColor(0xFFFFD35C.toInt()); setPadding(dp(10), dp(5), dp(10), dp(5)); background = gradientDrawable(intArrayOf(0xB8292027.toInt(), 0xA81D1D22.toInt()), 14)
+            alpha = 0.78f
             isClickable = true; setOnClickListener { gem.performClick() }
         }
         floatingWheelLabels.add(label); updateFloatingRewardWheel(label)
@@ -97,7 +97,7 @@ internal fun DramaAppActivity.createFloatingRewardWheel(compact: Boolean = false
                 addView(gem, FrameLayout.LayoutParams(gemSize, gemSize, Gravity.CENTER))
             }, LinearLayout.LayoutParams(gemSize, gemSize))
             addView(label, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(25)).apply { topMargin = dp(1) })
-            if (playerShown && rewardsSnapshot?.unlock?.episodeRewardBoostEnabled == true) {
+            if ((playerShown || sdkPlayerShown) && rewardsSnapshot?.unlock?.episodeRewardBoostEnabled == true) {
                 val boostButton = TextView(this@createFloatingRewardWheel).apply { textSize = 11f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setPadding(dp(10), dp(6), dp(10), dp(6)) }
                 floatingBoostButtons.add(boostButton); updateFloatingRewardBoostButton(boostButton)
                 addView(boostButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)).apply { topMargin = dp(7) })

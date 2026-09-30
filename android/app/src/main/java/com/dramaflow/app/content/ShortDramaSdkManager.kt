@@ -52,6 +52,10 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
     @Volatile
     private var initialized = false
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val initializationLock = Any()
+    private var initializationAttempt = 0
+    private var activeInitializationAttempt = 0
+    private val pendingInitializationCallbacks = mutableListOf<(Initialization) -> Unit>()
 
     /**
      * 不在 SDK 开关关闭时做任何网络或播放器初始化，确保本地视频测试完全独立于外部短剧服务。
@@ -82,31 +86,61 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
             }
         }
 
+        val attempt = synchronized(initializationLock) {
+            // Startup, a manual Retry and the automatic recovery path may overlap. PSSDK.init is
+            // process-wide; concurrent calls can strand the first callback and produce the
+            // observed "first attempt times out, Retry succeeds" pattern.
+            pendingInitializationCallbacks += onResult
+            if (activeInitializationAttempt != 0) {
+                null
+            } else {
+                ++initializationAttempt
+                initializationAttempt.also { activeInitializationAttempt = it }
+            }
+        } ?: return
+
         val config = PSSDK.Config.Builder()
             .appId(appId)
             .vodAppId(vodAppId)
             .licenseAssertPath(licenseAsset)
             .securityKey(securityKey)
             .userId(installationId())
-            .requestTimeout(10_000L)
+            // PSSDK's official recommendation for weak networks is 15 seconds. The prior
+            // client-specific 10-second cutoff was shorter and caused false first-launch errors.
+            .requestTimeout(PSSDK_REQUEST_TIMEOUT_MS)
             .autoInitVideoPlayer(true)
             .debug(BuildConfig.DEBUG)
             .build()
-        var resultDelivered = false
+        var terminalResultDelivered = false
         lateinit var initializationTimeout: Runnable
-        fun deliver(result: Initialization) {
-            if (resultDelivered) return
-            resultDelivered = true
+        fun deliverFailure(result: Initialization) {
+            if (terminalResultDelivered) return
+            terminalResultDelivered = true
             mainHandler.removeCallbacks(initializationTimeout)
-            onResult(result)
+            val callbacks = synchronized(initializationLock) {
+                if (activeInitializationAttempt != attempt) {
+                    emptyList()
+                } else {
+                    activeInitializationAttempt = 0
+                    pendingInitializationCallbacks.toList().also { pendingInitializationCallbacks.clear() }
+                }
+            }
+            callbacks.forEach { callback -> callback(result) }
+        }
+        fun deliverReady() {
+            initialized = true
+            terminalResultDelivered = true
+            mainHandler.removeCallbacks(initializationTimeout)
+            val callbacks = synchronized(initializationLock) {
+                activeInitializationAttempt = 0
+                pendingInitializationCallbacks.toList().also { pendingInitializationCallbacks.clear() }
+            }
+            callbacks.forEach { callback -> callback(Initialization.Ready) }
         }
         initializationTimeout = Runnable {
-            if (resultDelivered) return@Runnable
-            // Do not keep the calling screen in an unbounded wait. The app shell remains usable
-            // and the coordinator retries initialization in the background. A late SDK success is
-            // still remembered by PSSDK.hasInitialized() and is used by that retry.
-            Log.w(TAG, "短剧 SDK 初始化超时：${SDK_INITIALIZATION_TIMEOUT_MS}ms，转入后台重试")
-            deliver(Initialization.Failed("短剧 SDK 初始化超时，请稍后重试"))
+            if (terminalResultDelivered) return@Runnable
+            Log.w(TAG, "短剧 SDK 初始化超时：${SDK_INITIALIZATION_TIMEOUT_MS}ms")
+            deliverFailure(Initialization.Failed("短剧 SDK 初始化超时，请稍后重试"))
         }
         mainHandler.postDelayed(initializationTimeout, SDK_INITIALIZATION_TIMEOUT_MS)
         // SDK 内容语言与界面语言独立：UI 使用六语词典；SDK 请求使用内容方支持的标准语言码。
@@ -122,15 +156,15 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
                                 Log.i(TAG, "短剧 SDK 播放服务检测：${result?.name ?: "UNKNOWN"}")
                             }
                         })
-                        deliver(Initialization.Ready)
+                        deliverReady()
                     } else {
-                        deliver(Initialization.Failed("短剧 SDK 初始化失败：${error?.code ?: -1} ${error?.msg.orEmpty()}"))
+                        deliverFailure(Initialization.Failed("短剧 SDK 初始化失败：${error?.code ?: -1} ${error?.msg.orEmpty()}"))
                     }
                 }
             })
         }.onFailure {
             Log.w(TAG, "短剧 SDK 初始化调用异常", it)
-            deliver(Initialization.Failed("短剧 SDK 初始化调用失败：${it.message.orEmpty()}"))
+            deliverFailure(Initialization.Failed("短剧 SDK 初始化调用失败：${it.message.orEmpty()}"))
         }
     }
 
@@ -148,6 +182,8 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
         var popular: List<DramaCard>? = null
         var latest: List<DramaCard>? = null
         var categories: List<Category>? = null
+        var popularFailure: String? = null
+        var latestFailure: String? = null
         var delivered = false
         lateinit var discoveryTimeout: Runnable
 
@@ -158,11 +194,19 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
             onFailure(message)
         }
 
-        fun tryDeliver() {
-            if (!delivered && popular != null && latest != null && categories != null) {
+        fun tryDeliverContent() {
+            if (delivered) return
+            // Home can be rendered from either provider content feed. Categories improve
+            // discovery but are not a first-screen prerequisite, otherwise one delayed category
+            // request makes a complete popular/latest feed appear as a frozen launch.
+            if (popular.orEmpty().isNotEmpty() || latest.orEmpty().isNotEmpty()) {
                 delivered = true
                 mainHandler.removeCallbacks(discoveryTimeout)
                 onSuccess(Discovery(popular.orEmpty(), latest.orEmpty(), categories.orEmpty()))
+            } else if (popularFailure != null && latestFailure != null) {
+                deliverFailure("短剧内容读取失败：${popularFailure}; ${latestFailure}")
+            } else if (popular != null && latest != null) {
+                deliverFailure("短剧目录为空")
             }
         }
 
@@ -176,22 +220,24 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
         PSSDK.requestPopularDrama(FIRST_PAGE, pageSize, object : PSSDK.FeedListResultListener {
             override fun onSuccess(result: PSSDK.FeedListLoadResult<ShortPlay>?) {
                 popular = result?.dataList.orEmpty().map(::toCard)
-                tryDeliver()
+                tryDeliverContent()
             }
 
             override fun onFail(error: PSSDK.ErrorInfo?) {
-                deliverFailure("短剧热门内容读取失败：${error?.code ?: -1} ${error?.msg.orEmpty()}")
+                popularFailure = "热门 ${error?.code ?: -1} ${error?.msg.orEmpty()}"
+                tryDeliverContent()
             }
         })
 
         PSSDK.requestNewDrama(FIRST_PAGE, pageSize, object : PSSDK.FeedListResultListener {
             override fun onSuccess(result: PSSDK.FeedListLoadResult<ShortPlay>?) {
                 latest = result?.dataList.orEmpty().map(::toCard)
-                tryDeliver()
+                tryDeliverContent()
             }
 
             override fun onFail(error: PSSDK.ErrorInfo?) {
-                deliverFailure("短剧最新内容读取失败：${error?.code ?: -1} ${error?.msg.orEmpty()}")
+                latestFailure = "最新 ${error?.code ?: -1} ${error?.msg.orEmpty()}"
+                tryDeliverContent()
             }
         })
 
@@ -201,11 +247,10 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
                 categories = result?.dataList.orEmpty().map { category ->
                     Category(category.id, category.name.orEmpty(), category.count)
                 }.filter { it.name.isNotBlank() }
-                tryDeliver()
             }
 
             override fun onFail(error: PSSDK.ErrorInfo?) {
-                deliverFailure("短剧分类读取失败：${error?.code ?: -1} ${error?.msg.orEmpty()}")
+                Log.w(TAG, "短剧分类读取失败：${error?.code ?: -1} ${error?.msg.orEmpty()}")
             }
         })
     }
@@ -239,6 +284,8 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
     /** Creates the provider player only for a production SDK card; the caller owns its Fragment transaction. */
     fun createDetailFragment(
         card: DramaCard,
+        startEpisodeIndex: Int,
+        startPositionSeconds: Int,
         onClose: () -> Unit,
         needsEpisodeUnlock: (episodeIndex: Int) -> Boolean,
         requestEpisodeUnlock: (episodeIndex: Int, listener: PSSDK.ShortPlayBlockResultListener?) -> Unit,
@@ -253,8 +300,11 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
                 .hideLeftTopCloseAndTitle(true, object : PSSDK.ShortPlayDetailPageCloseListener {
                     override fun onCloseClicked(): Boolean { onClose(); return true }
                 })
-                // JoyeDrama advances only after the shared reward/ad policy settles.
-                .enableAutoPlayNext(false)
+                .startPlayIndex(startEpisodeIndex.coerceAtLeast(0))
+                .startPlayAtTimeSeconds(startPositionSeconds.coerceAtLeast(0))
+                // The SDK preloads and advances naturally. Completion callbacks remain wired
+                // to JoyeDrama's reward ledger but must not race a second host-side transition.
+                .enableAutoPlayNext(true)
                 .displayBottomExtraView(false)
                 .build(),
             object : PSSDK.ShortPlayDetailPageListener {
@@ -333,8 +383,9 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
         private const val TAG = "ShortDramaSdkManager"
         private const val FIRST_PAGE = 1
         private const val DEFAULT_PAGE_SIZE = 20
-        private const val DISCOVERY_TIMEOUT_MS = 12_000L
-        private const val SDK_INITIALIZATION_TIMEOUT_MS = 12_000L
+        private const val DISCOVERY_TIMEOUT_MS = 15_000L
+        private const val PSSDK_REQUEST_TIMEOUT_MS = 15_000L
+        private const val SDK_INITIALIZATION_TIMEOUT_MS = 18_000L
         private const val PREFERENCES = "joyedrama.short_drama_sdk"
         private const val INSTALLATION_ID_KEY = "installation_id"
 

@@ -118,7 +118,10 @@ internal fun DramaAppActivity.applyRewardsSnapshot(snapshot: RewardsApiClient.Sn
         lastConfirmedGemBalance = snapshot.wallet.coins
         lastConfirmedCashBalance = snapshot.wallet.cashWallet
         refreshFloatingRewardWheels()
-        if (startupContentInitializationStarted && !playerShown) {
+        // PSSDK is still an active JoyeDrama player surface. Re-rendering a tab after its
+        // reward callback removes the provider Fragment and incorrectly sends the user to a
+        // catalogue page while an episode is completing.
+        if (startupContentInitializationStarted && !playerShown && !sdkPlayerShown) {
             if (withdrawalPageShown) {
                 showWithdrawalPage(snapshot.wallet)
             } else if (activeTab == MainTab.TASKS && refreshCrownRoadPanelInPlace()) {

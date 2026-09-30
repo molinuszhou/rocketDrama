@@ -25,6 +25,7 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
     catalogDrama: LocalDrama,
     card: ShortDramaSdkManager.DramaCard,
     startIndex: Int,
+    resumePositionSeconds: Int = 0,
 ) {
     releasePlayer()
     configurePlayerWindow()
@@ -36,7 +37,7 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
     sdkPlayerShown = true
     sdkPlaybackActive = false
     resumeSdkPlaybackWhenForeground = false
-    playerProgressSeconds = 0
+    playerProgressSeconds = resumePositionSeconds.coerceAtLeast(0)
     playerDurationSeconds = 0
     playerIsSeeking = false
     playerIsPaused = false
@@ -44,7 +45,10 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
     contentWatchSecondsSinceMidroll = 0
     midrollInterstitialShownInSession = false
     lastMidrollSamplePositionSeconds = -1
-    playerShown = false
+    // This is a real JoyeDrama playback surface even though PSSDK owns the media engine.
+    // Keeping the shared player flag true prevents a reward snapshot from rebuilding the
+    // catalogue over the provider Fragment and permits shared history/reward chrome.
+    playerShown = true
     root.removeAllViews()
     root.setBackgroundColor(Color.BLACK)
 
@@ -54,6 +58,8 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
 
     val fragment = shortDramaSdk.createDetailFragment(
         card = card,
+        startEpisodeIndex = currentEpisodeIndex,
+        startPositionSeconds = playerProgressSeconds,
         onClose = { runOnUiThread { showCatalog() } },
         needsEpisodeUnlock = ::needsUnlock,
         requestEpisodeUnlock = ::requestSdkEpisodeUnlock,
@@ -67,16 +73,28 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
         .commitNowAllowingStateLoss()
 
     // PSSDK remains the actual player. These are JoyeDrama controls mapped only to public APIs.
-    root.addView(createPlayerTopBar(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(132), Gravity.TOP))
-    root.addView(createSdkPlayerControlDock(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(106), Gravity.BOTTOM).apply {
+    // Retain references and explicitly raise them after the Fragment completes its asynchronous
+    // view creation; otherwise a provider-owned video surface can visually cover the lower host
+    // controls on some devices.
+    val topBar = createPlayerTopBar()
+    val controlDock = createSdkPlayerControlDock()
+    val rewardWheel = createFloatingRewardWheel(compact = true)
+    root.addView(topBar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(132), Gravity.TOP))
+    root.addView(controlDock, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(106), Gravity.BOTTOM).apply {
         marginStart = dp(12)
         marginEnd = dp(12)
         bottomMargin = dp(6)
     })
-    root.addView(createFloatingRewardWheel(compact = true), FrameLayout.LayoutParams(dp(112), dp(96), Gravity.END or Gravity.BOTTOM).apply {
-        marginEnd = dp(12)
+    root.addView(rewardWheel, FrameLayout.LayoutParams(dp(112), dp(96), Gravity.END or Gravity.BOTTOM).apply {
+        marginEnd = 0
         bottomMargin = dp(166)
     })
+    root.post {
+        topBar.bringToFront()
+        controlDock.bringToFront()
+        rewardWheel.bringToFront()
+        root.invalidate()
+    }
 }
 
 /** A small host-owned dock; PSSDK's own progress presentation is still retained underneath. */
@@ -91,8 +109,17 @@ private fun DramaAppActivity.createSdkPlayerControlDock(): View = LinearLayout(t
 private fun DramaAppActivity.onSdkEpisodeStarted(episodeIndex: Int, episode: EpisodeData?) {
     sdkPlaybackActive = true
     currentEpisodeIndex = episodeIndex.coerceIn(0, selectedDrama?.episodes?.lastIndex ?: 0)
+    playerProgressSeconds = 0
+    playerDurationSeconds = 0
+    lastPersistedPlaybackSecond = -1
+    contentWatchSecondsSinceMidroll = 0
+    midrollInterstitialShownInSession = false
+    midrollInterstitialRequestInFlight = false
+    lastMidrollSamplePositionSeconds = -1
     playerIsPaused = false
     updateEpisodeStatus()
+    updatePlayerProgress(0, 0)
+    persistPlaybackProgress(0)
     episode?.let { logStatus("PSSDK 开始播放分集：${episodeIndex + 1}") }
 }
 
@@ -101,9 +128,10 @@ private fun DramaAppActivity.onSdkEpisodeCompleted(episodeIndex: Int) {
     val key = episodeKey(safeIndex)
     if (!completedEpisodeKeys.add(key)) return
     currentEpisodeIndex = safeIndex
-    recordCompletedEpisodeForRewards(safeIndex) {
-        startNextSdkEpisodeAfterCompletion(safeIndex)
-    }
+    persistNextEpisodeResume(safeIndex)
+    // PSSDK owns the actual transition and preloading. Server reward confirmation must not
+    // block the next episode or race a second host-side startPlayIndex call.
+    recordCompletedEpisodeForRewards(safeIndex) {}
 }
 
 private fun DramaAppActivity.onSdkPlaybackProgress(episodeIndex: Int, rawProgress: Int, rawDuration: Int) {
