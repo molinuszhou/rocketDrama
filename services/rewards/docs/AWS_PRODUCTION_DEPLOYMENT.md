@@ -40,6 +40,35 @@ curl -fsS https://YOUR_REWARDS_DOMAIN/health
 
 Caddy automatically obtains and renews the TLS certificate after DNS propagation. The FastAPI service applies incremental PostgreSQL migrations when it starts, so existing database volumes receive the current schema safely.
 
+## 3A. Existing Nginx host (recommended when 80/443 are already in use)
+
+If the server already has Nginx serving another product, **do not start the Caddy compose stack above**: it would compete for ports 80 and 443. Use the Nginx-specific stack instead. It publishes the API only on `127.0.0.1:18100`; Nginx remains the only internet-facing TLS service.
+
+```bash
+cd services/rewards
+cp .env.nginx.example .env.production
+chmod 600 .env.production
+# Set the real passwords, PANGLE_CALLBACK_SECRET and ADMIN_DASHBOARD_TOKEN.
+docker compose --env-file .env.production -f docker-compose.nginx.yml up -d --build
+curl -fsS http://127.0.0.1:18100/health
+```
+
+Copy [`deploy/nginx/joyedrama-rewards.location.conf`](../deploy/nginx/joyedrama-rewards.location.conf) **inside the existing HTTPS `server {}` block** for `www.joyelleasia.com` (not directly inside the top-level `http {}` block). Then validate and reload the existing Nginx process:
+
+```bash
+nginx -t
+nginx -s reload
+curl -fsS https://www.joyelleasia.com/joyedrama-rewards/health
+```
+
+For this path-based route, the Android setting must be:
+
+```properties
+REWARDS_API_BASE_URL=https://www.joyelleasia.com/joyedrama-rewards
+```
+
+The Nginx `proxy_pass` rule removes `/joyedrama-rewards/` before proxying, so FastAPI still receives its normal `/health`, `/v2/...`, and `/admin` paths. This route does not change the existing `/`, `/api`, `/images`, or `/h5` proxy behavior.
+
 ## 4. Android Release configuration
 
 Keep final Android production values outside Git, for example in CI secrets or the signer’s local `android/local.properties`:

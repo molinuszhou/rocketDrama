@@ -1,0 +1,48 @@
+# Production stack for a host that already owns public 80/443 with Nginx.
+# Unlike docker-compose.production.yml, this intentionally does NOT start Caddy.
+# Nginx is the only public TLS endpoint; the API binds to loopback only.
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-joyedrama_rewards}
+      POSTGRES_USER: ${POSTGRES_USER:-joyedrama}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.production}
+    volumes:
+      - rewards_postgres_data:/var/lib/postgresql/data
+      - ./sql/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  rewards-api:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-joyedrama}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-joyedrama_rewards}
+      HOST: 0.0.0.0
+      PORT: 8100
+      ENVIRONMENT: production
+      # For the recommended path-based proxy, use the existing site's origin without the path.
+      CORS_ORIGINS: ${CORS_ORIGINS:?Set the existing HTTPS website origin}
+      ALLOW_DEBUG_AD_PROOF: "false"
+      PANGLE_CALLBACK_SECRET: ${PANGLE_CALLBACK_SECRET:?Set the provider callback verification secret}
+      ADMIN_DASHBOARD_TOKEN: ${ADMIN_DASHBOARD_TOKEN:?Set a long random administrator token}
+      TIMEZONE: ${TIMEZONE:-UTC}
+    # Accessible only from the host Nginx process. Never replace 127.0.0.1 with 0.0.0.0.
+    ports:
+      - "127.0.0.1:${REWARDS_BIND_PORT:-18100}:8100"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/health', timeout=3)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  rewards_postgres_data:
