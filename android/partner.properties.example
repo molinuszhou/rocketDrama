@@ -1,10 +1,10 @@
-# Copy to android/local.properties or protected CI secrets. Never commit real production values.
-# The Release variant ships as com.feather.joyelledrama.
+# 复制到 android/local.properties 或受控 CI Secret；真实生产值禁止提交到 Git。
+# Release 包名固定为 com.feather.joyelledrama。
 
-# Production rewards API. Must be a public HTTPS endpoint; do not use LAN or 10.0.2.2 in Release.
-REWARDS_API_BASE_URL=https://rewards.example.com
+# 正式 Rewards HTTPS 地址。当前宿主机 Nginx 路径代理示例：
+REWARDS_API_BASE_URL=https://www.joyelleasia.com/joyedrama-rewards
 
-# TopOn production mediation settings. TOPON_DEMO_MODE must be false for Release.
+# TopOn 正式聚合参数。Release 强制 TOPON_DEMO_MODE=false。
 TOPON_DEMO_MODE=false
 TOPON_APP_ID=
 TOPON_APP_KEY=
@@ -12,28 +12,28 @@ TOPON_REWARDED_PLACEMENT_ID=
 TOPON_INTERSTITIAL_PLACEMENT_ID=
 TOPON_SPLASH_PLACEMENT_ID=
 ADMOB_APP_ID=
-# 10 seconds by default; permitted range is 1000–60000 milliseconds.
+# 激励广告加载超时默认 10 秒，允许范围 1000–60000 毫秒。
 TOPON_REWARDED_LOAD_TIMEOUT_MS=10000
 
-# AppsFlyer attribution. Organic installs take Release A; non-organic installs take Release B.
+# AppsFlyer 归因：Organic 进入 A 面，Non-organic 进入 B 面。
 APPSFLYER_DEV_KEY=
 RELEASE_AB_ROUTING_ENABLED=true
 
-# External reporting (AppsFlyer, Firebase and Xuanyu). Verify each final provider endpoint before enabling.
+# 外部上报：AppsFlyer、Firebase、炫羽。完成三方联调后再开启。
 EXTERNAL_REPORTING_ENABLED=true
 ANALYTICS_DEBUG=false
-XUANYU_EVENT_BASE_URL=https://your-final-xuanyu-endpoint.example
+XUANYU_EVENT_BASE_URL=https://填写正式炫羽上报地址
 
-# Pangle short-drama SDK. Release forces SHORT_DRAMA_SDK_ENABLED=true and does not query the local Content API.
+# Pangle 短剧 SDK。Release 强制 SHORT_DRAMA_SDK_ENABLED=true，不请求本地 Content 服务。
 SHORT_DRAMA_SDK_ENABLED=true
 SHORT_DRAMA_APP_ID=
 SHORT_DRAMA_VOD_APP_ID=
-# Path of the separately delivered license file beneath app/src/main/assets/, for example license/production.lic
+# License 文件相对 app/src/main/assets/ 的路径，例如 license/production.lic。
 SHORT_DRAMA_LICENSE_ASSET=
 SHORT_DRAMA_SECURITY_KEY=
 
-# Required protected files (excluded by .gitignore):
-# 1) app/google-services.json registered for com.feather.joyelledrama
+# 以下受控文件均已被 .gitignore 排除：
+# 1) app/google-services.json，且必须注册到 com.feather.joyelledrama
 # 2) app/src/main/assets/<SHORT_DRAMA_LICENSE_ASSET>
 # 3) local.properties
-# 4) signing keystore and its passwords, kept outside the repository
+# 4) 签名 keystore 与密码

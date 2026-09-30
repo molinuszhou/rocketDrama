@@ -1,8 +1,0 @@
-{
-    email {$ACME_EMAIL}
-}
-
-{$REWARDS_DOMAIN} {
-    encode zstd gzip
-    reverse_proxy rewards-api:8100
-}
