@@ -130,7 +130,7 @@ android {
     // Source namespace remains stable for existing Activity and resource references. Google Play,
     // Firebase, AppsFlyer and TopOn identify the shipped app by applicationId below.
     namespace = "com.dramaflow.app"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         // Formal Play distribution package. Firebase, AppsFlyer and TopOn production settings must
