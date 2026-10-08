@@ -25,6 +25,8 @@ media/
 runtime/
 content/owned_catalog.local-media.json
 backups/
+services/rewards/geoip/*.mmdb
+services/rewards/geoip/*.mmdb.*
 
 # IDE / OS
 .idea/
