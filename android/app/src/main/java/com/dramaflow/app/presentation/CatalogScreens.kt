@@ -176,12 +176,19 @@ internal fun DramaAppActivity.primaryFeaturedDrama(recommended: List<LocalDrama>
 
 internal fun DramaAppActivity.createProfilePage(): View = scrollPage { content ->
         content.addView(createProfileHero(), matchParams(bottom = 16))
-        content.addView(createSectionHeader(t("continue_watching"), t("home_subtitle")), matchParams(bottom = 12))
         val watchedItems = recentWatchedDramas()
+        content.addView(
+            createProfileSectionHeader(
+                title = t("continue_watching"),
+                subtitle = t("home_subtitle"),
+                showAll = watchedItems.size > 3,
+                onShowAll = { showProfileCollectionPage(showFavorites = false) },
+            ),
+            matchParams(bottom = 12),
+        )
         if (watchedItems.isEmpty()) content.addView(createInlineNotice(t("watch_history_empty")), matchParams(bottom = 14))
         else {
             watchedItems.take(3).forEach { content.addView(createHistoryRow(it), matchParams(bottom = 10)) }
-            if (watchedItems.size > 3) content.addView(createProfileViewAllRow(t("watch_history")) { showProfileCollectionPage(showFavorites = false) }, matchParams(bottom = 14))
         }
 
         content.addView(createSectionHeader(t("favorites"), t("favorites_subtitle")), matchParams(top = 4, bottom = 12))
@@ -210,6 +217,41 @@ internal fun DramaAppActivity.recentWatchedDramas(): List<LocalDrama> = catalogI
 internal fun DramaAppActivity.favoriteDramas(): List<LocalDrama> = catalogItems
     .filter { favorites.getBoolean("favorite_${it.id}", false) }
     .sortedByDescending { playbackHistory.getLong(resumePreferenceKey(it.id, "last_watched_at"), 0L) }
+
+/** Keeps “View all” aligned with the section it expands rather than creating a fourth history row. */
+internal fun DramaAppActivity.createProfileSectionHeader(
+    title: String,
+    subtitle: String,
+    showAll: Boolean,
+    onShowAll: () -> Unit,
+): View = LinearLayout(this).apply {
+    gravity = Gravity.CENTER_VERTICAL
+    addView(LinearLayout(this@createProfileSectionHeader).apply {
+        orientation = LinearLayout.VERTICAL
+        addView(TextView(this@createProfileSectionHeader).apply {
+            text = title
+            textSize = 21f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(COLOR_TEXT_PRIMARY)
+        })
+        if (subtitle.isNotBlank()) addView(TextView(this@createProfileSectionHeader).apply {
+            text = subtitle
+            textSize = 13f
+            setTextColor(COLOR_TEXT_MUTED)
+            setPadding(0, dp(4), 0, 0)
+        })
+    }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+    if (showAll) addView(TextView(this@createProfileSectionHeader).apply {
+        text = "${t("view_all")} ›"
+        textSize = 13f
+        typeface = Typeface.DEFAULT_BOLD
+        gravity = Gravity.CENTER
+        setTextColor(COLOR_CORAL)
+        setPadding(dp(10), dp(8), 0, dp(8))
+        isClickable = true
+        setOnClickListener { onShowAll() }
+    }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42)))
+}
 
 internal fun DramaAppActivity.createProfileViewAllRow(title: String, onClick: () -> Unit): View = TextView(this).apply {
     text = "${t("view_all")} $title  ›"

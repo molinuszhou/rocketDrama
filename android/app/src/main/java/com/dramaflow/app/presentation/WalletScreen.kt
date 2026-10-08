@@ -122,49 +122,14 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
                 setImageResource(R.drawable.wallet_money); scaleType = ImageView.ScaleType.CENTER_INSIDE; contentDescription = t("wallet")
             }, LinearLayout.LayoutParams(dp(86), dp(86)))
             addView(balanceRow)
-            addView(LinearLayout(this@createWithdrawalPage).apply {
-                orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(12), dp(14), dp(13)); background = roundedDrawable(0x26FFFFFF, 18)
-                val titleRow = LinearLayout(this@createWithdrawalPage).apply { gravity = Gravity.CENTER_VERTICAL }
-                titleRow.addView(TextView(this@createWithdrawalPage).apply { text = t("ad_boost"); textSize = 16f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                val quota = TextView(this@createWithdrawalPage).apply {
-                    textSize = 11f; typeface = Typeface.DEFAULT_BOLD; setTextColor(0xDDFFFFFF.toInt())
-                }
-                walletChargeQuotaLabels.add(quota); updateWalletChargeQuotaLabel(quota)
-                titleRow.addView(quota)
-                addView(titleRow)
-                addView(TextView(this@createWithdrawalPage).apply {
-                    text = t("wallet_boost_description")
-                    textSize = 12f; setTextColor(0xCCFFFFFF.toInt()); setPadding(0, dp(5), 0, dp(10))
-                })
-                val boostAction = TextView(this@createWithdrawalPage).apply {
-                    // The cooldown ring overlays the right edge; symmetric insets keep "Claim" centered.
-                    textSize = 14f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setPadding(dp(12), dp(10), dp(12), dp(10))
-                }
-                walletChargeButtons.add(boostAction); updateWalletChargeButton(boostAction)
-                val boostSlot = FrameLayout(this@createWithdrawalPage).apply {
-                    addView(boostAction, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46), Gravity.CENTER))
-                    val cooldown = ChargeCooldownRingView(this@createWithdrawalPage)
-                    walletChargeCooldownRings.add(cooldown); updateWalletChargeCooldownRing(cooldown)
-                    addView(cooldown, FrameLayout.LayoutParams(dp(32), dp(32), Gravity.END or Gravity.CENTER_VERTICAL).apply { marginEnd = dp(10) })
-                }
-                addView(boostSlot, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)))
-            }, matchParams(top = 16, bottom = 18))
             val balance = wallet.cashWallet.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO
             val usdBalance = wallet.availableBalanceUsdReference.toBigDecimalOrNull()
                 ?: wallet.cashWalletUsdReference.toBigDecimalOrNull()
                 ?: balance
-            addView(TextView(this@createWithdrawalPage).apply {
-                text = t("cashout_goal_cap")
-                textSize = 13f
-                typeface = Typeface.DEFAULT_BOLD
-                setTextColor(0xCCFFFFFF.toInt())
-                setPadding(0, dp(4), 0, dp(9))
-            })
             val withdrawalEnabled = rewardsSnapshot?.withdrawal?.enabled == true
             listOf("200.00", "500.00", "800.00", "1000.00").forEachIndexed { index, rawGoal ->
                 val goalUsd = java.math.BigDecimal(rawGoal)
                 val goalLabel = "US$${goalUsd.setScale(0).toPlainString()}"
-                val remainingUsd = goalUsd.subtract(usdBalance).coerceAtLeast(java.math.BigDecimal.ZERO)
                 val goalReached = withdrawalEnabled && usdBalance >= goalUsd
                 addView(LinearLayout(this@createWithdrawalPage).apply {
                     orientation = LinearLayout.VERTICAL
@@ -184,8 +149,8 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
                         gravity = Gravity.CENTER
                         setSingleLine(true)
                         includeFontPadding = false
-                        setTextColor(if (goalReached) Color.WHITE else COLOR_TEXT_MUTED)
-                        background = roundedDrawable(if (goalReached) COLOR_ACCENT else 0x334D5A52, 12)
+                        setTextColor(Color.WHITE)
+                        background = primaryActionDrawable()
                         isClickable = true
                         setOnClickListener {
                             showWithdrawalProgressDialog(
@@ -202,12 +167,7 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
                         progress = usdBalance.multiply(java.math.BigDecimal(100)).divide(goalUsd, 0, java.math.RoundingMode.DOWN).toInt().coerceIn(0, 100)
                         progressTintList = ColorStateList.valueOf(if (index == 0) COLOR_SUNSET else COLOR_ACCENT)
                         backgroundTintList = ColorStateList.valueOf(0x44FFFFFF)
-                    }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(6)).apply { topMargin = dp(6); bottomMargin = dp(6) })
-                    addView(TextView(this@createWithdrawalPage).apply {
-                        text = t("cashout_goal_progress", goalLabel, "US$${remainingUsd.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString()}")
-                        textSize = 12f
-                        setTextColor(0xCCFFFFFF.toInt())
-                    })
+                    }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(6)).apply { topMargin = dp(8); bottomMargin = dp(2) })
                 }, matchParams(bottom = if (index == 3) 0 else 8))
             }
             addView(TextView(this@createWithdrawalPage).apply {
@@ -215,8 +175,8 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
                 textSize = 14f
                 typeface = Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER
-                setTextColor(COLOR_TEXT_PRIMARY)
-                background = roundedDrawable(COLOR_SURFACE, 15)
+                setTextColor(Color.WHITE)
+                background = primaryActionDrawable()
                 isClickable = true
                 setOnClickListener { activeTab = MainTab.HOME; renderActiveTab() }
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)).apply { topMargin = dp(14) })
@@ -410,26 +370,35 @@ private fun DramaAppActivity.showWithdrawalProgressDialog(
             }
             val row = LinearLayout(this@showWithdrawalProgressDialog).apply {
                 gravity = Gravity.CENTER_VERTICAL
-                addView(TextView(this@showWithdrawalProgressDialog).apply {
+                val timeline = FrameLayout(this@showWithdrawalProgressDialog)
+                if (index < steps.lastIndex) {
+                    timeline.addView(View(this@showWithdrawalProgressDialog).apply {
+                        setBackgroundColor(if (step.state == 2) COLOR_ACCENT else 0xFF67616B.toInt())
+                    }, FrameLayout.LayoutParams(dp(3), dp(30), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
+                        topMargin = dp(22)
+                    })
+                }
+                timeline.addView(TextView(this@showWithdrawalProgressDialog).apply {
                     text = marker
                     textSize = 16f
                     typeface = Typeface.DEFAULT_BOLD
                     gravity = Gravity.CENTER
                     setTextColor(Color.WHITE)
                     background = roundedDrawable(circleColor, 12)
-                }, LinearLayout.LayoutParams(dp(24), dp(24)))
+                }, FrameLayout.LayoutParams(dp(24), dp(24), Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+                addView(timeline, LinearLayout.LayoutParams(dp(28), dp(46)))
                 addView(TextView(this@showWithdrawalProgressDialog).apply {
                     text = step.label
                     textSize = 14f
                     typeface = if (step.state == 2 || step.state == 3) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
                     setTextColor(textColor)
                     setPadding(dp(10), 0, 0, 0)
-                })
+                }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             }
             row.alpha = 0f
-            row.translationY = dp(9).toFloat()
+            row.translationY = dp(12).toFloat()
             animatedRows += row
-            addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(34)))
+            addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)))
         }
         addView(TextView(this@showWithdrawalProgressDialog).apply {
             text = when {
@@ -442,7 +411,7 @@ private fun DramaAppActivity.showWithdrawalProgressDialog(
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
-            background = roundedDrawable(COLOR_ACCENT, 18)
+            background = primaryActionDrawable()
             isClickable = true
             setOnClickListener {
                 when {
@@ -476,8 +445,10 @@ private fun DramaAppActivity.showWithdrawalProgressDialog(
         row.animate()
             .alpha(1f)
             .translationY(0f)
-            .setStartDelay((index * 130L) + 90L)
-            .setDuration(220L)
+            // The withdrawal route is intentionally legible: each stage pauses before revealing
+            // the next, matching the reference timeline instead of flashing all states at once.
+            .setStartDelay(650L + index * 850L)
+            .setDuration(360L)
             .setInterpolator(AccelerateDecelerateInterpolator())
             .start()
     }

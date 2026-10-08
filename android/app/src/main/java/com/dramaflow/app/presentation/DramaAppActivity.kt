@@ -921,6 +921,14 @@ class DramaAppActivity : FragmentActivity() {
         colors,
     ).apply { cornerRadius = dp(radiusDp).toFloat() }
 
+    /**
+     * The Crown Road “Accelerate” control is the product's single primary-action treatment.
+     * Page-level cash, claim, watch and withdrawal actions reuse it rather than drifting into
+     * separate flat coral/red button variants.
+     */
+    internal fun primaryActionDrawable(): GradientDrawable =
+        gradientDrawable(intArrayOf(COLOR_ACCENT, COLOR_PURPLE), 13)
+
     internal fun roundedDrawable(color: Int, radiusDp: Int): GradientDrawable = GradientDrawable().apply {
         shape = GradientDrawable.RECTANGLE
         cornerRadius = dp(radiusDp).toFloat()

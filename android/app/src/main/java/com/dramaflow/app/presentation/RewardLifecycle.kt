@@ -328,7 +328,7 @@ internal fun DramaAppActivity.showWelcomeRewardDialog(snapshot: RewardsApiClient
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
-            background = gradientDrawable(intArrayOf(COLOR_CORAL, COLOR_SUNSET), 18)
+            background = primaryActionDrawable()
             setPadding(dp(18), dp(15), dp(18), dp(15))
             isClickable = true
             contentDescription = t("welcome_claim_hint")
@@ -448,8 +448,8 @@ internal fun DramaAppActivity.showCheckinRewardDialog(snapshot: RewardsApiClient
             textSize = 16f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            setTextColor(COLOR_TEXT_PRIMARY)
-            background = gradientDrawable(intArrayOf(COLOR_ACCENT, COLOR_PURPLE), 18)
+            setTextColor(Color.WHITE)
+            background = primaryActionDrawable()
             setPadding(dp(14), dp(13), dp(14), dp(13))
             setOnClickListener {
                 dialog.dismiss()
