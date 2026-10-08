@@ -137,6 +137,7 @@ def run() -> None:
         rows_payload = user_rows.json()["data"]
         assert rows_payload["total"] == 1
         assert rows_payload["rows"][0]["attribution"]["campaign"] == "launch"
+        assert rows_payload["rows"][0]["attribution"]["appsflyer_uid"] == "af-http-smoke"
 
         reporting_event = client.post(
             "/v2/operations/reporting-delivery-events",

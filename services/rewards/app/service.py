@@ -2619,6 +2619,7 @@ class RewardsService:
         if not status:
             return None
         return {
+            "appsflyer_uid": user.get("appsflyer_uid") or "",
             "af_status": status,
             "media_source": user.get("attribution_media_source") or "",
             "campaign": user.get("attribution_campaign") or "",
