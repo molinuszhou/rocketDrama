@@ -9,6 +9,7 @@ import android.view.ViewGroup
 import android.animation.ObjectAnimator
 import android.app.AlertDialog
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.view.ViewCompat
@@ -16,6 +17,7 @@ import com.bytedance.sdk.shortplay.api.EpisodeData
 import com.bytedance.sdk.shortplay.api.PSSDK
 import com.bytedance.sdk.shortplay.api.ShortPlayFragment
 import com.ss.ttvideoengine.Resolution
+import com.dramaflow.app.R
 import com.dramaflow.app.content.ShortDramaSdkManager
 import com.dramaflow.app.local.LocalDrama
 
@@ -122,6 +124,13 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
                 bottomMargin = dp(68)
             },
         )
+        root.addView(
+            createDiscoverEpisodeFloatButton(),
+            FrameLayout.LayoutParams(dp(82), dp(72), Gravity.END or Gravity.BOTTOM).apply {
+                marginEnd = dp(8)
+                bottomMargin = dp(160)
+            },
+        )
         root.addView(createBottomNavigation(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(68), Gravity.BOTTOM))
     } else {
         // PSSDK remains the actual player. These are JoyeDrama controls mapped only to public APIs.
@@ -195,6 +204,28 @@ private fun DramaAppActivity.createDiscoverDramaTitleEntry(): View = TextView(th
     setPadding(dp(16), 0, dp(16), 0)
     isClickable = true
     contentDescription = t("discover_open_episodes")
+    setOnClickListener { openDiscoverPreviewEpisodes() }
+}
+
+/** Secondary direct entry, visually floating over the preview like a native episode action. */
+private fun DramaAppActivity.createDiscoverEpisodeFloatButton(): View = LinearLayout(this).apply {
+    orientation = LinearLayout.VERTICAL
+    gravity = Gravity.CENTER
+    alpha = 0.96f
+    isClickable = true
+    contentDescription = t("discover_open_episodes")
+    addView(ImageView(this@createDiscoverEpisodeFloatButton).apply {
+        setImageResource(R.drawable.ic_episode_stack)
+        scaleType = ImageView.ScaleType.CENTER_INSIDE
+    }, LinearLayout.LayoutParams(dp(32), dp(32)))
+    addView(TextView(this@createDiscoverEpisodeFloatButton).apply {
+        text = t("episodes")
+        textSize = 12f
+        gravity = Gravity.CENTER
+        maxLines = 1
+        setTextColor(Color.WHITE)
+        setPadding(0, dp(4), 0, 0)
+    }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(24)))
     setOnClickListener { openDiscoverPreviewEpisodes() }
 }
 

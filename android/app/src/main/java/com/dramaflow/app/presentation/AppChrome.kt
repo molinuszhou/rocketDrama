@@ -311,17 +311,17 @@ internal fun DramaAppActivity.createPlayerAssetStrip(): View = LinearLayout(this
         addView(cash)
         val extraReward = TextView(this@createPlayerAssetStrip).apply {
             textSize = 11f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; maxLines = 1
-            setPadding(dp(8), dp(5), dp(29), dp(5)); contentDescription = t("bonus_cash")
+            setPadding(dp(9), dp(5), dp(30), dp(5)); contentDescription = t("bonus_cash")
         }
         playerWalletBoostButtons.add(extraReward)
         updatePlayerWalletBoostButton(extraReward)
         val extraSlot = FrameLayout(this@createPlayerAssetStrip).apply {
-            addView(extraReward, FrameLayout.LayoutParams(dp(112), dp(34), Gravity.CENTER))
+            addView(extraReward, FrameLayout.LayoutParams(dp(160), dp(34), Gravity.CENTER))
             val cooldown = ChargeCooldownRingView(this@createPlayerAssetStrip)
             walletChargeCooldownRings.add(cooldown); updateWalletChargeCooldownRing(cooldown)
             addView(cooldown, FrameLayout.LayoutParams(dp(26), dp(26), Gravity.END or Gravity.CENTER_VERTICAL).apply { marginEnd = dp(5) })
         }
-        addView(extraSlot, LinearLayout.LayoutParams(dp(112), dp(38)).apply { marginStart = dp(8) })
+        addView(extraSlot, LinearLayout.LayoutParams(dp(160), dp(38)).apply { marginStart = dp(8) })
     }
 
 internal fun DramaAppActivity.createTopSafePlayerAssetStrip(): View {
