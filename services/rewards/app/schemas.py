@@ -106,6 +106,14 @@ class RewardedSkippedRequest(BaseModel):
     context: str = Field(default="reward_prompt", min_length=1, max_length=64)
 
 
+class AdUnavailableEpisodeUnlockRequest(BaseModel):
+    """Consumes one non-financial episode pass only when the client exhausted ad delivery."""
+
+    user_id: str = Field(min_length=1, max_length=128)
+    episode_id: str = Field(min_length=1, max_length=256)
+    episode_index: int = Field(ge=1, le=10_000)
+
+
 class CheckinRequest(BaseModel):
     user_id: str = Field(min_length=1, max_length=128)
 
@@ -172,6 +180,7 @@ class RewardPolicyUpdateRequest(BaseModel):
     release_boost_percent: float | None = Field(default=None, gt=0.0, le=1.0)
     release_boost_daily_limit: int | None = Field(default=None, ge=0, le=100)
     release_boost_cooldown_seconds: int | None = Field(default=None, ge=0, le=3600)
+    ad_unavailable_episode_unlock_daily_limit: int | None = Field(default=None, ge=0, le=20)
     rv_daily_limit: int | None = Field(default=None, ge=0, le=1000)
     episode_interstitial_limit: int | None = Field(default=None, ge=0, le=10)
     interstitial_global_hourly_limit: int | None = Field(default=None, ge=0, le=120)

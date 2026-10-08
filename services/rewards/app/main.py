@@ -12,6 +12,7 @@ from app.migrations import apply_runtime_migrations
 from app.schemas import (
     ApiEnvelope,
     AdMediationEventRequest,
+    AdUnavailableEpisodeUnlockRequest,
     AttributionUpdateRequest,
     BootstrapRequest,
     CheckinRequest,
@@ -181,6 +182,18 @@ def claim_episode_task(payload: EpisodeTaskClaimRequest) -> dict:
 @app.post("/v2/ads/rewarded/skipped", response_model=ApiEnvelope)
 def rewarded_skipped(payload: RewardedSkippedRequest) -> dict:
     return {"code": 0, "data": service.record_rewarded_skipped(payload.user_id, payload.context)}
+
+
+@app.post("/v2/episodes/ad-unavailable-unlock", response_model=ApiEnvelope)
+def unlock_episode_when_ad_unavailable(payload: AdUnavailableEpisodeUnlockRequest) -> dict:
+    return {
+        "code": 0,
+        "data": service.allow_episode_unlock_when_ad_unavailable(
+            user_id=payload.user_id,
+            episode_id=payload.episode_id,
+            episode_index=payload.episode_index,
+        ),
+    }
 
 
 @app.post("/v2/checkins", response_model=ApiEnvelope)

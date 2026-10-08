@@ -54,6 +54,7 @@ def apply_runtime_migrations(settings: Settings) -> None:
             ("038_v1709_reporting_user_uid", sql_directory / "038_v1709_reporting_user_uid.sql"),
             ("039_v1710_user_geo_country", sql_directory / "039_v1710_user_geo_country.sql"),
             ("040_v1711_withdrawal_accounts", sql_directory / "040_v1711_withdrawal_accounts.sql"),
+            ("041_v1712_ad_unavailable_episode_unlocks", sql_directory / "041_v1712_ad_unavailable_episode_unlocks.sql"),
         )
     with psycopg.connect(settings.database_url, autocommit=True) as connection:
         with connection.cursor() as cursor:

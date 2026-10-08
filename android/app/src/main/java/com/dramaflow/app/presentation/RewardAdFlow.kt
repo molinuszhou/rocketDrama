@@ -75,6 +75,7 @@ internal fun DramaAppActivity.requestRewardedAction(
         episodeIndex: Int? = null,
         onSettled: ((RewardsApiClient.RewardAction) -> Unit)? = null,
         onSettlementUnavailable: ((String) -> Unit)? = null,
+        onAdUnavailable: ((String) -> Unit)? = null,
         fallbackToInterstitialWhenUnavailable: Boolean = true,
         deferCashAnimation: Boolean = true,
     ) {
@@ -151,16 +152,16 @@ internal fun DramaAppActivity.requestRewardedAction(
                     fullscreenAdInProgress = false
                     if (rewardedWasPresented) resumeAfterFullscreenAdIfNeeded()
                     val message = t("ad_loading_failed") + " ${result.reason}"
-                    if (fallbackToInterstitialWhenUnavailable) showRewardedFallbackInterstitial(wasPlayingBeforeRewarded, message, placementId, targetId, episodeIndex, onSettled, deferCashAnimation)
-                    else showRewardedUnavailableNotice(wasPlayingBeforeRewarded, message)
+                    if (fallbackToInterstitialWhenUnavailable) showRewardedFallbackInterstitial(wasPlayingBeforeRewarded, message, placementId, targetId, episodeIndex, onSettled, deferCashAnimation, onAdUnavailable)
+                    else if (onAdUnavailable != null) onAdUnavailable.invoke(message) else showRewardedUnavailableNotice(wasPlayingBeforeRewarded, message)
                 }
                 is TopOnAdsManager.RewardedResult.Failed -> {
                     if (deferCashAnimation) deferNextCashFlight = false
                     fullscreenAdInProgress = false
                     if (rewardedWasPresented) resumeAfterFullscreenAdIfNeeded()
                     val message = t("ad_loading_failed") + " (${result.code})"
-                    if (fallbackToInterstitialWhenUnavailable) showRewardedFallbackInterstitial(wasPlayingBeforeRewarded, message, placementId, targetId, episodeIndex, onSettled, deferCashAnimation)
-                    else showRewardedUnavailableNotice(wasPlayingBeforeRewarded, message)
+                    if (fallbackToInterstitialWhenUnavailable) showRewardedFallbackInterstitial(wasPlayingBeforeRewarded, message, placementId, targetId, episodeIndex, onSettled, deferCashAnimation, onAdUnavailable)
+                    else if (onAdUnavailable != null) onAdUnavailable.invoke(message) else showRewardedUnavailableNotice(wasPlayingBeforeRewarded, message)
                 }
             }
         } }
@@ -278,12 +279,15 @@ internal fun DramaAppActivity.showRewardedFallbackInterstitial(
         episodeIndex: Int? = null,
         onOriginalSettled: ((RewardsApiClient.RewardAction) -> Unit)? = null,
         deferCashAnimation: Boolean = true,
+        onUnavailable: ((String) -> Unit)? = null,
     ) {
         fullscreenAdInProgress = false
         fullscreenAdRequestInFlight = false
         episodeTransitionInProgress = false
         if (rewardsSnapshot?.interstitial?.rewardedFallbackEnabled != true) {
-            resumeAfterFullscreenAd = shouldResume; resumeAfterFullscreenAdIfNeeded(); toast(message); return
+            if (onUnavailable != null) onUnavailable.invoke(message)
+            else { resumeAfterFullscreenAd = shouldResume; resumeAfterFullscreenAdIfNeeded(); toast(message) }
+            return
         }
         // 失败回退是一条独立的例外插屏。只有该插屏实际展示并记录成功后，
         // 服务端才会按一次性账本结算原激励权益；加载失败绝不授予权益。
@@ -294,7 +298,10 @@ internal fun DramaAppActivity.showRewardedFallbackInterstitial(
             bypassSharedFrequencyCaps = true,
             resumePlaybackAfter = shouldResume,
             onShown = {},
-            onUnavailable = { reason -> logStatus("激励回退插屏未展示：$reason"); toast(message) },
+            onUnavailable = { reason ->
+                logStatus("激励回退插屏未展示：$reason")
+                if (onUnavailable != null) onUnavailable.invoke(message) else toast(message)
+            },
             onRecorded = { interstitialEventId ->
                 if (originalPlacementId == null) {
                     toast(message)

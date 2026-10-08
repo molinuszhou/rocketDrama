@@ -66,9 +66,9 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
     val container = FrameLayout(this).apply { id = View.generateViewId() }
     sdkPlayerContainerId = container.id
     root.addView(container, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT).apply {
-        // Discover keeps a non-immersive drama information panel plus its normal Tab bar below
-        // the provider viewport, matching the browse-feed hierarchy without hiding navigation.
-        if (previewOnly) bottomMargin = dp(220)
+        // Discover only reserves the persistent Tab bar. Its host information panel overlays the
+        // lower video area so the PSSDK viewport keeps its full, natural browsing height.
+        if (previewOnly) bottomMargin = dp(68)
     })
 
     val fragment = shortDramaSdk.createDetailFragment(
@@ -116,8 +116,8 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
     }
 
     if (previewOnly) {
-        // Discover follows the standard drama-feed layout: provider video, native host title and
-        // synopsis card, then an explicit full-episode row above the persistent bottom navigation.
+        // The title, synopsis and episode entry float over the lower edge of the provider video;
+        // their translucent gradient protects readability without reducing video height.
         root.addView(
             createDiscoverDramaInfoPanel(),
             FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(152), Gravity.BOTTOM).apply {
@@ -197,7 +197,10 @@ private fun DramaAppActivity.createDiscoverDramaInfoPanel(): View = LinearLayout
     val drama = selectedDrama
     orientation = LinearLayout.VERTICAL
     setPadding(dp(18), dp(10), dp(18), dp(4))
-    setBackgroundColor(Color.BLACK)
+    background = android.graphics.drawable.GradientDrawable(
+        android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+        intArrayOf(0x08000000, 0xD9000000.toInt(), 0xF2000000.toInt()),
+    )
     val openEpisodes = { openDiscoverPreviewEpisodes() }
     addView(TextView(this@createDiscoverDramaInfoPanel).apply {
         text = drama?.title?.takeIf { it.isNotBlank() } ?: t("watch_now")
@@ -499,6 +502,9 @@ internal fun DramaAppActivity.requestSdkEpisodeUnlock(
             episodeTransitionInProgress = false
             logStatus("PSSDK 分集解锁结算失败：$message")
             toast(t("unlock_settlement_pending_generic"))
+        },
+        onAdUnavailable = {
+            allowEpisodeUnlockAfterAdUnavailable(safeIndex) { listener?.onShortPlayUnlocked() }
         },
     )
 }

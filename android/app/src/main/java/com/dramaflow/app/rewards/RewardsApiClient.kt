@@ -493,6 +493,20 @@ class RewardsApiClient(
         }, onFailure)
     }
 
+    /** Non-financial, server-capped entitlement after rewarded and fallback inventory are unavailable. */
+    fun allowEpisodeUnlockAfterAdUnavailable(
+        userId: String,
+        episodeId: String,
+        episodeIndex: Int,
+        onSuccess: (Snapshot) -> Unit,
+        onFailure: (String) -> Unit,
+    ) = post(
+        "/v2/episodes/ad-unavailable-unlock",
+        JSONObject().put("user_id", userId).put("episode_id", episodeId).put("episode_index", episodeIndex),
+        { data -> onSuccess(parseSnapshot(data.getJSONObject("snapshot"))) },
+        onFailure,
+    )
+
     fun checkin(userId: String, onSuccess: (RewardAction) -> Unit, onFailure: (String) -> Unit) = post(
         "/v2/checkins", JSONObject().put("user_id", userId), { data ->
             val result = data.optJSONObject("result") ?: JSONObject()

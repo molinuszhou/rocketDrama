@@ -89,6 +89,53 @@ class RewardsService:
             user = self._one(connection, "SELECT * FROM users WHERE user_id = %s", (user_id,))
             return {"attribution": self._attribution_payload(user)}
 
+    def allow_episode_unlock_when_ad_unavailable(
+        self,
+        *,
+        user_id: str,
+        episode_id: str,
+        episode_index: int,
+    ) -> dict[str, Any]:
+        """Allow playback only after failed ad delivery, without creating any cash reward."""
+        with self._transaction() as connection:
+            self._ensure_user(connection, user_id)
+            business_date = self._business_date()
+            # Serialize same-user decisions before evaluating and consuming the daily cap.
+            self._daily_counter(connection, user_id, business_date, lock=True)
+            policy = self._policy(connection)
+            daily_limit = int(policy["ad_unavailable_episode_unlock_daily_limit"])
+            existing = self._one(
+                connection,
+                """SELECT 1 FROM ad_unavailable_episode_unlocks
+                   WHERE user_id = %s AND business_date = %s AND episode_id = %s""",
+                (user_id, business_date, episode_id),
+            )
+            if existing:
+                return {"idempotent": True, "daily_limit": daily_limit, "snapshot": self._snapshot(connection, user_id)}
+            if daily_limit <= 0:
+                raise ServiceError(1031, "广告不可用时的剧集放行当前未启用", 409)
+            used = int(self._one(
+                connection,
+                """SELECT COUNT(*) AS count FROM ad_unavailable_episode_unlocks
+                   WHERE user_id = %s AND business_date = %s""",
+                (user_id, business_date),
+            )["count"])
+            if used >= daily_limit:
+                raise ServiceError(1032, "今日广告不可用放行次数已用完，请稍后再试", 429)
+            self._execute(
+                connection,
+                """INSERT INTO ad_unavailable_episode_unlocks
+                   (user_id, business_date, episode_id, episode_index)
+                   VALUES (%s, %s, %s, %s)""",
+                (user_id, business_date, episode_id, episode_index),
+            )
+            return {
+                "idempotent": False,
+                "daily_limit": daily_limit,
+                "daily_used": used + 1,
+                "snapshot": self._snapshot(connection, user_id),
+            }
+
     def complete_rewarded_ad(
         self,
         *,
@@ -555,7 +602,7 @@ class RewardsService:
             "gem_damping_tier2_multiplier", "gem_damping_tier3_multiplier", "gem_damping_tier4_multiplier", "gem_damping_tier5_multiplier", "gem_damping_tier6_multiplier",
             "crown_rewarded_ads_per_episode", "crown_rewarded_daily_limit", "crown_episode_progress_points",
             "crown_rewarded_ad_progress_points", "crown_rewarded_cooldown_seconds", "release_boost_percent",
-            "release_boost_daily_limit", "release_boost_cooldown_seconds",
+            "release_boost_daily_limit", "release_boost_cooldown_seconds", "ad_unavailable_episode_unlock_daily_limit",
             "interstitial_global_hourly_limit",
         }
         changed = {key: value for key, value in updates.items() if key in allowed and value is not None}
@@ -2942,6 +2989,7 @@ class RewardsService:
             "release_boost_percent": float(policy["release_boost_percent"]),
             "release_boost_daily_limit": int(policy["release_boost_daily_limit"]),
             "release_boost_cooldown_seconds": int(policy.get("release_boost_cooldown_seconds", 30)),
+            "ad_unavailable_episode_unlock_daily_limit": int(policy.get("ad_unavailable_episode_unlock_daily_limit", 3)),
             "rv_daily_limit": int(policy["rv_daily_limit"]),
             "episode_interstitial_limit": int(policy["episode_interstitial_limit"]),
             "interstitial_global_hourly_limit": int(policy.get("interstitial_global_hourly_limit", 0)),

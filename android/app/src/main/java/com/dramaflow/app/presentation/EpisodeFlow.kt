@@ -233,8 +233,30 @@ internal fun DramaAppActivity.startEpisodeUnlockAfterConfirmation(index: Int, on
                 resumeAfterFullscreenAdIfNeeded()
                 toast(t("unlock_settlement_pending_generic"))
             },
+            onAdUnavailable = { allowEpisodeUnlockAfterAdUnavailable(index) { selectEpisode(index); onUnlocked() } },
         )
     }
+
+/** A no-fill/error pass is server-capped, auditable and deliberately carries no cash reward. */
+internal fun DramaAppActivity.allowEpisodeUnlockAfterAdUnavailable(index: Int, onUnlocked: () -> Unit) {
+    val episode = selectedDrama?.episodes?.getOrNull(index) ?: run {
+        episodeTransitionInProgress = false
+        return
+    }
+    rewardsApi.allowEpisodeUnlockAfterAdUnavailable(
+        userId = anonymousInstallationId(),
+        episodeId = episode.id,
+        episodeIndex = index + 1,
+        onSuccess = { snapshot -> runOnUiThread {
+            applyRewardsSnapshot(snapshot)
+            settleEpisodeUnlockAfterAd(index, unlockMethod = "AD_UNAVAILABLE", unlockCount = 1, onUnlocked = onUnlocked)
+        } },
+        onFailure = { reason -> runOnUiThread {
+            episodeTransitionInProgress = false
+            showRewardedUnavailableNotice(wasPlaybackActiveForAd(), reason)
+        } },
+    )
+}
 
 internal fun DramaAppActivity.handleEpisodeCompleted(index: Int) {
         val key = episodeKey(index)

@@ -54,6 +54,11 @@ def run() -> None:
             "SELECT version FROM schema_migrations WHERE version = '040_v1711_withdrawal_accounts'",
         )
         assert withdrawal_marker is not None
+        ad_unavailable_marker = service._one(  # noqa: SLF001
+            connection,
+            "SELECT version FROM schema_migrations WHERE version = '041_v1712_ad_unavailable_episode_unlocks'",
+        )
+        assert ad_unavailable_marker is not None
 
     user_id = f"v163-runtime-br-{uuid.uuid4()}"
     snapshot = service.bootstrap(user_id, "pt-BR")
@@ -105,6 +110,26 @@ def run() -> None:
         assert data["wallet"]["currency"]["code"] == "BRL"
         assert data["interstitial"]["mid_episode_trigger_seconds"] == 180
         assert data["interstitial"]["mid_episode_repeat_seconds"] == 360
+
+        unlock_user = f"v1712-ad-unavailable-{uuid.uuid4()}"
+        for episode_index in range(1, 4):
+            allowed = client.post(
+                "/v2/episodes/ad-unavailable-unlock",
+                json={"user_id": unlock_user, "episode_id": f"episode-{episode_index}", "episode_index": episode_index},
+            )
+            assert allowed.status_code == 200
+            assert allowed.json()["data"]["daily_used"] == episode_index
+        duplicate = client.post(
+            "/v2/episodes/ad-unavailable-unlock",
+            json={"user_id": unlock_user, "episode_id": "episode-3", "episode_index": 3},
+        )
+        assert duplicate.status_code == 200
+        assert duplicate.json()["data"]["idempotent"] is True
+        capped = client.post(
+            "/v2/episodes/ad-unavailable-unlock",
+            json={"user_id": unlock_user, "episode_id": "episode-4", "episode_index": 4},
+        )
+        assert capped.status_code == 429
 
         attribution_user = f"v1707-http-attribution-{uuid.uuid4()}"
         attribution_response = client.post(
@@ -215,7 +240,7 @@ def run() -> None:
         assert ad_rows.status_code == 200
         assert any(row["event_type"] == "PAID_REVENUE" for row in ad_rows.json()["data"]["recent_events"])
 
-    print("PostgreSQL v1.6.6.2 runtime-upgrade smoke test passed; welcome consolidation, fallback settlement and 60-second charge cooldowns verified")
+    print("PostgreSQL runtime-upgrade smoke test passed; fallback settlement, withdrawal accounts and capped ad-unavailable episode passes verified")
 
 
 if __name__ == "__main__":
