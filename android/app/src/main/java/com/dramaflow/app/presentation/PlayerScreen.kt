@@ -480,12 +480,13 @@ internal fun DramaAppActivity.createPlayerActionRow(): View = LinearLayout(this)
         val actions = listOf(
             Triple(t("episodes"), t("episodes")) { toggleEpisodePicker() },
             Triple("1x", t("speed")) { showPlaybackSpeedPicker() },
+            Triple(t("resolution_short"), t("resolution")) { showSdkResolutionPicker() },
             Triple(t("more"), t("more")) { showPlaybackMoreControls() },
             Triple(if (isFavorite()) "♥" else "♡", t("favorite")) { toggleFavorite() },
             Triple(t("hide"), t("hide")) { setPlayerControlsVisible(false) },
         )
         actions.forEachIndexed { index, action ->
-            val button = if (action.second == t("episodes") || action.second == t("more") || action.second == t("hide")) {
+            val button = if (action.second == t("episodes") || action.second == t("more") || action.second == t("hide") || action.second == t("resolution")) {
                 transparentPlayerTextButton(action.first, action.second, action.third)
             } else {
                 transparentPlayerIcon(action.first, action.second, action.third)

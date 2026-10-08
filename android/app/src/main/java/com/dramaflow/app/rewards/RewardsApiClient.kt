@@ -245,6 +245,7 @@ class RewardsApiClient(
         val threshold: String,
         val thresholdUsdReference: String = "0.00",
     )
+    data class WithdrawalAccount(val provider: String, val accountIdentifier: String, val linked: Boolean)
 
     data class Achievement(val code: String, val gems: Long, val entitlement: String, val cash: String = "0.00")
     data class LedgerEntry(val type: String, val gemsDelta: Long, val cashWalletDelta: String, val availableBalanceDelta: String, val createdAt: String)
@@ -328,6 +329,18 @@ class RewardsApiClient(
         attribution.toJson().put("user_id", userId),
         onSuccess = {},
         onFailure = onFailure,
+    )
+
+    fun saveWithdrawalAccount(userId: String, provider: String, accountIdentifier: String, onSuccess: (WithdrawalAccount) -> Unit, onFailure: (String) -> Unit) = post(
+        "/v2/withdrawals/account",
+        JSONObject().put("user_id", userId).put("provider", provider).put("account_identifier", accountIdentifier),
+        { data -> onSuccess(WithdrawalAccount(data.optString("provider"), data.optString("account_identifier"), data.optBoolean("linked"))) },
+        onFailure,
+    )
+
+    fun requestWithdrawal(userId: String, threshold: String, onSuccess: (JSONObject) -> Unit, onFailure: (String) -> Unit) = post(
+        "/v2/withdrawals/request",
+        JSONObject().put("user_id", userId).put("threshold", threshold), onSuccess, onFailure,
     )
 
     fun recordWatchEvent(

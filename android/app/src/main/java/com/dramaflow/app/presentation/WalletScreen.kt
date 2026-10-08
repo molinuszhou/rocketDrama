@@ -102,6 +102,12 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
             addView(TextView(this@createWithdrawalPage).apply {
                 text = t("wallet"); textSize = 25f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY)
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(TextView(this@createWithdrawalPage).apply {
+                text = if (getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getBoolean("withdrawal_account_linked", false)) t("linked") else t("link_account")
+                textSize = 12f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
+                setTextColor(COLOR_SUNSET); setPadding(dp(8), dp(8), dp(8), dp(8)); isClickable = true
+                setOnClickListener { showWithdrawalAccountDialog(this) }
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)))
         }, matchParams(bottom = 16))
         addView(LinearLayout(this@createWithdrawalPage).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(22), dp(20), dp(22), dp(20))
@@ -179,6 +185,12 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
                         textSize = 12f
                         setTextColor(0xCCFFFFFF.toInt())
                     })
+                    addView(TextView(this@createWithdrawalPage).apply {
+                        text = t("withdraw")
+                        textSize = 12f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
+                        setTextColor(COLOR_TEXT_PRIMARY); background = roundedDrawable(COLOR_ACCENT, 12); isClickable = true
+                        setOnClickListener { requestWithdrawalForGoal(wallet, rawGoal) }
+                    }, LinearLayout.LayoutParams(dp(84), dp(34)).apply { gravity = Gravity.END; topMargin = dp(7) })
                 }, matchParams(bottom = if (index == 3) 0 else 8))
             }
             addView(TextView(this@createWithdrawalPage).apply {
@@ -193,6 +205,43 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)).apply { topMargin = dp(14) })
         }, matchParams(bottom = 14))
     }
+
+private fun DramaAppActivity.showWithdrawalAccountDialog(linkButton: TextView) {
+    val providers = arrayOf("PAYPAL", "STRIPE", "LINK")
+    var selected = getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getString("withdrawal_provider", "PAYPAL") ?: "PAYPAL"
+    AlertDialog.Builder(this)
+        .setTitle(t("withdrawal_channel"))
+        .setSingleChoiceItems(providers.map { it.replaceFirstChar(Char::titlecase) }.toTypedArray(), providers.indexOf(selected).coerceAtLeast(0)) { dialog, which ->
+            selected = providers[which]
+            dialog.dismiss()
+            val input = EditText(this).apply { hint = t("withdrawal_account_hint"); setSingleLine(true); setTextColor(COLOR_TEXT_PRIMARY) }
+            AlertDialog.Builder(this).setTitle(t("withdrawal_account")).setView(input)
+                .setNegativeButton(t("cancel"), null)
+                .setPositiveButton(t("save")) { _, _ ->
+                    val account = input.text.toString().trim()
+                    rewardsApi.saveWithdrawalAccount(anonymousInstallationId(), selected, account, onSuccess = {
+                        getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit().putBoolean("withdrawal_account_linked", true).putString("withdrawal_provider", selected).apply()
+                        runOnUiThread { linkButton.text = t("linked"); toast(t("withdrawal_account_saved")) }
+                    }, onFailure = { message -> runOnUiThread { toast(message) } })
+                }.show()
+        }.setNegativeButton(t("cancel"), null).show()
+}
+
+private fun DramaAppActivity.requestWithdrawalForGoal(wallet: RewardsApiClient.Wallet, rawGoal: String) {
+    if (!getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getBoolean("withdrawal_account_linked", false)) {
+        toast(t("link_account_first")); return
+    }
+    rewardsApi.requestWithdrawal(anonymousInstallationId(), rawGoal, onSuccess = { result ->
+        runOnUiThread {
+            showBrandedChoiceDialog(
+                title = t("withdrawal_submitted"),
+                message = t("withdrawal_processing", result.optString("amount", rawGoal)),
+                primaryLabel = t("continue_earning"),
+                onPrimary = { requestRewardedAction("rv_release_boost", onSettled = { _ -> }) },
+            )
+        }
+    }, onFailure = { message -> runOnUiThread { toast(message) } })
+}
 
 internal fun DramaAppActivity.formatCurrencyAmount(wallet: RewardsApiClient.Wallet, amount: String, usdReference: String? = null, includeUsdReference: Boolean = false): String {
         val fractionDigits = wallet.currency.fractionDigits.coerceIn(0, 6)

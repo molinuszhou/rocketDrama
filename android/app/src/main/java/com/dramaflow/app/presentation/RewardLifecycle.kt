@@ -371,7 +371,7 @@ internal fun DramaAppActivity.formatWelcomeRewardCashValue(snapshot: RewardsApiC
     }
 
 internal fun DramaAppActivity.addWelcomeConfetti(host: FrameLayout) {
-        val colors = intArrayOf(COLOR_CORAL, COLOR_SUNSET, COLOR_AQUA, COLOR_PURPLE, 0xFFFFDB6A.toInt())
+        val colors = intArrayOf(COLOR_CORAL, COLOR_SUNSET, COLOR_AQUA, COLOR_PURPLE, 0xFFB7F29B.toInt())
         repeat(28) { index ->
             val dot = View(this).apply { background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(colors[index % colors.size]) }; alpha = 0f }
             val size = dp(8 + index % 5 * 2)

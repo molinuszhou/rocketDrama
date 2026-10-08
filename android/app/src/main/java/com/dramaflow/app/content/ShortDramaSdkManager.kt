@@ -247,7 +247,7 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
         }
         mainHandler.postDelayed(discoveryTimeout, DISCOVERY_TIMEOUT_MS)
 
-        PSSDK.requestPopularDrama(page.coerceAtLeast(FIRST_PAGE), pageSize, object : PSSDK.FeedListResultListener {
+        PSSDK.requestFeedList(page.coerceAtLeast(FIRST_PAGE), pageSize, object : PSSDK.FeedListResultListener {
             override fun onSuccess(result: PSSDK.FeedListLoadResult<ShortPlay>?) {
                 popular = result?.dataList.orEmpty().map(::toCard)
                 popularHasMore = result?.hasMore == true
@@ -255,7 +255,7 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
             }
 
             override fun onFail(error: PSSDK.ErrorInfo?) {
-                popularFailure = "热门 ${error?.code ?: -1} ${error?.msg.orEmpty()}"
+                popularFailure = "推荐 ${error?.code ?: -1} ${error?.msg.orEmpty()}"
                 tryDeliverContent()
             }
         })
@@ -368,6 +368,8 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
         needsEpisodeUnlock: (episodeIndex: Int) -> Boolean,
         requestEpisodeUnlock: (episodeIndex: Int, listener: PSSDK.ShortPlayBlockResultListener?) -> Unit,
         onEpisodeStarted: (episodeIndex: Int, episode: com.bytedance.sdk.shortplay.api.EpisodeData?) -> Unit,
+        onItemSelected: (episodeIndex: Int) -> Unit = {},
+        onPlaybackStateChanged: (episodeIndex: Int, state: Int) -> Unit = { _, _ -> },
         onEpisodeCompleted: (episodeIndex: Int) -> Unit,
         onPlaybackProgress: (episodeIndex: Int, progress: Int, duration: Int) -> Unit,
         onOverScroll: (direction: Int) -> Unit,
@@ -412,8 +414,8 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
                 override fun onShortPlayPlayed(shortPlay: ShortPlay?, episodeIndex: Int, episode: com.bytedance.sdk.shortplay.api.EpisodeData?) {
                     onEpisodeStarted(episodeIndex, episode)
                 }
-                override fun onItemSelected(position: Int, itemType: PSSDK.ShortPlayDetailPageListener.ItemType?, episodeIndex: Int) = Unit
-                override fun onVideoPlayStateChanged(shortPlay: ShortPlay?, episodeIndex: Int, state: Int) = Unit
+                override fun onItemSelected(position: Int, itemType: PSSDK.ShortPlayDetailPageListener.ItemType?, episodeIndex: Int) = onItemSelected(episodeIndex)
+                override fun onVideoPlayStateChanged(shortPlay: ShortPlay?, episodeIndex: Int, state: Int) = onPlaybackStateChanged(episodeIndex, state)
                 override fun onVideoPlayCompleted(shortPlay: ShortPlay?, episodeIndex: Int) {
                     onEpisodeCompleted(episodeIndex)
                 }

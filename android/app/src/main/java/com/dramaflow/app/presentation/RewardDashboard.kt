@@ -292,8 +292,8 @@ internal fun DramaAppActivity.createCrownLevelRow(level: RewardsApiClient.CrownP
     gravity = Gravity.CENTER_VERTICAL
     setPadding(dp(10), dp(10), dp(10), dp(10))
     background = roundedDrawable(when {
-        isCurrent -> 0xFF2B2112.toInt()
-        level.earned -> 0xFF1C1716.toInt()
+        isCurrent -> 0xFF153B2A.toInt()
+        level.earned -> 0xFF15271F.toInt()
         else -> COLOR_SURFACE
     }, 18)
     val iconColumn = LinearLayout(this@createCrownLevelRow).apply {

@@ -1,12 +1,15 @@
 package com.dramaflow.app.presentation
 
+import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.app.AlertDialog
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.core.view.ViewCompat
 import com.bytedance.sdk.shortplay.api.EpisodeData
 import com.bytedance.sdk.shortplay.api.PSSDK
@@ -63,6 +66,8 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
         needsEpisodeUnlock = ::needsUnlock,
         requestEpisodeUnlock = ::requestSdkEpisodeUnlock,
         onEpisodeStarted = { episodeIndex, episode -> onSdkEpisodeStarted(episodeIndex, episode) },
+        onItemSelected = { episodeIndex -> onSdkItemSelected(episodeIndex) },
+        onPlaybackStateChanged = { episodeIndex, state -> onSdkPlaybackStateChanged(episodeIndex, state) },
         onEpisodeCompleted = ::onSdkEpisodeCompleted,
         onPlaybackProgress = { episodeIndex, progress, duration -> onSdkPlaybackProgress(episodeIndex, progress, duration) },
         onOverScroll = ::onSdkOverScroll,
@@ -129,6 +134,64 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
         ViewCompat.requestApplyInsets(topBar)
         root.invalidate()
     }
+    showPlayerGestureCoachmarkIfNeeded()
+}
+
+private fun DramaAppActivity.onSdkItemSelected(episodeIndex: Int) {
+    currentEpisodeIndex = episodeIndex.coerceIn(0, selectedDrama?.episodes?.lastIndex ?: 0)
+    updateEpisodeStatus()
+    logStatus("PSSDK 选择分集：${episodeIndex + 1}")
+}
+
+private fun DramaAppActivity.onSdkPlaybackStateChanged(episodeIndex: Int, state: Int) {
+    currentEpisodeIndex = episodeIndex.coerceIn(0, selectedDrama?.episodes?.lastIndex ?: 0)
+    val playing = state == PSSDK.PLAYBACK_STATE_PLAY
+    sdkPlaybackActive = playing
+    playerIsPaused = !playing
+    updatePauseOverlayVisibility(!playing)
+}
+
+internal fun DramaAppActivity.showSdkResolutionPicker() {
+    val fragment = currentSdkPlayerFragment() ?: return
+    AlertDialog.Builder(this)
+        .setTitle(t("resolution"))
+        .setItems(arrayOf(t("resolution_data_saver"), t("resolution_hd"))) { _, which ->
+            val enumClass = runCatching { Class.forName("com.ss.ttvideoengine.Resolution") }.getOrNull()
+            val constants = enumClass?.enumConstants.orEmpty()
+            val wanted = if (which == 0) listOf("Standard", "SD", "LOW") else listOf("High", "HD", "FULL_HD")
+            val selected = constants.firstOrNull { value -> wanted.any { it.equals(value.toString(), ignoreCase = true) } }
+            if (selected == null || enumClass == null) {
+                toast(t("resolution_unavailable"))
+            } else {
+                runCatching { fragment.javaClass.getMethod("setResolution", enumClass).invoke(fragment, selected) }
+                    .onSuccess { toast(if (which == 0) t("resolution_data_saver_set") else t("resolution_hd_set")) }
+                    .onFailure { toast(t("resolution_unavailable")) }
+            }
+        }
+        .setNegativeButton(t("cancel"), null)
+        .show()
+}
+
+private fun DramaAppActivity.showPlayerGestureCoachmarkIfNeeded() {
+    if (getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getBoolean("player_gesture_coachmark_seen", false)) return
+    val coachmark = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
+        setPadding(dp(22), dp(18), dp(22), dp(18)); background = roundedDrawable(0xD9000000.toInt(), 22)
+        addView(TextView(this@showPlayerGestureCoachmarkIfNeeded).apply { text = "↕  ↔"; textSize = 34f; gravity = Gravity.CENTER; setTextColor(COLOR_SUNSET) })
+        addView(TextView(this@showPlayerGestureCoachmarkIfNeeded).apply { text = t("player_gesture_coachmark"); textSize = 15f; gravity = Gravity.CENTER; setTextColor(Color.WHITE); setPadding(0, dp(8), 0, 0) })
+        setOnClickListener { finishPlayerGestureCoachmark(this) }
+    }
+    root.addView(coachmark, FrameLayout.LayoutParams(dp(270), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+    coachmark.alpha = 0f
+    coachmark.animate().alpha(1f).setDuration(260L).withEndAction {
+        coachmark.animate().alpha(0.72f).setDuration(900L).withEndAction { coachmark.animate().alpha(1f).setDuration(900L).start() }.start()
+    }.start()
+    root.postDelayed({ if (coachmark.parent != null) finishPlayerGestureCoachmark(coachmark) }, 5_000L)
+}
+
+private fun DramaAppActivity.finishPlayerGestureCoachmark(view: View) {
+    (view.parent as? ViewGroup)?.removeView(view)
+    getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit().putBoolean("player_gesture_coachmark_seen", true).apply()
 }
 
 /** A small host-owned dock with the single authoritative player progress presentation. */
