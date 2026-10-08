@@ -216,10 +216,15 @@ class DramaAppActivity : FragmentActivity() {
     internal var catalogHasMorePages = false
     internal var catalogPageLoadInFlight = false
     /** The activity observes (but never consumes) PSSDK video swipes, preserving provider controls. */
-    private var pssdkSwipeDownX = 0f
-    private var pssdkSwipeDownY = 0f
-    private var pssdkSwipeCandidate = false
-    private var pssdkLastHorizontalSwipeAt = 0L
+    internal var pssdkSwipeDownX = 0f
+    internal var pssdkSwipeDownY = 0f
+    internal var pssdkSwipeCandidate = false
+    internal var pssdkLastHorizontalSwipeAt = 0L
+    /** Last provider-owned vertical gesture, used only to resolve a subsequent boundary callback. */
+    internal var pssdkLastVerticalSwipeAt = 0L
+    internal var pssdkLastVerticalSwipeWasUp = false
+    /** Prevents a just-replaced preview Fragment from firing a second title switch at its boundary. */
+    internal var pssdkLastPreviewDramaSwitchAt = 0L
     internal val completedEpisodeKeys = mutableSetOf<String>()
     internal val rewardWatchRecordedEpisodeKeys = mutableSetOf<String>()
     internal val floatingWheelLabels = mutableSetOf<TextView>()
@@ -346,22 +351,23 @@ class DramaAppActivity : FragmentActivity() {
 
     /**
      * PSSDK consumes its own View gestures, so the host observes raw touch events at the Activity
-     * boundary without returning `true`. This safely restores left/right title switching while
-     * leaving PSSDK vertical episode scrolling, seek bars and ad taps untouched.
+     * boundary without returning `true`. Full-player vertical gestures stay provider-owned; on the
+     * Discover first-episode preview, either vertical direction switches title. Only an upward
+     * preview gesture counts towards the three-switch interstitial policy.
      */
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
-        observePssdkHorizontalSwipe(event)
+        observePssdkSwipe(event)
         return super.dispatchTouchEvent(event)
     }
 
-    private fun observePssdkHorizontalSwipe(event: MotionEvent) {
+    private fun observePssdkSwipe(event: MotionEvent) {
         if (!sdkPlayerShown || fullscreenAdInProgress || fullscreenAdRequestInFlight) return
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 pssdkSwipeDownX = event.rawX
                 pssdkSwipeDownY = event.rawY
-                val topReserved = dp(142).toFloat()
-                val bottomReserved = (root.height - dp(150)).toFloat()
+                val topReserved = dp(if (sdkDiscoverPreviewActive) 24 else 142).toFloat()
+                val bottomReserved = (root.height - dp(if (sdkDiscoverPreviewActive) 170 else 150)).toFloat()
                 pssdkSwipeCandidate = event.rawY in topReserved..bottomReserved
             }
             MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_CANCEL -> pssdkSwipeCandidate = false
@@ -375,6 +381,23 @@ class DramaAppActivity : FragmentActivity() {
                     pssdkLastHorizontalSwipeAt = now
                     // Run after PSSDK receives the UP event; its current video view never loses the gesture.
                     root.post { if (sdkPlayerShown && !fullscreenAdInProgress) switchDramaBySwipe(forward = dx < 0f) }
+                } else if (kotlin.math.abs(dy) >= dp(84) && kotlin.math.abs(dy) > kotlin.math.abs(dx) * 1.35f && now - pssdkLastVerticalSwipeAt >= 650L) {
+                    val swipeWasUp = dy < 0f
+                    pssdkLastVerticalSwipeAt = now
+                    pssdkLastVerticalSwipeWasUp = swipeWasUp
+                    if (sdkDiscoverPreviewActive && now - pssdkLastPreviewDramaSwitchAt >= 800L) {
+                        // Browse preview titles in both directions. PSSDK still receives this gesture;
+                        // the timestamp below suppresses its stale boundary callback after replacement.
+                        pssdkLastPreviewDramaSwitchAt = now
+                        root.post {
+                            if (sdkPlayerShown && sdkDiscoverPreviewActive && !fullscreenAdInProgress) {
+                                switchDramaBySwipe(
+                                    forward = swipeWasUp,
+                                    countTowardInterstitial = swipeWasUp,
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

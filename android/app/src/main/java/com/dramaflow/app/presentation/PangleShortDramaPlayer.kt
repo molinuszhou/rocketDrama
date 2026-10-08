@@ -343,9 +343,22 @@ private fun DramaAppActivity.onSdkPlaybackProgress(episodeIndex: Int, rawProgres
 }
 
 private fun DramaAppActivity.onSdkOverScroll(direction: Int) {
-    // Let PSSDK own normal in-drama vertical gestures. A boundary callback is the safe point
-    // to change to the neighbouring JoyeDrama title and apply the existing switch policy.
-    if (direction != 0) switchDramaBySwipe(forward = direction > 0)
+    if (direction == 0 || !sdkPlayerShown) return
+    val now = android.os.SystemClock.elapsedRealtime()
+    if (sdkDiscoverPreviewActive) {
+        // PSSDK does not consistently emit a boundary callback for both vertical directions across
+        // devices. Prefer the raw gesture direction captured by the host, fall back to its callback
+        // direction, and ignore the callback if the Activity fallback just replaced this Fragment.
+        if (now - pssdkLastPreviewDramaSwitchAt < 800L) return
+        val capturedDirectionIsFresh = now - pssdkLastVerticalSwipeAt < 1_300L
+        val forward = if (capturedDirectionIsFresh) pssdkLastVerticalSwipeWasUp else direction > 0
+        pssdkLastPreviewDramaSwitchAt = now
+        switchDramaBySwipe(forward = forward, countTowardInterstitial = forward)
+        return
+    }
+    // Normal player vertical gestures are provider-owned. At a title boundary the callback is the
+    // safe point to move to a neighbouring JoyeDrama title while keeping existing ad policy intact.
+    switchDramaBySwipe(forward = direction > 0)
 }
 
 private fun DramaAppActivity.startNextSdkEpisodeAfterCompletion(completedIndex: Int) {
