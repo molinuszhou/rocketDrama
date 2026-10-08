@@ -180,11 +180,11 @@ internal fun DramaAppActivity.updatePlayerWalletBoostButton(button: TextView) {
         val cooldown = walletChargeCooldownRemainingSeconds()
         val available = wallet?.release?.boostAvailable == true && cooldown <= 0
         button.visibility = if (wallet == null) View.GONE else View.VISIBLE
-        button.text = if (cooldown > 0) t("charge_cooldown", cooldown) else t("extra_reward")
-        button.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_extra_reward_chest, 0, 0, 0)
-        button.compoundDrawablePadding = dp(4)
-        button.setTextColor(if (available) COLOR_CORAL else COLOR_TEXT_MUTED)
-        button.background = roundedDrawable(if (available) 0x22FF6D4A else COLOR_SURFACE, 13)
+        button.text = if (cooldown > 0) t("charge_cooldown", cooldown) else t("bonus_cash")
+        button.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_extra_reward_bonus, 0, 0, 0)
+        button.compoundDrawablePadding = dp(5)
+        button.setTextColor(if (available) COLOR_PURPLE else COLOR_TEXT_MUTED)
+        button.background = if (available) gradientDrawable(intArrayOf(0xFF4B2F1B.toInt(), 0xFF272027.toInt()), 13) else roundedDrawable(COLOR_SURFACE, 13)
         button.alpha = if (available) 1f else 0.72f
         button.isClickable = available
         button.setOnClickListener { if (available) showWalletReleaseBoostDialog() }
@@ -195,11 +195,11 @@ internal fun DramaAppActivity.updateWalletHeaderBoostButton(button: TextView) {
         val cooldown = walletChargeCooldownRemainingSeconds()
         val available = wallet?.release?.boostAvailable == true && cooldown <= 0
         button.visibility = if (wallet == null) View.GONE else View.VISIBLE
-        button.text = if (cooldown > 0) t("charge_cooldown", cooldown) else t("extra_reward")
-        button.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_extra_reward_chest, 0, 0, 0)
-        button.compoundDrawablePadding = dp(4)
-        button.setTextColor(if (available) COLOR_CORAL else COLOR_TEXT_MUTED)
-        button.background = roundedDrawable(if (available) 0x22FF6D4A else COLOR_SURFACE, 14)
+        button.text = if (cooldown > 0) t("charge_cooldown", cooldown) else t("bonus_cash")
+        button.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_extra_reward_bonus, 0, 0, 0)
+        button.compoundDrawablePadding = dp(5)
+        button.setTextColor(if (available) COLOR_PURPLE else COLOR_TEXT_MUTED)
+        button.background = if (available) gradientDrawable(intArrayOf(0xFF4B2F1B.toInt(), 0xFF272027.toInt()), 14) else roundedDrawable(COLOR_SURFACE, 14)
         button.alpha = if (available) 1f else 0.72f
         button.isClickable = available
         button.setOnClickListener { if (available) showWalletReleaseBoostDialog() }
@@ -220,7 +220,7 @@ internal fun DramaAppActivity.updateWalletChargeButton(button: TextView) {
         val wallet = rewardsSnapshot?.wallet
         val cooldown = walletChargeCooldownRemainingSeconds()
         val available = wallet?.release?.boostAvailable == true && cooldown <= 0
-        button.text = if (cooldown > 0) t("charge_cooldown", cooldown) else t("wallet_boost_action")
+        button.text = if (cooldown > 0) t("charge_cooldown", cooldown) else t("earn_extra_cash")
         button.setTextColor(if (available) Color.WHITE else COLOR_TEXT_MUTED)
         button.background = if (available) primaryActionDrawable() else roundedDrawable(COLOR_SURFACE, 13)
         button.alpha = if (available) 1f else 0.72f

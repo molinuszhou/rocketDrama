@@ -121,7 +121,20 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
             balanceRow.addView(ImageView(this@createWithdrawalPage).apply {
                 setImageResource(R.drawable.wallet_money); scaleType = ImageView.ScaleType.CENTER_INSIDE; contentDescription = t("wallet")
             }, LinearLayout.LayoutParams(dp(86), dp(86)))
-            addView(balanceRow)
+            addView(balanceRow, matchParams(bottom = 16))
+            val extraCashButton = TextView(this@createWithdrawalPage).apply {
+                textSize = 14f
+                typeface = Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER
+                setTextColor(Color.WHITE)
+                background = primaryActionDrawable()
+                contentDescription = t("earn_extra_cash")
+            }
+            walletChargeButtons.add(extraCashButton)
+            updateWalletChargeButton(extraCashButton)
+            addView(extraCashButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)).apply {
+                bottomMargin = dp(18)
+            })
             val balance = wallet.cashWallet.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO
             val usdBalance = wallet.availableBalanceUsdReference.toBigDecimalOrNull()
                 ?: wallet.cashWalletUsdReference.toBigDecimalOrNull()

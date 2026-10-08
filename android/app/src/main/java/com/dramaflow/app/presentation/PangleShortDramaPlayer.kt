@@ -115,6 +115,15 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
         // Discover is browseable rather than immersive: keep normal app navigation visible while
         // the resized PSSDK viewport leaves its native title/episode row unobscured above this bar.
         root.addView(createBottomNavigation(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(68), Gravity.BOTTOM))
+        // Native title / episode metadata can fade out while PSSDK playback is active. Keep one
+        // compact, title-free entry so the user can always open the full episode controls.
+        root.addView(
+            createDiscoverEpisodeEntry(),
+            FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42), Gravity.END or Gravity.BOTTOM).apply {
+                marginEnd = dp(14)
+                bottomMargin = dp(78)
+            },
+        )
     } else {
         // PSSDK remains the actual player. These are JoyeDrama controls mapped only to public APIs.
         // Retain references and explicitly raise them after the Fragment completes its asynchronous
@@ -161,6 +170,33 @@ internal fun DramaAppActivity.showSdkDiscoverPreview(drama: LocalDrama) {
         return
     }
     showSdkDramaPlayer(drama, card, startIndex = 0, resumePositionSeconds = 0, previewOnly = true)
+}
+
+/** Opens the existing preview at the current episode without duplicating PSSDK's title metadata. */
+private fun DramaAppActivity.openDiscoverPreviewEpisodes() {
+    val drama = selectedDrama ?: return
+    val card = sdkDramaCardsByCatalogId[drama.id] ?: return
+    showSdkDramaPlayer(
+        catalogDrama = drama,
+        card = card,
+        startIndex = currentEpisodeIndex,
+        resumePositionSeconds = playerProgressSeconds,
+        previewOnly = false,
+    )
+}
+
+private fun DramaAppActivity.createDiscoverEpisodeEntry(): View = TextView(this).apply {
+    text = "☰  ${t("discover_open_episodes")}"
+    textSize = 13f
+    typeface = android.graphics.Typeface.DEFAULT_BOLD
+    gravity = Gravity.CENTER
+    setTextColor(Color.WHITE)
+    setPadding(dp(14), 0, dp(14), 0)
+    background = roundedDrawable(0xD91A171B.toInt(), 18)
+    elevation = dp(5).toFloat()
+    isClickable = true
+    contentDescription = t("discover_open_episodes")
+    setOnClickListener { openDiscoverPreviewEpisodes() }
 }
 
 private fun DramaAppActivity.onSdkItemSelected(episodeIndex: Int) {

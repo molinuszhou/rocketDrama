@@ -634,6 +634,14 @@ class DramaAppActivity : FragmentActivity() {
                 root.addView(header, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(120), Gravity.TOP))
             }
         }
+        if (activeTab == MainTab.HOME) {
+            root.addView(
+                createHomeBrowseControls(),
+                FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(112), Gravity.TOP).apply {
+                    topMargin = dp(120)
+                },
+            )
+        }
         root.addView(createBottomNavigation(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(68), Gravity.BOTTOM))
         root.addView(createFloatingRewardWheel(), FrameLayout.LayoutParams(dp(130), dp(112), Gravity.END or Gravity.BOTTOM).apply {
             marginEnd = 0

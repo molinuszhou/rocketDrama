@@ -73,9 +73,6 @@ internal fun DramaAppActivity.createHomePage(): View = scrollPage { content ->
     val filtered = filteredCatalogItems()
     val recommended = recommendedCatalogItems()
     val primaryItems = if (selectedCatalogGenre == null) recommended else filtered
-    content.addView(createPageTitle(t("home"), t("home_greeting")), matchParams(bottom = 12))
-    content.addView(createSearchPrompt(), matchParams(bottom = 12))
-    content.addView(createCategoryTabs(), matchParams(bottom = 14))
     if (catalogItems.isEmpty()) {
         content.addView(createCatalogLoadingSkeleton(), matchParams(bottom = 18))
         return@scrollPage
@@ -242,7 +239,7 @@ internal fun DramaAppActivity.createProfileSectionHeader(
         })
     }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
     if (showAll) addView(TextView(this@createProfileSectionHeader).apply {
-        text = "${t("view_all")} ›"
+        text = "${t("all_history")} ›"
         textSize = 13f
         typeface = Typeface.DEFAULT_BOLD
         gravity = Gravity.CENTER
@@ -336,8 +333,12 @@ internal fun DramaAppActivity.createProfileHero(): View = LinearLayout(this).app
     }
 
 internal fun DramaAppActivity.scrollPage(build: (LinearLayout) -> Unit): View {
-        // 常规页面为固定资产栏预留 126dp 高度；奖励页使用自己的首屏 hero，因此从顶部开始。
-        val topInset = if (activeTab == MainTab.TASKS) 0 else 128
+        // 首页还固定展示搜索与分类；奖励页使用自己的首屏 hero，因此从顶部开始。
+        val topInset = when (activeTab) {
+            MainTab.HOME -> 240
+            MainTab.TASKS -> 0
+            else -> 128
+        }
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(topInset), dp(16), dp(94))

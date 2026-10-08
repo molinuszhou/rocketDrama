@@ -86,8 +86,8 @@ internal fun DramaAppActivity.createPersistentAssetHeader(): View {
                 gravity = Gravity.CENTER_VERTICAL; background = roundedDrawable(COLOR_CARD, 20); setPadding(dp(5), dp(4), dp(5), dp(4)); clipToOutline = true
                 addView(createAssetPill(icon = R.drawable.wallet_money, label = t("wallet_balance"), value = wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—", isGem = false) { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) }, LinearLayout.LayoutParams(0, dp(72), 1f))
                 val charge = TextView(this@createPersistentAssetHeader).apply {
-                    textSize = 10f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; maxLines = 1
-                    setPadding(dp(7), dp(5), dp(29), dp(5)); contentDescription = t("extra_reward")
+                    textSize = 11f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; maxLines = 1
+                    setPadding(dp(7), dp(5), dp(29), dp(5)); contentDescription = t("bonus_cash")
                 }
                 walletHeaderBoostButtons.add(charge)
                 updateWalletHeaderBoostButton(charge)
@@ -111,6 +111,17 @@ internal fun DramaAppActivity.createPersistentAssetHeader(): View {
         }
         ViewCompat.requestApplyInsets(shell)
         return shell
+    }
+
+/** Keeps Home discovery controls reachable beneath the persistent wallet while the catalogue scrolls. */
+internal fun DramaAppActivity.createHomeBrowseControls(): View = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(16), dp(4), dp(16), dp(8))
+        background = pageCanvasDrawable()
+        addView(createSearchPrompt(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)))
+        addView(createCategoryTabs(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply {
+            topMargin = dp(8)
+        })
     }
 
 internal fun DramaAppActivity.createAssetPill(icon: Int, label: String, value: String, isGem: Boolean, onClick: () -> Unit): View = LinearLayout(this).apply {
@@ -299,8 +310,8 @@ internal fun DramaAppActivity.createPlayerAssetStrip(): View = LinearLayout(this
         cashBalanceLabel = cash
         addView(cash)
         val extraReward = TextView(this@createPlayerAssetStrip).apply {
-            textSize = 10f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; maxLines = 1
-            setPadding(dp(8), dp(5), dp(29), dp(5)); contentDescription = t("extra_reward")
+            textSize = 11f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; maxLines = 1
+            setPadding(dp(8), dp(5), dp(29), dp(5)); contentDescription = t("bonus_cash")
         }
         playerWalletBoostButtons.add(extraReward)
         updatePlayerWalletBoostButton(extraReward)
