@@ -2525,6 +2525,13 @@ class RewardsService:
         enabled = bool(policy["withdrawal_enabled"])
         threshold = int(wallet_policy["withdrawal_threshold_micros"])
         available = int(user["cash_wallet_micros"])
+        # The app only needs to know that an account is linked and which channel to label.
+        # Never place the account identifier itself in a routine bootstrap response.
+        account = self._one(
+            connection,
+            "SELECT provider FROM withdrawal_accounts WHERE user_id = %s",
+            (user_id,),
+        )
         if not enabled:
             reason = "提现功能尚未启用；你的现金奖励会直接累计在钱包中。"
         elif available < threshold:
@@ -2538,6 +2545,8 @@ class RewardsService:
             "threshold": self._money(threshold, wallet_policy),
             "threshold_usd_reference": self._usd_reference_money(threshold, wallet_policy),
             "currency": self._currency_payload(wallet_policy),
+            "account_linked": account is not None,
+            "account_provider": account["provider"] if account else "",
         }
 
     def _credit_gems(

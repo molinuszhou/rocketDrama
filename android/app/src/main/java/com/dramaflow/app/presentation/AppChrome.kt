@@ -337,7 +337,13 @@ internal fun DramaAppActivity.createBottomNavigation(): View = LinearLayout(this
             val active = activeTab == tab
             addView(LinearLayout(this@createBottomNavigation).apply {
                 orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER; isClickable = true
-                setOnClickListener { if (activeTab != tab) { activeTab = tab; renderActiveTab() } }
+                setOnClickListener {
+                    if (activeTab != tab) {
+                        if (tab == MainTab.DISCOVER) discoverPreviewPresented = false
+                        activeTab = tab
+                        renderActiveTab()
+                    }
+                }
                 val icon = ImageView(this@createBottomNavigation).apply {
                     setImageResource(tab.iconRes)
                     imageTintList = ColorStateList.valueOf(if (active) COLOR_CORAL else COLOR_TEXT_MUTED)

@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.animation.ObjectAnimator
 import android.app.AlertDialog
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -14,6 +15,7 @@ import androidx.core.view.ViewCompat
 import com.bytedance.sdk.shortplay.api.EpisodeData
 import com.bytedance.sdk.shortplay.api.PSSDK
 import com.bytedance.sdk.shortplay.api.ShortPlayFragment
+import com.ss.ttvideoengine.Resolution
 import com.dramaflow.app.content.ShortDramaSdkManager
 import com.dramaflow.app.local.LocalDrama
 
@@ -30,6 +32,7 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
     card: ShortDramaSdkManager.DramaCard,
     startIndex: Int,
     resumePositionSeconds: Int = 0,
+    previewOnly: Boolean = false,
 ) {
     releasePlayer()
     configurePlayerWindow()
@@ -37,6 +40,8 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
         supportFragmentManager.beginTransaction().remove(fragment).commitNowAllowingStateLoss()
     }
     selectedDrama = catalogDrama
+    sdkDiscoverPreviewActive = previewOnly
+    playerReturnTab = if (previewOnly) DramaAppActivity.MainTab.DISCOVER else activeTab
     currentEpisodeIndex = startIndex.coerceIn(0, catalogDrama.episodes.lastIndex.coerceAtLeast(0))
     sdkPlayerShown = true
     sdkPlaybackActive = false
@@ -126,6 +131,13 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
         marginEnd = dp(14)
         bottomMargin = dp(16)
     })
+    if (previewOnly) {
+        root.addView(createDiscoverPreviewTitle(catalogDrama), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM).apply {
+            marginStart = dp(18)
+            marginEnd = dp(18)
+            bottomMargin = dp(118)
+        })
+    }
     root.post {
         topBar.bringToFront()
         controlDock.bringToFront()
@@ -135,6 +147,53 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
         root.invalidate()
     }
     showPlayerGestureCoachmarkIfNeeded()
+}
+
+/** Opens the provider's recommended first episode while preserving its native vertical episode browsing. */
+internal fun DramaAppActivity.showSdkDiscoverPreview(drama: LocalDrama) {
+    val card = sdkDramaCardsByCatalogId[drama.id] ?: run {
+        logStatus("PSSDK 推荐预览缺少内容映射：${drama.id}")
+        return
+    }
+    showSdkDramaPlayer(drama, card, startIndex = 0, resumePositionSeconds = 0, previewOnly = true)
+}
+
+private fun DramaAppActivity.createDiscoverPreviewTitle(drama: LocalDrama): View = LinearLayout(this).apply {
+    orientation = LinearLayout.VERTICAL
+    setPadding(dp(16), dp(11), dp(16), dp(11))
+    background = gradientDrawable(intArrayOf(0xE611271B.toInt(), 0xE60D1E14.toInt()), 18)
+    isClickable = true
+    contentDescription = "${drama.title} ${t("discover_preview_open")}".trim()
+    addView(TextView(this@createDiscoverPreviewTitle).apply {
+        text = drama.title
+        textSize = 18f
+        typeface = android.graphics.Typeface.DEFAULT_BOLD
+        maxLines = 1
+        ellipsize = android.text.TextUtils.TruncateAt.END
+        setTextColor(Color.WHITE)
+    })
+    addView(TextView(this@createDiscoverPreviewTitle).apply {
+        text = "${t("discover_preview")} · ${t("discover_preview_open")}"
+        textSize = 12f
+        maxLines = 1
+        ellipsize = android.text.TextUtils.TruncateAt.END
+        setTextColor(COLOR_PURPLE)
+        setPadding(0, dp(4), 0, 0)
+    })
+    setOnClickListener { openDiscoverPreviewAsFullPlayer() }
+}
+
+private fun DramaAppActivity.openDiscoverPreviewAsFullPlayer() {
+    if (!sdkDiscoverPreviewActive) return
+    val drama = selectedDrama ?: return
+    val card = sdkDramaCardsByCatalogId[drama.id] ?: return
+    showSdkDramaPlayer(
+        catalogDrama = drama,
+        card = card,
+        startIndex = currentEpisodeIndex,
+        resumePositionSeconds = playerProgressSeconds,
+        previewOnly = false,
+    )
 }
 
 private fun DramaAppActivity.onSdkItemSelected(episodeIndex: Int) {
@@ -153,39 +212,69 @@ private fun DramaAppActivity.onSdkPlaybackStateChanged(episodeIndex: Int, state:
 
 internal fun DramaAppActivity.showSdkResolutionPicker() {
     val fragment = currentSdkPlayerFragment() ?: return
-    AlertDialog.Builder(this)
-        .setTitle(t("resolution"))
-        .setItems(arrayOf(t("resolution_data_saver"), t("resolution_hd"))) { _, which ->
-            val enumClass = runCatching { Class.forName("com.ss.ttvideoengine.Resolution") }.getOrNull()
-            val constants = enumClass?.enumConstants.orEmpty()
-            val wanted = if (which == 0) listOf("Standard", "SD", "LOW") else listOf("High", "HD", "FULL_HD")
-            val selected = constants.firstOrNull { value -> wanted.any { it.equals(value.toString(), ignoreCase = true) } }
-            if (selected == null || enumClass == null) {
-                toast(t("resolution_unavailable"))
-            } else {
-                runCatching { fragment.javaClass.getMethod("setResolution", enumClass).invoke(fragment, selected) }
-                    .onSuccess { toast(if (which == 0) t("resolution_data_saver_set") else t("resolution_hd_set")) }
-                    .onFailure { toast(t("resolution_unavailable")) }
-            }
-        }
-        .setNegativeButton(t("cancel"), null)
-        .show()
+    // Resolution is part of PSSDK's public ShortPlayFragment contract. Calling it directly
+    // keeps the compiler checking this integration rather than silently failing through reflection.
+    showBrandedOptionsDialog(
+        title = t("resolution"),
+        items = listOf(t("resolution_data_saver"), t("resolution_hd")),
+    ) { which ->
+        val selected = if (which == 0) Resolution.Standard else Resolution.High
+        runCatching { fragment.setResolution(selected) }
+            .onSuccess { toast(if (which == 0) t("resolution_data_saver_set") else t("resolution_hd_set")) }
+            .onFailure { toast(t("resolution_unavailable")) }
+    }
 }
 
 private fun DramaAppActivity.showPlayerGestureCoachmarkIfNeeded() {
     if (getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getBoolean("player_gesture_coachmark_seen", false)) return
-    val coachmark = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
-        setPadding(dp(22), dp(18), dp(22), dp(18)); background = roundedDrawable(0xD9000000.toInt(), 22)
-        addView(TextView(this@showPlayerGestureCoachmarkIfNeeded).apply { text = "↕  ↔"; textSize = 34f; gravity = Gravity.CENTER; setTextColor(COLOR_SUNSET) })
-        addView(TextView(this@showPlayerGestureCoachmarkIfNeeded).apply { text = t("player_gesture_coachmark"); textSize = 15f; gravity = Gravity.CENTER; setTextColor(Color.WHITE); setPadding(0, dp(8), 0, 0) })
+    val coachmark = FrameLayout(this).apply {
+        background = android.graphics.drawable.ColorDrawable(0xAE000000.toInt())
+        isClickable = true
         setOnClickListener { finishPlayerGestureCoachmark(this) }
     }
-    root.addView(coachmark, FrameLayout.LayoutParams(dp(270), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+    val panel = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.CENTER
+        setPadding(dp(26), dp(22), dp(26), dp(20))
+        background = gradientDrawable(intArrayOf(0xF312271B.toInt(), 0xF20D1E14.toInt()), 26)
+        addView(TextView(this@showPlayerGestureCoachmarkIfNeeded).apply {
+            text = "☝"
+            textSize = 48f
+            gravity = Gravity.CENTER
+            setTextColor(COLOR_SUNSET)
+        }.also { hand ->
+            ObjectAnimator.ofFloat(hand, View.TRANSLATION_Y, dp(14).toFloat(), -dp(16).toFloat(), dp(14).toFloat()).apply {
+                duration = 1_160L
+                repeatCount = ObjectAnimator.INFINITE
+                start()
+            }
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(66)))
+        addView(TextView(this@showPlayerGestureCoachmarkIfNeeded).apply {
+            text = "↕     ↔"
+            textSize = 25f
+            gravity = Gravity.CENTER
+            setTextColor(COLOR_PURPLE)
+        })
+        addView(TextView(this@showPlayerGestureCoachmarkIfNeeded).apply {
+            text = t("player_gesture_coachmark_title")
+            textSize = 18f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            setPadding(0, dp(9), 0, 0)
+        })
+        addView(TextView(this@showPlayerGestureCoachmarkIfNeeded).apply {
+            text = t("player_gesture_coachmark")
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setTextColor(0xD9FFFFFF.toInt())
+            setPadding(0, dp(8), 0, 0)
+        })
+    }
+    coachmark.addView(panel, FrameLayout.LayoutParams(dp(292), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+    root.addView(coachmark, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
     coachmark.alpha = 0f
-    coachmark.animate().alpha(1f).setDuration(260L).withEndAction {
-        coachmark.animate().alpha(0.72f).setDuration(900L).withEndAction { coachmark.animate().alpha(1f).setDuration(900L).start() }.start()
-    }.start()
+    coachmark.animate().alpha(1f).setDuration(260L).start()
     root.postDelayed({ if (coachmark.parent != null) finishPlayerGestureCoachmark(coachmark) }, 5_000L)
 }
 
@@ -322,6 +411,7 @@ internal fun DramaAppActivity.dismissSdkDramaPlayerIfShown() {
         supportFragmentManager.beginTransaction().remove(fragment).commitNowAllowingStateLoss()
     }
     sdkPlayerShown = false
+    sdkDiscoverPreviewActive = false
     sdkPlaybackActive = false
     resumeSdkPlaybackWhenForeground = false
     sdkPlayerContainerId = View.NO_ID

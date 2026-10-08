@@ -357,7 +357,10 @@ internal fun DramaAppActivity.switchDramaBySwipe(forward: Boolean = true) {
         dramaSwitchSwipeCount += 1
         val policy = rewardsSnapshot?.interstitial
         val shouldShow = policy?.dramaSwitchEnabled == true && dramaSwitchSwipeCount % policy.dramaSwitchEveryCount == 0
-        val switch = { showPlayer(nextDrama, 0) }
+        val switch = {
+            if (sdkDiscoverPreviewActive) showSdkDiscoverPreview(nextDrama)
+            else showPlayer(nextDrama, 0)
+        }
         if (shouldShow) {
             showPlaybackActionInterstitial(
                 placementId = "int_drama_switch",

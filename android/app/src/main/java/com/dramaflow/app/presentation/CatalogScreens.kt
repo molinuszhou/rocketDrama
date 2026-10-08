@@ -160,6 +160,21 @@ internal fun DramaAppActivity.createDiscoverPage(): View = scrollPage { content 
             content.addView(createCatalogLoadingSkeleton(), matchParams(bottom = 18))
             return@scrollPage
         }
+        // PSSDK exposes a universal requestFeedList catalogue but no separately embeddable feed-player
+        // Fragment. Enter the first recommended detail page as a lightweight, title-tappable preview:
+        // its first episode starts immediately and the native vertical episode gestures remain intact.
+        if (!discoverPreviewPresented) {
+            primaryFeaturedDrama(recommended)?.let { previewDrama ->
+                discoverPreviewPresented = true
+                content.addView(createCatalogLoadingSkeleton(), matchParams(bottom = 18))
+                root.post {
+                    if (activeTab == MainTab.DISCOVER && !sdkPlayerShown && !isFinishing && !isDestroyed) {
+                        showSdkDiscoverPreview(previewDrama)
+                    }
+                }
+                return@scrollPage
+            }
+        }
         primaryFeaturedDrama(recommended)?.let { content.addView(createHeroBanner(it), matchParams(bottom = 22)) }
         content.addView(createSectionHeader(t("popular_this_week"), t("recommended_for_you")), matchParams(bottom = 12))
         if (recommended.isNotEmpty()) content.addView(createHorizontalDramaShelf(recommended.take(SHELF_ITEM_LIMIT)), matchParams(bottom = 22))

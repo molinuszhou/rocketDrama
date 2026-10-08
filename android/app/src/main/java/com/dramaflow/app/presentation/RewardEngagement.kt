@@ -85,7 +85,7 @@ internal fun DramaAppActivity.createFloatingRewardWheel(compact: Boolean = false
         }
         val label = TextView(this).apply {
             gravity = Gravity.CENTER; textSize = if (compact) 11f else 12f; typeface = Typeface.DEFAULT_BOLD
-            setTextColor(0xFFFFD35C.toInt()); setPadding(dp(10), dp(5), dp(10), dp(5)); background = gradientDrawable(intArrayOf(0xB8292027.toInt(), 0xA81D1D22.toInt()), 14)
+            setTextColor(COLOR_SUNSET); setPadding(dp(10), dp(5), dp(10), dp(5)); background = gradientDrawable(intArrayOf(0xB8102218.toInt(), 0xA8182820.toInt()), 14)
             alpha = 0.78f
             isClickable = true; setOnClickListener { gem.performClick() }
         }
@@ -155,7 +155,7 @@ internal fun DramaAppActivity.updateCrownSummaryChargeButton(button: TextView) {
         val available = next != null && cooldown <= 0
         button.text = if (cooldown > 0) t("cooling") else t("crown_accelerate")
         button.setTextColor(if (available) Color.WHITE else COLOR_TEXT_MUTED)
-        button.background = if (available) gradientDrawable(intArrayOf(COLOR_CORAL, 0xFFC42048.toInt()), 13) else roundedDrawable(COLOR_SURFACE, 13)
+        button.background = if (available) gradientDrawable(intArrayOf(COLOR_ACCENT, COLOR_PURPLE), 13) else roundedDrawable(COLOR_SURFACE, 13)
         button.alpha = if (available) 1f else 0.65f
         button.isClickable = available
         button.setOnClickListener { next?.takeIf { crownChargeCooldownRemainingSeconds() <= 0 }?.let(::showCrownRewardedUpgradeDialog) }
@@ -184,7 +184,7 @@ internal fun DramaAppActivity.updatePlayerWalletBoostButton(button: TextView) {
         button.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_wallet, 0, 0, 0)
         button.compoundDrawablePadding = dp(4)
         button.setTextColor(if (available) COLOR_CORAL else COLOR_TEXT_MUTED)
-        button.background = roundedDrawable(if (available) 0x22FF6D4A else COLOR_SURFACE, 13)
+        button.background = roundedDrawable(if (available) 0x2235C875 else COLOR_SURFACE, 13)
         button.alpha = if (available) 1f else 0.72f
         button.isClickable = available
         button.setOnClickListener { if (available) showWalletReleaseBoostDialog() }
@@ -199,7 +199,7 @@ internal fun DramaAppActivity.updateWalletHeaderBoostButton(button: TextView) {
         button.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_wallet, 0, 0, 0)
         button.compoundDrawablePadding = dp(4)
         button.setTextColor(if (available) COLOR_CORAL else COLOR_TEXT_MUTED)
-        button.background = roundedDrawable(if (available) 0x22FF6D4A else COLOR_SURFACE, 14)
+        button.background = roundedDrawable(if (available) 0x2235C875 else COLOR_SURFACE, 14)
         button.alpha = if (available) 1f else 0.72f
         button.isClickable = available
         button.setOnClickListener { if (available) showWalletReleaseBoostDialog() }
@@ -384,7 +384,7 @@ internal fun DramaAppActivity.createCheckinCard(): View {
 internal fun DramaAppActivity.createWelcomeRewardCard(snapshot: RewardsApiClient.Snapshot): View = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         setPadding(dp(18), dp(16), dp(18), dp(16))
-        background = gradientDrawable(intArrayOf(COLOR_CARD, 0xFF2A2116.toInt()), 20)
+        background = gradientDrawable(intArrayOf(COLOR_CARD, 0xFF1A2B1E.toInt()), 20)
         addView(TextView(this@createWelcomeRewardCard).apply { text = t("newcomer_reward"); textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
         addView(TextView(this@createWelcomeRewardCard).apply {
             text = "新人现金奖励 ${formatWelcomeRewardCashValue(snapshot) ?: "—"}"
@@ -482,7 +482,7 @@ internal fun DramaAppActivity.showCashRewardReceipt(amount: String, onConfirmed:
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER_HORIZONTAL
         setPadding(dp(24), dp(24), dp(24), dp(20))
-        background = gradientDrawable(intArrayOf(COLOR_CARD, 0xFF2A2116.toInt()), 28)
+        background = gradientDrawable(intArrayOf(COLOR_CARD, 0xFF1A2B1E.toInt()), 28)
     }
     card.addView(TextView(this).apply {
         text = t("cash_reward_received_title")
@@ -575,7 +575,7 @@ internal fun DramaAppActivity.createAchievementSummary(snapshot: RewardsApiClien
         val current = crowns.filter { it.earned }.maxByOrNull { it.levelRank }
         val next = crowns.firstOrNull { !it.earned }
         if (next == null) {
-            addView(TextView(this@createAchievementSummary).apply { text = t("crown_complete_title"); textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(0xFFFFDB6A.toInt()) })
+            addView(TextView(this@createAchievementSummary).apply { text = t("crown_complete_title"); textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_SUNSET) })
             addView(TextView(this@createAchievementSummary).apply { text = t("crown_complete_detail"); textSize = 13f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(7), 0, 0) })
         } else {
             addView(TextView(this@createAchievementSummary).apply {

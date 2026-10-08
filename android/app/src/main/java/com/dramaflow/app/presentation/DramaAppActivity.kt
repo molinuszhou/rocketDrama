@@ -83,6 +83,10 @@ class DramaAppActivity : FragmentActivity() {
     internal var categoryPageLoadInFlight = false
     internal var sdkPlayerShown = false
     internal var sdkPlayerContainerId = View.NO_ID
+    /** Discover opens one provider-feed preview per tab visit; tapping its title expands into the full player. */
+    internal var sdkDiscoverPreviewActive = false
+    internal var discoverPreviewPresented = false
+    internal var playerReturnTab: MainTab = MainTab.HOME
     internal var selectedCatalogGenre: String? = null
     internal var activeTab: MainTab = MainTab.HOME
     internal var withdrawalPageShown = false
@@ -650,7 +654,7 @@ class DramaAppActivity : FragmentActivity() {
         dismissSdkDramaPlayerIfShown()
         clearExternalAdReturnCheckpoint()
         playerShown = false
-        activeTab = MainTab.HOME
+        activeTab = playerReturnTab
         if (catalogItems.isNotEmpty()) renderActiveTab() else loadCatalog()
     }
 

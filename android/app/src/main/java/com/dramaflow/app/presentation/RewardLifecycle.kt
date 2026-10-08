@@ -27,6 +27,7 @@ import android.view.WindowManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
@@ -435,7 +436,7 @@ internal fun DramaAppActivity.showCheckinRewardDialog(snapshot: RewardsApiClient
             }
             textSize = 14f
             gravity = Gravity.CENTER
-            setTextColor(if (snapshot == null) COLOR_TEXT_MUTED else 0xFFFFDB6A.toInt())
+            setTextColor(if (snapshot == null) COLOR_TEXT_MUTED else COLOR_SUNSET)
             setPadding(0, dp(15), 0, dp(12))
         })
         val primary = TextView(this).apply {
@@ -489,23 +490,24 @@ internal fun DramaAppActivity.createCheckinTierStrip(snapshot: RewardsApiClient.
     val completedDays = snapshot?.checkinStreak ?: 0
     val signedToday = snapshot?.checkinSignedToday == true
     val todayIndex = ((snapshot?.checkinTodayIndex ?: 1).coerceAtLeast(1) - 1).coerceAtMost(tiers.lastIndex)
-    return LinearLayout(this).apply {
+    val track = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.CENTER
-        tiers.indices.forEachIndexed { slot, index ->
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(2), 0, dp(2), 0)
+        tiers.indices.forEach { index ->
             val isToday = snapshot != null && index == todayIndex
             val isDone = snapshot != null && index < completedDays.coerceAtMost(tiers.size)
             addView(LinearLayout(this@createCheckinTierStrip).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER
-                setPadding(dp(1), dp(7), dp(1), dp(7))
+                setPadding(dp(4), dp(8), dp(4), dp(8))
                 background = roundedDrawable(
                     when {
                         isToday -> COLOR_CORAL
                         isDone -> 0xFF2E473F.toInt()
                         else -> COLOR_SURFACE
                     },
-                    15,
+                    17,
                 )
                 addView(TextView(this@createCheckinTierStrip).apply {
                     text = when {
@@ -513,7 +515,7 @@ internal fun DramaAppActivity.createCheckinTierStrip(snapshot: RewardsApiClient.
                         isDone -> t("checkin_complete_short")
                         else -> "D${index + 1}"
                     }
-                    textSize = 9f
+                    textSize = 11f
                     typeface = Typeface.DEFAULT_BOLD
                     gravity = Gravity.CENTER
                     maxLines = 1
@@ -522,16 +524,22 @@ internal fun DramaAppActivity.createCheckinTierStrip(snapshot: RewardsApiClient.
                 })
                 addView(TextView(this@createCheckinTierStrip).apply {
                     text = if (snapshot == null) t("syncing") else formatRewardUnitsAsCash(snapshot, tiers[index].toLong())
-                    textSize = 10f
+                    textSize = 12f
                     typeface = Typeface.DEFAULT_BOLD
                     gravity = Gravity.CENTER
                     maxLines = 1
                     ellipsize = android.text.TextUtils.TruncateAt.END
-                    setTextColor(if (isToday) Color.WHITE else if (isDone) 0xFFFFDB6A.toInt() else COLOR_TEXT_PRIMARY)
+                    setTextColor(if (isToday) Color.WHITE else if (isDone) COLOR_SUNSET else COLOR_TEXT_PRIMARY)
                     setPadding(0, dp(4), 0, 0)
                 })
-            }, LinearLayout.LayoutParams(0, dp(66), 1f).apply { if (slot > 0) marginStart = dp(3) })
+            }, LinearLayout.LayoutParams(dp(96), dp(76)).apply { if (index > 0) marginStart = dp(7) })
         }
+    }
+    return HorizontalScrollView(this).apply {
+        isHorizontalScrollBarEnabled = false
+        overScrollMode = View.OVER_SCROLL_NEVER
+        addView(track, ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(76)))
+        post { scrollTo((todayIndex * dp(103) - dp(103)).coerceAtLeast(0), 0) }
     }
 }
 

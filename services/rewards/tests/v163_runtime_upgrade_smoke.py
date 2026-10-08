@@ -49,6 +49,11 @@ def run() -> None:
             "crown_rewarded_cooldown_seconds",
             "release_boost_cooldown_seconds",
         }
+        withdrawal_marker = service._one(  # noqa: SLF001
+            connection,
+            "SELECT version FROM schema_migrations WHERE version = '040_v1711_withdrawal_accounts'",
+        )
+        assert withdrawal_marker is not None
 
     user_id = f"v163-runtime-br-{uuid.uuid4()}"
     snapshot = service.bootstrap(user_id, "pt-BR")
@@ -126,6 +131,27 @@ def run() -> None:
         stored = bootstrap_with_attribution.json()["data"]["user"]["attribution"]
         assert stored["surface"] == "A"
         assert stored["campaign"] == "launch"
+
+        withdrawal_user = f"v1711-http-withdrawal-{uuid.uuid4()}"
+        account_response = client.post(
+            "/v2/withdrawals/account",
+            json={
+                "user_id": withdrawal_user,
+                "provider": "PAYPAL",
+                "account_identifier": "withdrawal-smoke@example.com",
+            },
+        )
+        assert account_response.status_code == 200
+        assert account_response.json()["data"]["linked"] is True
+        withdrawal_snapshot = client.post(
+            "/v2/bootstrap",
+            json={"user_id": withdrawal_user, "region": "US"},
+        )
+        assert withdrawal_snapshot.status_code == 200
+        withdrawal = withdrawal_snapshot.json()["data"]["withdrawal"]
+        assert withdrawal["account_linked"] is True
+        assert withdrawal["account_provider"] == "PAYPAL"
+        assert "account_identifier" not in withdrawal
 
         admin_headers = {"Authorization": "Bearer smoke-admin-token"}
         user_rows = client.get(
