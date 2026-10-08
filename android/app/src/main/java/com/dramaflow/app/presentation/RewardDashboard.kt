@@ -318,7 +318,7 @@ internal fun DramaAppActivity.createCrownLevelRow(level: RewardsApiClient.CrownP
         })
         addView(TextView(this@createCrownLevelRow).apply {
             text = t("crown_episode_cash", level.episodeRewardCash)
-            textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_SUNSET); setPadding(0, dp(3), 0, dp(5))
+            textSize = 17f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_SUNSET); setPadding(0, dp(3), 0, dp(6))
         })
         addView(ProgressBar(this@createCrownLevelRow, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100; progress = (level.progress * 100).toInt().coerceIn(0, 100)
@@ -326,19 +326,19 @@ internal fun DramaAppActivity.createCrownLevelRow(level: RewardsApiClient.CrownP
             backgroundTintList = ColorStateList.valueOf(0x553F342B)
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(5)))
         addView(TextView(this@createCrownLevelRow).apply {
-            text = t("crown_effective_progress", level.rounds.current, level.rounds.target)
-            textSize = 9f; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(4), 0, 0)
+            text = t("crown_progress_short", level.rounds.current, level.rounds.target)
+            textSize = 11f; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(4), 0, 0)
         })
         if (isCurrent) addView(TextView(this@createCrownLevelRow).apply {
             text = t("crown_progress_rule", level.episodeProgressPoints, level.rewardedAdProgressPoints)
-            textSize = 9f; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; setTextColor(COLOR_CORAL); setPadding(0, dp(2), 0, 0)
+            textSize = 10f; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; setTextColor(COLOR_CORAL); setPadding(0, dp(2), 0, 0)
         })
     }
     addView(middle, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(6) })
     val reward = LinearLayout(this@createCrownLevelRow).apply {
         orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL
         addView(ImageView(this@createCrownLevelRow).apply { setImageResource(R.drawable.ic_cash_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(30), dp(30)))
-        addView(TextView(this@createCrownLevelRow).apply { text = level.cash; textSize = 10f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_SUNSET); maxLines = 1 })
+        addView(TextView(this@createCrownLevelRow).apply { text = level.cash; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_SUNSET); maxLines = 1; includeFontPadding = false })
         if (level.earned) addView(TextView(this@createCrownLevelRow).apply { text = "✓"; textSize = 12f; gravity = Gravity.CENTER; setTextColor(COLOR_ACCENT) })
     }
     addView(reward, LinearLayout.LayoutParams(dp(58), ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(4) })
@@ -423,7 +423,7 @@ internal fun DramaAppActivity.createDailyBenefitsPanel(snapshot: RewardsApiClien
     }, LinearLayout.LayoutParams(dp(40), dp(40)))
     header.addView(TextView(this@createDailyBenefitsPanel).apply {
         text = t("checkin_seven_day_earn")
-        textSize = 18f
+        textSize = 20f
         typeface = Typeface.DEFAULT_BOLD
         gravity = Gravity.START or Gravity.CENTER_VERTICAL
         setTextColor(COLOR_TEXT_PRIMARY)
@@ -438,7 +438,7 @@ internal fun DramaAppActivity.createDailyBenefitsPanel(snapshot: RewardsApiClien
         gravity = Gravity.END or Gravity.CENTER_VERTICAL
         includeFontPadding = false
         maxLines = 1
-        setAutoSizeTextTypeUniformWithConfiguration(18, 28, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
+        setAutoSizeTextTypeUniformWithConfiguration(20, 31, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
     }, LinearLayout.LayoutParams(dp(128), dp(42)))
     addView(header, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
     addView(createCheckinTierStrip(snapshot), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(13) })

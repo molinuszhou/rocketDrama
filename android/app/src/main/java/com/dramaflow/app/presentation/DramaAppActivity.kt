@@ -90,6 +90,8 @@ class DramaAppActivity : FragmentActivity() {
     internal var selectedCatalogGenre: String? = null
     internal var activeTab: MainTab = MainTab.HOME
     internal var withdrawalPageShown = false
+    /** Profile history/favorites expands into a normal in-app secondary page. */
+    internal var profileCollectionPageShown = false
     internal var rewardsSnapshot: RewardsApiClient.Snapshot? = null
     internal var rewardsLoading = false
     internal var exoPlayer: ExoPlayer? = null
@@ -303,6 +305,11 @@ class DramaAppActivity : FragmentActivity() {
                 when {
                     withdrawalPageShown -> {
                         withdrawalPageShown = false
+                        renderActiveTab()
+                    }
+                    profileCollectionPageShown -> {
+                        profileCollectionPageShown = false
+                        activeTab = MainTab.PROFILE
                         renderActiveTab()
                     }
                     playerShown || sdkPlayerShown -> showCatalog()
@@ -576,6 +583,7 @@ class DramaAppActivity : FragmentActivity() {
 
     internal fun renderActiveTab() {
         withdrawalPageShown = false
+        profileCollectionPageShown = false
         playerShown = false
         configureCatalogWindow()
         gemBalanceAnchor = null
@@ -827,6 +835,7 @@ class DramaAppActivity : FragmentActivity() {
         playbackHistory.edit()
             .putInt(resumePreferenceKey(drama.id, "episode"), currentEpisodeIndex)
             .putInt(resumePreferenceKey(drama.id, "position"), safePosition)
+            .putLong(resumePreferenceKey(drama.id, "last_watched_at"), System.currentTimeMillis())
             .apply()
         lastPersistedPlaybackSecond = safePosition
     }
@@ -877,6 +886,7 @@ class DramaAppActivity : FragmentActivity() {
         playbackHistory.edit()
             .putInt(resumePreferenceKey(drama.id, "episode"), nextIndex)
             .putInt(resumePreferenceKey(drama.id, "position"), 0)
+            .putLong(resumePreferenceKey(drama.id, "last_watched_at"), System.currentTimeMillis())
             .apply()
     }
 

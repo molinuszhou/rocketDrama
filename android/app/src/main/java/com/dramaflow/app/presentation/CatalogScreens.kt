@@ -177,14 +177,20 @@ internal fun DramaAppActivity.primaryFeaturedDrama(recommended: List<LocalDrama>
 internal fun DramaAppActivity.createProfilePage(): View = scrollPage { content ->
         content.addView(createProfileHero(), matchParams(bottom = 16))
         content.addView(createSectionHeader(t("continue_watching"), t("home_subtitle")), matchParams(bottom = 12))
-        val watchedItems = catalogItems.filter { playbackHistory.contains(resumePreferenceKey(it.id, "episode")) }.take(4)
+        val watchedItems = recentWatchedDramas()
         if (watchedItems.isEmpty()) content.addView(createInlineNotice(t("watch_history_empty")), matchParams(bottom = 14))
-        else watchedItems.forEach { content.addView(createHistoryRow(it), matchParams(bottom = 10)) }
+        else {
+            watchedItems.take(3).forEach { content.addView(createHistoryRow(it), matchParams(bottom = 10)) }
+            if (watchedItems.size > 3) content.addView(createProfileViewAllRow(t("watch_history")) { showProfileCollectionPage(showFavorites = false) }, matchParams(bottom = 14))
+        }
 
         content.addView(createSectionHeader(t("favorites"), t("favorites_subtitle")), matchParams(top = 4, bottom = 12))
-        val favoriteItems = catalogItems.filter { favorites.getBoolean("favorite_${it.id}", false) }
+        val favoriteItems = favoriteDramas()
         if (favoriteItems.isEmpty()) content.addView(createInlineNotice(t("favorites_empty")), matchParams(bottom = 14))
-        else favoriteItems.forEach { content.addView(createFavoriteRow(it), matchParams(bottom = 10)) }
+        else {
+            favoriteItems.take(3).forEach { content.addView(createFavoriteRow(it), matchParams(bottom = 10)) }
+            if (favoriteItems.size > 3) content.addView(createProfileViewAllRow(t("favorites")) { showProfileCollectionPage(showFavorites = true) }, matchParams(bottom = 14))
+        }
 
         content.addView(createSectionHeader(t("my_services"), t("profile_subtitle")), matchParams(top = 4, bottom = 10))
         content.addView(createSettingsRow(t("settings"), t("privacy_terms"), "›") { showSettingsCenter() }, matchParams(bottom = 8))
@@ -195,6 +201,85 @@ internal fun DramaAppActivity.createProfilePage(): View = scrollPage { content -
         // to production users.
         addDebugAuditRows(content)
     }
+
+/** Recent viewing and favorites remain concise on the profile landing page, with a full secondary list on demand. */
+internal fun DramaAppActivity.recentWatchedDramas(): List<LocalDrama> = catalogItems
+    .filter { playbackHistory.contains(resumePreferenceKey(it.id, "episode")) }
+    .sortedByDescending { playbackHistory.getLong(resumePreferenceKey(it.id, "last_watched_at"), 0L) }
+
+internal fun DramaAppActivity.favoriteDramas(): List<LocalDrama> = catalogItems
+    .filter { favorites.getBoolean("favorite_${it.id}", false) }
+    .sortedByDescending { playbackHistory.getLong(resumePreferenceKey(it.id, "last_watched_at"), 0L) }
+
+internal fun DramaAppActivity.createProfileViewAllRow(title: String, onClick: () -> Unit): View = TextView(this).apply {
+    text = "${t("view_all")} $title  ›"
+    textSize = 14f
+    typeface = Typeface.DEFAULT_BOLD
+    gravity = Gravity.CENTER
+    setTextColor(COLOR_CORAL)
+    background = roundedDrawable(COLOR_SURFACE, 15)
+    isClickable = true
+    setOnClickListener { onClick() }
+}
+
+/** Full-screen secondary list with the ordinary wallet header and bottom navigation retained. */
+internal fun DramaAppActivity.showProfileCollectionPage(showFavorites: Boolean) {
+    profileCollectionPageShown = true
+    withdrawalPageShown = false
+    activeTab = MainTab.PROFILE
+    configureCatalogWindow()
+    gemBalanceAnchor = null
+    gemBalanceLabel = null
+    cashBalanceAnchor = null
+    cashBalanceLabel = null
+    val title = if (showFavorites) t("favorites") else t("watch_history")
+    val items = if (showFavorites) favoriteDramas() else recentWatchedDramas()
+    val content = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(16), dp(128), dp(16), dp(94))
+        val toolbar = LinearLayout(this@showProfileCollectionPage).apply { gravity = Gravity.CENTER_VERTICAL }
+        toolbar.addView(ImageView(this@showProfileCollectionPage).apply {
+            setImageResource(R.drawable.ic_arrow_back)
+            imageTintList = ColorStateList.valueOf(COLOR_TEXT_PRIMARY)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            contentDescription = t("back")
+            isClickable = true
+            setOnClickListener {
+                profileCollectionPageShown = false
+                renderActiveTab()
+            }
+        }, LinearLayout.LayoutParams(dp(40), dp(40)))
+        toolbar.addView(TextView(this@showProfileCollectionPage).apply {
+            text = title
+            textSize = 24f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(COLOR_TEXT_PRIMARY)
+            setPadding(dp(5), 0, 0, 0)
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        addView(toolbar, matchParams(bottom = 14))
+        if (items.isEmpty()) addView(createInlineNotice(if (showFavorites) t("favorites_empty") else t("watch_history_empty")))
+        else items.forEach { drama ->
+            addView(
+                if (showFavorites) createFavoriteRow(drama) else createHistoryRow(drama),
+                matchParams(bottom = 10),
+            )
+        }
+    }
+    val page = ScrollView(this).apply {
+        isFillViewport = true
+        background = pageCanvasDrawable()
+        addView(content, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+    }
+    catalogPage = page
+    root.removeAllViews()
+    root.addView(page, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+    root.addView(createPersistentAssetHeader(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(120), Gravity.TOP))
+    root.addView(createBottomNavigation(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(68), Gravity.BOTTOM))
+    root.addView(createFloatingRewardWheel(), FrameLayout.LayoutParams(dp(130), dp(112), Gravity.END or Gravity.BOTTOM).apply {
+        marginEnd = 0
+        bottomMargin = dp(80)
+    })
+}
 
 internal fun DramaAppActivity.createProfileHero(): View = LinearLayout(this).apply {
         gravity = Gravity.CENTER_VERTICAL; setPadding(dp(4), dp(8), dp(4), dp(4))

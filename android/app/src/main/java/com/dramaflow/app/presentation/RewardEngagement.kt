@@ -181,7 +181,7 @@ internal fun DramaAppActivity.updatePlayerWalletBoostButton(button: TextView) {
         val available = wallet?.release?.boostAvailable == true && cooldown <= 0
         button.visibility = if (wallet == null) View.GONE else View.VISIBLE
         button.text = if (cooldown > 0) t("charge_cooldown", cooldown) else t("extra_reward")
-        button.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_wallet, 0, 0, 0)
+        button.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_charge_bolt, 0, 0, 0)
         button.compoundDrawablePadding = dp(4)
         button.setTextColor(if (available) COLOR_CORAL else COLOR_TEXT_MUTED)
         button.background = roundedDrawable(if (available) 0x22FF6D4A else COLOR_SURFACE, 13)
@@ -196,7 +196,7 @@ internal fun DramaAppActivity.updateWalletHeaderBoostButton(button: TextView) {
         val available = wallet?.release?.boostAvailable == true && cooldown <= 0
         button.visibility = if (wallet == null) View.GONE else View.VISIBLE
         button.text = if (cooldown > 0) t("charge_cooldown", cooldown) else t("extra_reward")
-        button.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_wallet, 0, 0, 0)
+        button.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_charge_bolt, 0, 0, 0)
         button.compoundDrawablePadding = dp(4)
         button.setTextColor(if (available) COLOR_CORAL else COLOR_TEXT_MUTED)
         button.background = roundedDrawable(if (available) 0x22FF6D4A else COLOR_SURFACE, 14)

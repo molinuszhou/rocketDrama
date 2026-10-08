@@ -182,7 +182,9 @@ private fun DramaAppActivity.createDiscoverPreviewTitle(drama: LocalDrama): View
         textSize = 12f
         maxLines = 1
         ellipsize = android.text.TextUtils.TruncateAt.END
-        setTextColor(COLOR_PURPLE)
+        // Keep this supporting copy neutral so a continuously swiped title never reads as a
+        // green action affordance beside the warm product palette.
+        setTextColor(0xFF8D8D93.toInt())
         setPadding(0, dp(4), 0, 0)
     })
     setOnClickListener { openDiscoverPreviewAsFullPlayer() }

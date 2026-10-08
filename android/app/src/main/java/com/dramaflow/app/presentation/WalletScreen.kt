@@ -182,14 +182,20 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
                         textSize = 12f
                         typeface = Typeface.DEFAULT_BOLD
                         gravity = Gravity.CENTER
+                        setSingleLine(true)
+                        includeFontPadding = false
                         setTextColor(if (goalReached) Color.WHITE else COLOR_TEXT_MUTED)
                         background = roundedDrawable(if (goalReached) COLOR_ACCENT else 0x334D5A52, 12)
                         isClickable = true
                         setOnClickListener {
-                            if (goalReached) requestWithdrawalForGoal(wallet, rawGoal)
-                            else showCashoutGoalNotice(goalLabel, remainingUsd)
+                            showWithdrawalProgressDialog(
+                                wallet = wallet,
+                                rawGoal = rawGoal,
+                                goalLabel = goalLabel,
+                                balanceReached = goalReached,
+                            )
                         }
-                    }, LinearLayout.LayoutParams(dp(78), dp(32)))
+                    }, LinearLayout.LayoutParams(dp(92), dp(32)))
                     addView(goalRow)
                     addView(ProgressBar(this@createWithdrawalPage, null, android.R.attr.progressBarStyleHorizontal).apply {
                         max = 100
@@ -316,7 +322,15 @@ private fun DramaAppActivity.requestWithdrawalForGoal(wallet: RewardsApiClient.W
         toast(t("link_account_first")); return
     }
     rewardsApi.requestWithdrawal(anonymousInstallationId(), rawGoal, onSuccess = { result ->
-        runOnUiThread { showWithdrawalProgressDialog(result.optString("amount", rawGoal)) }
+        runOnUiThread {
+            showWithdrawalProgressDialog(
+                wallet = wallet,
+                rawGoal = rawGoal,
+                goalLabel = result.optString("amount", rawGoal),
+                balanceReached = true,
+                requestSubmitted = true,
+            )
+        }
     }, onFailure = { message -> runOnUiThread { toast(message) } })
 }
 
@@ -333,8 +347,20 @@ private fun DramaAppActivity.showCashoutGoalNotice(goalLabel: String, remainingU
     showBrandedChoiceDialog(t("withdraw"), message, t("done"))
 }
 
-private fun DramaAppActivity.showWithdrawalProgressDialog(amount: String) {
+/**
+ * Displays the withdrawal route for every goal tap.  An under-threshold balance is a real,
+ * actionable state rather than a dead-end message: the final CTA launches one wallet-boost ad
+ * and therefore consumes the same server-governed daily quota and cooldown as the wallet card.
+ */
+private fun DramaAppActivity.showWithdrawalProgressDialog(
+    wallet: RewardsApiClient.Wallet,
+    rawGoal: String,
+    goalLabel: String,
+    balanceReached: Boolean,
+    requestSubmitted: Boolean = false,
+) {
     val dialog = AlertDialog.Builder(this).create()
+    val animatedRows = mutableListOf<View>()
     val card = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER_HORIZONTAL
@@ -357,39 +383,61 @@ private fun DramaAppActivity.showWithdrawalProgressDialog(amount: String) {
             setPadding(0, dp(10), 0, 0)
         })
         addView(TextView(this@showWithdrawalProgressDialog).apply {
-            text = amount
+            text = goalLabel
             textSize = 36f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
             setTextColor(COLOR_SUNSET)
             setPadding(0, dp(5), 0, dp(16))
         })
-        listOf(
-            t("withdrawal_progress_submitted") to COLOR_ACCENT,
-            t("withdrawal_progress_review") to COLOR_SUNSET,
-            t("withdrawal_progress_pending") to COLOR_TEXT_MUTED,
-        ).forEachIndexed { index, (label, color) ->
-            addView(LinearLayout(this@showWithdrawalProgressDialog).apply {
+
+        data class ProgressStep(val label: String, val state: Int)
+        val steps = listOf(
+            ProgressStep(t("withdrawal_progress_submitted"), if (requestSubmitted) 2 else 1),
+            ProgressStep(t("withdrawal_progress_review"), if (requestSubmitted) 1 else 0),
+            ProgressStep(
+                if (balanceReached) t("withdrawal_progress_balance") else t("withdrawal_progress_insufficient"),
+                if (balanceReached) 2 else 3,
+            ),
+            ProgressStep(t("withdrawal_progress_pending"), if (requestSubmitted && balanceReached) 1 else 0),
+        )
+        steps.forEachIndexed { index, step ->
+            val (circleColor, marker, textColor) = when (step.state) {
+                2 -> Triple(COLOR_ACCENT, "✓", COLOR_TEXT_PRIMARY)
+                3 -> Triple(COLOR_SUNSET, "!", COLOR_TEXT_PRIMARY)
+                1 -> Triple(COLOR_SUNSET, "•", COLOR_TEXT_PRIMARY)
+                else -> Triple(COLOR_SURFACE, "•", COLOR_TEXT_MUTED)
+            }
+            val row = LinearLayout(this@showWithdrawalProgressDialog).apply {
                 gravity = Gravity.CENTER_VERTICAL
                 addView(TextView(this@showWithdrawalProgressDialog).apply {
-                    text = if (index == 0) "✓" else "•"
+                    text = marker
                     textSize = 16f
                     typeface = Typeface.DEFAULT_BOLD
                     gravity = Gravity.CENTER
                     setTextColor(Color.WHITE)
-                    background = roundedDrawable(color, 12)
+                    background = roundedDrawable(circleColor, 12)
                 }, LinearLayout.LayoutParams(dp(24), dp(24)))
                 addView(TextView(this@showWithdrawalProgressDialog).apply {
-                    text = label
+                    text = step.label
                     textSize = 14f
-                    typeface = if (index == 0) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-                    setTextColor(if (index == 2) COLOR_TEXT_MUTED else COLOR_TEXT_PRIMARY)
+                    typeface = if (step.state == 2 || step.state == 3) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+                    setTextColor(textColor)
                     setPadding(dp(10), 0, 0, 0)
                 })
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(34)))
+            }
+            row.alpha = 0f
+            row.translationY = dp(9).toFloat()
+            animatedRows += row
+            addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(34)))
         }
         addView(TextView(this@showWithdrawalProgressDialog).apply {
-            text = t("continue_earning")
+            text = when {
+                requestSubmitted -> t("done")
+                !balanceReached -> t("continue_earning")
+                !isWithdrawalAccountLinked() -> t("link_account")
+                else -> t("request_cashout")
+            }
             textSize = 15f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
@@ -397,10 +445,23 @@ private fun DramaAppActivity.showWithdrawalProgressDialog(amount: String) {
             background = roundedDrawable(COLOR_ACCENT, 18)
             isClickable = true
             setOnClickListener {
-                dialog.dismiss()
-                // The user explicitly chose to continue earning, so request one wallet-boost
-                // rewarded placement directly. Server-side quota/cooldown still governs it.
-                requestRewardedAction("rv_release_boost", onSettled = { _ -> })
+                when {
+                    requestSubmitted -> dialog.dismiss()
+                    !balanceReached -> {
+                        dialog.dismiss()
+                        // Directly use the existing wallet-boost action; the server continues to
+                        // enforce both the remaining daily count and the charge cooldown.
+                        requestWalletReleaseBoost()
+                    }
+                    !isWithdrawalAccountLinked() -> {
+                        dialog.dismiss()
+                        toast(t("link_account_first"))
+                    }
+                    else -> {
+                        dialog.dismiss()
+                        requestWithdrawalForGoal(wallet, rawGoal)
+                    }
+                }
             }
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)).apply { topMargin = dp(14) })
     }
@@ -410,6 +471,15 @@ private fun DramaAppActivity.showWithdrawalProgressDialog(amount: String) {
     dialog.window?.apply {
         setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
         setLayout((resources.displayMetrics.widthPixels * 0.88f).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
+    }
+    animatedRows.forEachIndexed { index, row ->
+        row.animate()
+            .alpha(1f)
+            .translationY(0f)
+            .setStartDelay((index * 130L) + 90L)
+            .setDuration(220L)
+            .setInterpolator(AccelerateDecelerateInterpolator())
+            .start()
     }
 }
 

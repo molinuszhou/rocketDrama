@@ -515,7 +515,7 @@ internal fun DramaAppActivity.createCheckinTierStrip(snapshot: RewardsApiClient.
                         isDone -> t("checkin_complete_short")
                         else -> "D${index + 1}"
                     }
-                    textSize = 11f
+                    textSize = 12f
                     typeface = Typeface.DEFAULT_BOLD
                     gravity = Gravity.CENTER
                     maxLines = 1
@@ -524,7 +524,7 @@ internal fun DramaAppActivity.createCheckinTierStrip(snapshot: RewardsApiClient.
                 })
                 addView(TextView(this@createCheckinTierStrip).apply {
                     text = if (snapshot == null) t("syncing") else formatRewardUnitsAsCash(snapshot, tiers[index].toLong())
-                    textSize = 12f
+                    textSize = 14f
                     typeface = Typeface.DEFAULT_BOLD
                     gravity = Gravity.CENTER
                     maxLines = 1
@@ -532,14 +532,14 @@ internal fun DramaAppActivity.createCheckinTierStrip(snapshot: RewardsApiClient.
                     setTextColor(if (isToday) Color.WHITE else if (isDone) COLOR_SUNSET else COLOR_TEXT_PRIMARY)
                     setPadding(0, dp(4), 0, 0)
                 })
-            }, LinearLayout.LayoutParams(dp(96), dp(76)).apply { if (index > 0) marginStart = dp(7) })
+            }, LinearLayout.LayoutParams(dp(102), dp(82)).apply { if (index > 0) marginStart = dp(8) })
         }
     }
     return HorizontalScrollView(this).apply {
         isHorizontalScrollBarEnabled = false
         overScrollMode = View.OVER_SCROLL_NEVER
-        addView(track, ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(76)))
-        post { scrollTo((todayIndex * dp(103) - dp(103)).coerceAtLeast(0), 0) }
+        addView(track, ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(82)))
+        post { scrollTo((todayIndex * dp(110) - dp(110)).coerceAtLeast(0), 0) }
     }
 }
 
