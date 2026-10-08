@@ -219,9 +219,9 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
 
 private fun DramaAppActivity.showWithdrawalAccountDialog(linkButton: TextView) {
     val providers = listOf(
-        Triple("PAYPAL", "P", 0xFF2276D2.toInt()),
-        Triple("STRIPE", "S", 0xFF6755D6.toInt()),
-        Triple("LINK", "L", COLOR_ACCENT),
+        Triple("PAYPAL", R.drawable.ic_withdraw_paypal, 0xFF2276D2.toInt()),
+        Triple("STRIPE", R.drawable.ic_withdraw_stripe, 0xFF6755D6.toInt()),
+        Triple("LINK", R.drawable.ic_withdraw_link, COLOR_ACCENT),
     )
     val selected = getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getString("withdrawal_provider", "PAYPAL") ?: "PAYPAL"
     val dialog = AlertDialog.Builder(this).create()
@@ -242,18 +242,17 @@ private fun DramaAppActivity.showWithdrawalAccountDialog(linkButton: TextView) {
             setPadding(0, dp(7), 0, dp(14))
         })
     }
-    providers.forEachIndexed { index, (provider, mark, color) ->
+    providers.forEachIndexed { index, (provider, iconRes, color) ->
         card.addView(LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(12), dp(9), dp(12), dp(9))
             background = roundedDrawable(if (provider == selected) 0x2635C875 else COLOR_SURFACE, 16)
             isClickable = true
-            addView(TextView(this@showWithdrawalAccountDialog).apply {
-                text = mark
-                textSize = 19f
-                typeface = Typeface.DEFAULT_BOLD
-                gravity = Gravity.CENTER
-                setTextColor(Color.WHITE)
+            addView(ImageView(this@showWithdrawalAccountDialog).apply {
+                setImageResource(iconRes)
+                scaleType = ImageView.ScaleType.CENTER_INSIDE
+                setPadding(dp(7), dp(7), dp(7), dp(7))
+                contentDescription = provider.replaceFirstChar(Char::titlecase)
                 background = roundedDrawable(color, 15)
             }, LinearLayout.LayoutParams(dp(38), dp(38)))
             addView(LinearLayout(this@showWithdrawalAccountDialog).apply {
