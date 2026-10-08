@@ -116,6 +116,7 @@ object AppLanguage {
         "watch_ad_checkin" to all("Watch ad to check in", "Ver anúncio para fazer check-in", "Ver anuncio para registrarse", "Regarder une pub pour s'enregistrer", "Tonton iklan untuk check-in", "看广告签到", "看廣告簽到"),
         "episodes" to all("Episodes", "Episódios", "Episodios", "Épisodes", "Episode", "选集", "選集"),
         "discover_open_episodes" to all("Episodes", "Episódios", "Episodios", "Épisodes", "Episode", "进入剧集", "進入劇集"),
+        "discover_all_episodes" to all("All %d Ep. · %s", "Todos os %d ep. · %s", "Todos los %d ep. · %s", "Les %d épisodes · %s", "Semua %d Ep. · %s", "全部 %d 集 · %s", "全部 %d 集 · %s"),
         "speed" to all("Speed", "Velocidade", "Velocidad", "Vitesse", "Kecepatan", "倍速", "倍速"),
         "resolution" to all("Quality", "Qualidade", "Calidad", "Qualité", "Kualitas", "画质", "畫質"),
         "resolution_short" to all("HD", "HD", "HD", "HD", "HD", "画质", "畫質"),

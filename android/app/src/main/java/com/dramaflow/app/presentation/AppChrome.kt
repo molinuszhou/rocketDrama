@@ -85,21 +85,22 @@ internal fun DramaAppActivity.createPersistentAssetHeader(): View {
             val balanceBar = LinearLayout(this@createPersistentAssetHeader).apply {
                 gravity = Gravity.CENTER_VERTICAL; background = roundedDrawable(COLOR_CARD, 20); setPadding(dp(5), dp(4), dp(5), dp(4)); clipToOutline = true
                 addView(createAssetPill(icon = R.drawable.wallet_money, label = t("wallet_balance"), value = wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—", isGem = false) { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) }, LinearLayout.LayoutParams(0, dp(72), 1f))
-                val charge = TextView(this@createPersistentAssetHeader).apply {
-                    textSize = 11f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; maxLines = 1
-                    setPadding(dp(7), dp(5), dp(29), dp(5)); contentDescription = t("bonus_cash")
-                }
-                walletHeaderBoostButtons.add(charge)
-                updateWalletHeaderBoostButton(charge)
-                val chargeSlot = FrameLayout(this@createPersistentAssetHeader).apply {
-                    addView(charge, FrameLayout.LayoutParams(dp(116), dp(46), Gravity.CENTER))
-                    val cooldown = ChargeCooldownRingView(this@createPersistentAssetHeader)
-                    walletChargeCooldownRings.add(cooldown); updateWalletChargeCooldownRing(cooldown)
-                    addView(cooldown, FrameLayout.LayoutParams(dp(30), dp(30), Gravity.END or Gravity.CENTER_VERTICAL).apply { marginEnd = dp(5) })
-                }
-                addView(chargeSlot, LinearLayout.LayoutParams(dp(120), dp(60)).apply { marginStart = dp(4) })
             }
-            addView(balanceBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(76)))
+            addView(balanceBar, LinearLayout.LayoutParams(0, dp(76), 1f))
+            val charge = TextView(this@createPersistentAssetHeader).apply {
+                textSize = 11f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; maxLines = 1
+                setPadding(dp(5), dp(5), dp(5), dp(5)); contentDescription = t("bonus_cash")
+            }
+            walletHeaderBoostButtons.add(charge)
+            updateWalletHeaderBoostButton(charge)
+            val chargeSlot = LinearLayout(this@createPersistentAssetHeader).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                addView(charge, LinearLayout.LayoutParams(0, dp(46), 1f))
+                val cooldown = ChargeCooldownRingView(this@createPersistentAssetHeader)
+                walletChargeCooldownRings.add(cooldown); updateWalletChargeCooldownRing(cooldown)
+                addView(cooldown, LinearLayout.LayoutParams(dp(28), dp(28)).apply { marginStart = dp(2) })
+            }
+            addView(chargeSlot, LinearLayout.LayoutParams(dp(126), dp(60)).apply { marginStart = dp(6) })
         }
         shell.addView(row, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(76), Gravity.TOP).apply { topMargin = dp(30) })
         ViewCompat.setOnApplyWindowInsetsListener(shell) { _, insets ->
@@ -311,15 +312,16 @@ internal fun DramaAppActivity.createPlayerAssetStrip(): View = LinearLayout(this
         addView(cash)
         val extraReward = TextView(this@createPlayerAssetStrip).apply {
             textSize = 11f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; maxLines = 1
-            setPadding(dp(9), dp(5), dp(30), dp(5)); contentDescription = t("bonus_cash")
+            setPadding(dp(5), dp(5), dp(5), dp(5)); contentDescription = t("bonus_cash")
         }
         playerWalletBoostButtons.add(extraReward)
         updatePlayerWalletBoostButton(extraReward)
-        val extraSlot = FrameLayout(this@createPlayerAssetStrip).apply {
-            addView(extraReward, FrameLayout.LayoutParams(dp(160), dp(34), Gravity.CENTER))
+        val extraSlot = LinearLayout(this@createPlayerAssetStrip).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            addView(extraReward, LinearLayout.LayoutParams(0, dp(34), 1f))
             val cooldown = ChargeCooldownRingView(this@createPlayerAssetStrip)
             walletChargeCooldownRings.add(cooldown); updateWalletChargeCooldownRing(cooldown)
-            addView(cooldown, FrameLayout.LayoutParams(dp(26), dp(26), Gravity.END or Gravity.CENTER_VERTICAL).apply { marginEnd = dp(5) })
+            addView(cooldown, LinearLayout.LayoutParams(dp(26), dp(26)).apply { marginStart = dp(2) })
         }
         addView(extraSlot, LinearLayout.LayoutParams(dp(160), dp(38)).apply { marginStart = dp(8) })
     }

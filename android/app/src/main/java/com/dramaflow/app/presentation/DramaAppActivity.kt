@@ -85,6 +85,8 @@ class DramaAppActivity : FragmentActivity() {
     internal var sdkPlayerContainerId = View.NO_ID
     /** Discover opens one provider-feed preview per tab visit; tapping its title expands into the full player. */
     internal var sdkDiscoverPreviewActive = false
+    /** Compact playback indicator rendered below the Discover preview video. */
+    internal var discoverPreviewProgressBar: ProgressBar? = null
     internal var discoverPreviewPresented = false
     internal var playerReturnTab: MainTab = MainTab.HOME
     internal var selectedCatalogGenre: String? = null
@@ -191,7 +193,7 @@ class DramaAppActivity : FragmentActivity() {
     internal var fullscreenAdInProgress = false
     /** Blocks duplicate ad requests while the network loads; playback continues until a creative is ready. */
     internal var fullscreenAdRequestInFlight = false
-    /** Reserved for explicit full-screen transitions; ordinary ad network loading does not show this overlay. */
+    /** Blocks the host while a full-screen ad request is resolving. */
     internal var fullscreenAdLoadingOverlay: View? = null
     internal var episodeTransitionInProgress = false
     internal var resumeAfterFullscreenAd = false

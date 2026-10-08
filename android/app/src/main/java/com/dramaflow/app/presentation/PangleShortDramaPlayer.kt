@@ -11,6 +11,7 @@ import android.app.AlertDialog
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.core.view.ViewCompat
 import com.bytedance.sdk.shortplay.api.EpisodeData
@@ -60,13 +61,14 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
     playerShown = true
     root.removeAllViews()
     root.setBackgroundColor(Color.BLACK)
+    discoverPreviewProgressBar = null
 
     val container = FrameLayout(this).apply { id = View.generateViewId() }
     sdkPlayerContainerId = container.id
     root.addView(container, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT).apply {
-        // Discover reserves a title entry strip plus its normal Tab bar below the PSSDK viewport.
-        // This avoids covering provider controls while keeping the host navigation reachable.
-        if (previewOnly) bottomMargin = dp(112)
+        // Discover keeps a non-immersive drama information panel plus its normal Tab bar below
+        // the provider viewport, matching the browse-feed hierarchy without hiding navigation.
+        if (previewOnly) bottomMargin = dp(220)
     })
 
     val fragment = shortDramaSdk.createDetailFragment(
@@ -114,21 +116,19 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
     }
 
     if (previewOnly) {
-        // Discover is browseable rather than immersive: use the gap above the normal Tab bar for
-        // the current drama title. This is the direct entry to the full episode controls.
+        // Discover follows the standard drama-feed layout: provider video, native host title and
+        // synopsis card, then an explicit full-episode row above the persistent bottom navigation.
         root.addView(
-            createDiscoverDramaTitleEntry(),
-            FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44), Gravity.BOTTOM).apply {
-                marginStart = dp(16)
-                marginEnd = dp(16)
+            createDiscoverDramaInfoPanel(),
+            FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(152), Gravity.BOTTOM).apply {
                 bottomMargin = dp(68)
             },
         )
         root.addView(
             createDiscoverEpisodeFloatButton(),
             FrameLayout.LayoutParams(dp(82), dp(72), Gravity.END or Gravity.BOTTOM).apply {
-                marginEnd = dp(8)
-                bottomMargin = dp(160)
+                marginEnd = dp(10)
+                bottomMargin = dp(238)
             },
         )
         root.addView(createBottomNavigation(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(68), Gravity.BOTTOM))
@@ -193,18 +193,66 @@ private fun DramaAppActivity.openDiscoverPreviewEpisodes() {
     )
 }
 
-private fun DramaAppActivity.createDiscoverDramaTitleEntry(): View = TextView(this).apply {
-    text = selectedDrama?.title?.takeIf { it.isNotBlank() } ?: t("watch_now")
-    textSize = 15f
-    typeface = android.graphics.Typeface.DEFAULT_BOLD
-    gravity = Gravity.CENTER
-    maxLines = 1
-    ellipsize = android.text.TextUtils.TruncateAt.END
-    setTextColor(COLOR_TEXT_PRIMARY)
-    setPadding(dp(16), 0, dp(16), 0)
-    isClickable = true
-    contentDescription = t("discover_open_episodes")
-    setOnClickListener { openDiscoverPreviewEpisodes() }
+private fun DramaAppActivity.createDiscoverDramaInfoPanel(): View = LinearLayout(this).apply {
+    val drama = selectedDrama
+    orientation = LinearLayout.VERTICAL
+    setPadding(dp(18), dp(10), dp(18), dp(4))
+    setBackgroundColor(Color.BLACK)
+    val openEpisodes = { openDiscoverPreviewEpisodes() }
+    addView(TextView(this@createDiscoverDramaInfoPanel).apply {
+        text = drama?.title?.takeIf { it.isNotBlank() } ?: t("watch_now")
+        textSize = 19f
+        typeface = android.graphics.Typeface.DEFAULT_BOLD
+        maxLines = 1
+        ellipsize = android.text.TextUtils.TruncateAt.END
+        setTextColor(Color.WHITE)
+        isClickable = true
+        contentDescription = t("discover_open_episodes")
+        setOnClickListener { openEpisodes() }
+    }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(28)))
+    addView(TextView(this@createDiscoverDramaInfoPanel).apply {
+        text = drama?.desc?.trim().orEmpty()
+        textSize = 13f
+        maxLines = 2
+        ellipsize = android.text.TextUtils.TruncateAt.END
+        setTextColor(0xB3FFFFFF.toInt())
+        setPadding(0, dp(2), 0, dp(4))
+    }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)))
+    val progress = ProgressBar(this@createDiscoverDramaInfoPanel, null, android.R.attr.progressBarStyleHorizontal).apply {
+        max = 1_000
+        this.progress = 0
+        progressTintList = ColorStateList.valueOf(COLOR_SUNSET)
+        backgroundTintList = ColorStateList.valueOf(0x55FFFFFF)
+    }
+    discoverPreviewProgressBar = progress
+    addView(progress, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(4)).apply {
+        topMargin = dp(2)
+        bottomMargin = dp(4)
+    })
+    addView(LinearLayout(this@createDiscoverDramaInfoPanel).apply {
+        gravity = Gravity.CENTER_VERTICAL
+        isClickable = true
+        contentDescription = t("discover_open_episodes")
+        addView(ImageView(this@createDiscoverDramaInfoPanel).apply {
+            setImageResource(R.drawable.ic_episode_stack)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+        }, LinearLayout.LayoutParams(dp(27), dp(27)))
+        addView(TextView(this@createDiscoverDramaInfoPanel).apply {
+            text = t("discover_all_episodes", drama?.total ?: 0, drama?.title.orEmpty())
+            textSize = 14f
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            setTextColor(0xE6FFFFFF.toInt())
+            setPadding(dp(10), 0, dp(6), 0)
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        addView(TextView(this@createDiscoverDramaInfoPanel).apply {
+            text = "›"
+            textSize = 30f
+            gravity = Gravity.CENTER
+            setTextColor(0xE6FFFFFF.toInt())
+        }, LinearLayout.LayoutParams(dp(28), dp(32)))
+        setOnClickListener { openEpisodes() }
+    }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(36)))
 }
 
 /** Secondary direct entry, visually floating over the preview like a native episode action. */
@@ -340,6 +388,7 @@ private fun DramaAppActivity.onSdkEpisodeStarted(episodeIndex: Int, episode: Epi
     playerIsPaused = false
     updateEpisodeStatus()
     updatePlayerProgress(0, 0)
+    if (sdkDiscoverPreviewActive) discoverPreviewProgressBar?.progress = 0
     persistPlaybackProgress(0)
     episode?.let { logStatus("PSSDK 开始播放分集：${episodeIndex + 1}") }
 }
@@ -364,6 +413,9 @@ private fun DramaAppActivity.onSdkPlaybackProgress(episodeIndex: Int, rawProgres
     sdkPlaybackActive = true
     playerIsPaused = false
     updatePlayerProgress(progress, duration)
+    if (sdkDiscoverPreviewActive && duration > 0) {
+        discoverPreviewProgressBar?.progress = (progress * 1_000 / duration).coerceIn(0, 1_000)
+    }
     persistPlaybackProgressIfNeeded(progress)
     requestMidEpisodeInterstitialIfEligible(progress)
 }

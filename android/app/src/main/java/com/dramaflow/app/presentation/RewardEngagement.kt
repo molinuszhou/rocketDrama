@@ -182,9 +182,9 @@ internal fun DramaAppActivity.updatePlayerWalletBoostButton(button: TextView) {
         button.visibility = if (wallet == null) View.GONE else View.VISIBLE
         button.text = if (cooldown > 0) t("charge_cooldown", cooldown) else t("bonus_cash")
         button.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_extra_reward_bonus, 0, 0, 0)
-        button.compoundDrawablePadding = dp(5)
+        button.compoundDrawablePadding = dp(4)
         button.setTextColor(if (available) COLOR_PURPLE else COLOR_TEXT_MUTED)
-        button.background = roundedDrawable(COLOR_INK, 13)
+        button.background = null
         button.alpha = if (available) 1f else 0.72f
         button.isClickable = available
         button.setOnClickListener { if (available) showWalletReleaseBoostDialog() }
@@ -197,9 +197,9 @@ internal fun DramaAppActivity.updateWalletHeaderBoostButton(button: TextView) {
         button.visibility = if (wallet == null) View.GONE else View.VISIBLE
         button.text = if (cooldown > 0) t("charge_cooldown", cooldown) else t("bonus_cash")
         button.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_extra_reward_bonus, 0, 0, 0)
-        button.compoundDrawablePadding = dp(5)
+        button.compoundDrawablePadding = dp(4)
         button.setTextColor(if (available) COLOR_PURPLE else COLOR_TEXT_MUTED)
-        button.background = roundedDrawable(COLOR_INK, 14)
+        button.background = null
         button.alpha = if (available) 1f else 0.72f
         button.isClickable = available
         button.setOnClickListener { if (available) showWalletReleaseBoostDialog() }

@@ -101,12 +101,16 @@ internal fun DramaAppActivity.requestRewardedAction(
         fullscreenAdRequestInFlight = true
         var rewardedWasPresented = false
         val wasPlayingBeforeRewarded = wasPlaybackActiveForAd()
+        // Full-screen ad loading is modal: pause the episode and prevent duplicate interaction
+        // while mediation resolves its waterfall, then resume if no creative becomes available.
+        resumeAfterFullscreenAd = wasPlayingBeforeRewarded
+        pauseForFullscreenAd()
+        resumeAfterFullscreenAd = wasPlayingBeforeRewarded
+        showFullscreenAdLoadingOverlay()
         topOnAds.showRewarded(
             activity = this,
             onWillShow = {
                 rewardedWasPresented = true
-                pauseForFullscreenAd()
-                resumeAfterFullscreenAd = wasPlayingBeforeRewarded
                 fullscreenAdRequestInFlight = false
                 fullscreenAdInProgress = true
                 runOnUiThread { hideFullscreenAdLoadingOverlay() }
@@ -325,10 +329,24 @@ internal fun DramaAppActivity.showFullscreenAdLoadingOverlay() {
             isClickable = true
             isFocusable = true
             contentDescription = t("ad_loading")
-            addView(ProgressBar(this@showFullscreenAdLoadingOverlay).apply {
-                indeterminateTintList = ColorStateList.valueOf(0xF2FFFFFF.toInt())
-                alpha = 0.92f
-            }, FrameLayout.LayoutParams(dp(48), dp(48), Gravity.CENTER))
+            addView(LinearLayout(this@showFullscreenAdLoadingOverlay).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                setPadding(dp(22), dp(20), dp(22), dp(18))
+                background = roundedDrawable(0xCC000000.toInt(), 18)
+                addView(ProgressBar(this@showFullscreenAdLoadingOverlay).apply {
+                    indeterminateTintList = ColorStateList.valueOf(0xF2FFFFFF.toInt())
+                    alpha = 0.92f
+                }, LinearLayout.LayoutParams(dp(44), dp(44)).apply { gravity = Gravity.CENTER_HORIZONTAL })
+                addView(TextView(this@showFullscreenAdLoadingOverlay).apply {
+                    text = t("ad_loading")
+                    textSize = 16f
+                    typeface = Typeface.DEFAULT_BOLD
+                    gravity = Gravity.CENTER
+                    setTextColor(Color.WHITE)
+                    setPadding(0, dp(10), 0, 0)
+                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            }, FrameLayout.LayoutParams(dp(158), dp(132), Gravity.CENTER))
         }.also { fullscreenAdLoadingOverlay = it }
         if (overlay.parent == null) {
             root.addView(overlay, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
@@ -421,13 +439,14 @@ internal fun DramaAppActivity.showPlaybackActionInterstitial(
         if (consentStore.read() != AdConsent.GRANTED) { onUnavailable("请先在广告与隐私中启用广告"); return }
         val shouldResume = resumePlaybackAfter ?: wasPlaybackActiveForAd()
         fullscreenAdRequestInFlight = true
-        var interstitialWasPresented = false
+        resumeAfterFullscreenAd = shouldResume
+        pauseForFullscreenAd()
+        resumeAfterFullscreenAd = shouldResume
+        showFullscreenAdLoadingOverlay()
         topOnAds.showInterstitialForPlaybackAction(
             activity = this,
             bypassGlobalFrequencyCap = bypassSharedFrequencyCaps,
             onWillShow = {
-                interstitialWasPresented = true
-                pauseForFullscreenAd()
                 fullscreenAdRequestInFlight = false
                 fullscreenAdInProgress = true
                 resumeAfterFullscreenAd = shouldResume
@@ -458,11 +477,11 @@ internal fun DramaAppActivity.showPlaybackActionInterstitial(
                     } else settled()
                 }
                 is TopOnAdsManager.FullscreenResult.Skipped -> {
-                    if (interstitialWasPresented) resumeAfterFullscreenAdIfNeeded()
+                    resumeAfterFullscreenAdIfNeeded()
                     onUnavailable(result.reason)
                 }
                 is TopOnAdsManager.FullscreenResult.Failed -> {
-                    if (interstitialWasPresented) resumeAfterFullscreenAdIfNeeded()
+                    resumeAfterFullscreenAdIfNeeded()
                     onUnavailable("加载失败（${result.code}）")
                 }
             }
