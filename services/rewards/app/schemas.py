@@ -278,6 +278,17 @@ class WithdrawalPreflightRequest(BaseModel):
     user_id: str = Field(min_length=1, max_length=128)
 
 
+class WithdrawalAccountRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=128)
+    provider: Literal["PAYPAL", "STRIPE", "LINK"]
+    account_identifier: str = Field(min_length=3, max_length=256)
+
+
+class WithdrawalRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=128)
+    threshold: str = Field(min_length=1, max_length=32)
+
+
 class ApiEnvelope(BaseModel):
     code: int = 0
     data: dict

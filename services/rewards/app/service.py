@@ -1484,6 +1484,50 @@ class RewardsService:
                 "currency": self._currency_payload(wallet_policy),
             }
 
+    def save_withdrawal_account(self, *, user_id: str, provider: str, account_identifier: str) -> dict[str, Any]:
+        normalized_provider = provider.strip().upper()
+        identifier = account_identifier.strip()
+        if normalized_provider not in {"PAYPAL", "STRIPE", "LINK"}:
+            raise ServiceError(2410, "提现通道不受支持", 422)
+        if len(identifier) < 3:
+            raise ServiceError(2411, "提现账户信息过短", 422)
+        with self._transaction() as connection:
+            self._ensure_user(connection, user_id)
+            self._execute(connection, """
+                INSERT INTO withdrawal_accounts (user_id, provider, account_identifier)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (user_id) DO UPDATE SET provider = EXCLUDED.provider,
+                    account_identifier = EXCLUDED.account_identifier, updated_at = NOW()
+            """, (user_id, normalized_provider, identifier))
+            return {"provider": normalized_provider, "account_identifier": identifier, "linked": True}
+
+    def create_withdrawal_request(self, *, user_id: str, threshold: str) -> dict[str, Any]:
+        with self._transaction() as connection:
+            self._ensure_user(connection, user_id)
+            policy = self._policy(connection)
+            wallet_policy = self._wallet_policy(connection, user_id)
+            account = self._one(connection, "SELECT provider FROM withdrawal_accounts WHERE user_id = %s", (user_id,))
+            if not account:
+                raise ServiceError(2412, "请先关联提现账户", 409)
+            user = self._one(connection, "SELECT cash_wallet_micros FROM users WHERE user_id = %s", (user_id,))
+            try:
+                amount_micros = int((Decimal(threshold) * Decimal(1_000_000)).quantize(Decimal("1")))
+            except Exception as error:
+                raise ServiceError(2413, "提现金额格式无效", 422) from error
+            minimum = int(wallet_policy["withdrawal_threshold_micros"])
+            balance = int(user["cash_wallet_micros"])
+            if not bool(policy["withdrawal_enabled"]):
+                raise ServiceError(2414, "提现功能当前未启用", 409)
+            if amount_micros < minimum or balance < amount_micros:
+                raise ServiceError(2415, "余额未达到该提现目标", 409)
+            row = self._one(connection, """
+                INSERT INTO withdrawal_requests (user_id, provider, amount_micros)
+                VALUES (%s, %s, %s) RETURNING request_id, status, created_at
+            """, (user_id, account["provider"], amount_micros))
+            return {"request_id": str(row["request_id"]), "provider": account["provider"],
+                    "amount": self._money(amount_micros, wallet_policy), "status": row["status"],
+                    "created_at": row["created_at"].isoformat()}
+
     def _rewarded_action(
         self,
         *,

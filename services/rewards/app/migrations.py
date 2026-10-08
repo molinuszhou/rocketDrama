@@ -53,6 +53,7 @@ def apply_runtime_migrations(settings: Settings) -> None:
             ("037_v1708_reporting_delivery_events", sql_directory / "037_v1708_reporting_delivery_events.sql"),
             ("038_v1709_reporting_user_uid", sql_directory / "038_v1709_reporting_user_uid.sql"),
             ("039_v1710_user_geo_country", sql_directory / "039_v1710_user_geo_country.sql"),
+            ("040_v1711_withdrawal_accounts", sql_directory / "040_v1711_withdrawal_accounts.sql"),
         )
     with psycopg.connect(settings.database_url, autocommit=True) as connection:
         with connection.cursor() as cursor:

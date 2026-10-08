@@ -33,6 +33,8 @@ from app.schemas import (
     TenRoundClaimRequest,
     WelcomeBonusRequest,
     WatchEventRequest,
+    WithdrawalAccountRequest,
+    WithdrawalRequest,
     WithdrawalPreflightRequest,
 )
 from app.geo import GeoCountryResolver
@@ -326,3 +328,13 @@ def admin_reporting_delivery(
 @app.post("/v2/withdrawals/preflight", response_model=ApiEnvelope)
 def withdrawal_preflight(payload: WithdrawalPreflightRequest) -> dict:
     return {"code": 0, "data": service.withdrawal_preflight(payload.user_id)}
+
+
+@app.post("/v2/withdrawals/account", response_model=ApiEnvelope)
+def save_withdrawal_account(payload: WithdrawalAccountRequest) -> dict:
+    return {"code": 0, "data": service.save_withdrawal_account(**payload.model_dump())}
+
+
+@app.post("/v2/withdrawals/request", response_model=ApiEnvelope)
+def create_withdrawal_request(payload: WithdrawalRequest) -> dict:
+    return {"code": 0, "data": service.create_withdrawal_request(**payload.model_dump())}
