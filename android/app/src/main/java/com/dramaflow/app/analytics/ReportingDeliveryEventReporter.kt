@@ -47,6 +47,7 @@ internal class ReportingDeliveryEventReporter(context: Context) {
         if (!baseUrl.startsWith("http://") && !baseUrl.startsWith("https://")) return
         val event = JSONObject()
             .put("client_event_id", "reporting-${UUID.randomUUID()}")
+            .put("user_uid", anonymousInstallationId())
             .put("install_id_hash", sha256(anonymousInstallationId()))
             .put("provider", provider)
             .put("event_name", eventName.take(MAX_EVENT_NAME_LENGTH))

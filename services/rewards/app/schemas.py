@@ -254,9 +254,10 @@ class AdMediationEventRequest(BaseModel):
 
 
 class ReportingDeliveryEventRequest(BaseModel):
-    """Minimal server-side record of an AppsFlyer, Firebase or Xuanyu client callback."""
+    """Minimal server-side record of a provider callback and its anonymous app UID."""
 
     client_event_id: str = Field(min_length=8, max_length=160)
+    user_uid: str = Field(default="", max_length=128)
     install_id_hash: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
     provider: Literal["AppsFlyer", "Firebase", "Xuanyu"]
     event_name: str = Field(min_length=1, max_length=120)

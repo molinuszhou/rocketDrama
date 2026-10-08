@@ -1049,6 +1049,7 @@ class RewardsService:
         *,
         client_event_id: str,
         install_id_hash: str,
+        user_uid: str = "",
         provider: str,
         event_name: str,
         status: str,
@@ -1080,13 +1081,13 @@ class RewardsService:
                 connection,
                 """
                 INSERT INTO reporting_delivery_events (
-                    client_event_id, install_id_hash, provider, event_name, status,
+                    client_event_id, user_uid, install_id_hash, provider, event_name, status,
                     logical_placement, ad_unit_id, error_code, currency, ecpm,
                     reported_value, client_occurred_at
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
-                    client_event_id, install_id_hash, provider, event_name, status,
+                    client_event_id, user_uid[:128], install_id_hash, provider, event_name, status,
                     logical_placement, ad_unit_id, error_code, normalized_currency, normalized_ecpm,
                     reported_value, occurred_at,
                 ),
@@ -1222,7 +1223,7 @@ class RewardsService:
             rows = self._all(
                 connection,
                 """
-                SELECT provider, event_name, status, logical_placement, ad_unit_id,
+                SELECT user_uid, provider, event_name, status, logical_placement, ad_unit_id,
                        error_code, currency, ecpm, reported_value, client_occurred_at, accepted_at
                 FROM reporting_delivery_events
                 WHERE client_occurred_at >= %s

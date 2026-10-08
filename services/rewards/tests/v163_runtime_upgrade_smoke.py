@@ -142,6 +142,7 @@ def run() -> None:
             "/v2/operations/reporting-delivery-events",
             json={
                 "client_event_id": f"reporting-http-{uuid.uuid4()}",
+                "user_uid": "user-uid-reporting-smoke",
                 "install_id_hash": "e" * 64,
                 "provider": "AppsFlyer",
                 "event_name": "ad_impression",
@@ -163,6 +164,7 @@ def run() -> None:
         report_payload = reporting_rows.json()["data"]
         assert report_payload["totals"]["success_count"] >= 1
         assert any(row["provider"] == "AppsFlyer" for row in report_payload["rows"])
+        assert any(row["user_uid"] == "user-uid-reporting-smoke" for row in report_payload["rows"])
 
         ad_event = client.post(
             "/v2/operations/ad-mediation-events",
