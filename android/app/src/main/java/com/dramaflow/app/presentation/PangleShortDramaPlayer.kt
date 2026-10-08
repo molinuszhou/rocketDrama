@@ -61,7 +61,11 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
 
     val container = FrameLayout(this).apply { id = View.generateViewId() }
     sdkPlayerContainerId = container.id
-    root.addView(container, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+    root.addView(container, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT).apply {
+        // The provider already renders its own title and episode information. In Discover preview
+        // reserve a real layout area for JoyeDrama's Tab bar rather than covering that native row.
+        if (previewOnly) bottomMargin = dp(68)
+    })
 
     val fragment = shortDramaSdk.createDetailFragment(
         card = card,
@@ -108,12 +112,8 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
     }
 
     if (previewOnly) {
-        root.addView(createDiscoverPreviewTitle(catalogDrama), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM).apply {
-            marginStart = dp(18)
-            marginEnd = dp(18)
-            bottomMargin = dp(82)
-        })
-        // Discover is browseable rather than immersive: keep normal app navigation visible.
+        // Discover is browseable rather than immersive: keep normal app navigation visible while
+        // the resized PSSDK viewport leaves its native title/episode row unobscured above this bar.
         root.addView(createBottomNavigation(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(68), Gravity.BOTTOM))
     } else {
         // PSSDK remains the actual player. These are JoyeDrama controls mapped only to public APIs.
@@ -161,46 +161,6 @@ internal fun DramaAppActivity.showSdkDiscoverPreview(drama: LocalDrama) {
         return
     }
     showSdkDramaPlayer(drama, card, startIndex = 0, resumePositionSeconds = 0, previewOnly = true)
-}
-
-private fun DramaAppActivity.createDiscoverPreviewTitle(drama: LocalDrama): View = LinearLayout(this).apply {
-    orientation = LinearLayout.VERTICAL
-    setPadding(dp(16), dp(11), dp(16), dp(11))
-    background = gradientDrawable(intArrayOf(0xE611271B.toInt(), 0xE60D1E14.toInt()), 18)
-    isClickable = true
-    contentDescription = "${drama.title} ${t("discover_preview_open")}".trim()
-    addView(TextView(this@createDiscoverPreviewTitle).apply {
-        text = drama.title
-        textSize = 18f
-        typeface = android.graphics.Typeface.DEFAULT_BOLD
-        maxLines = 1
-        ellipsize = android.text.TextUtils.TruncateAt.END
-        setTextColor(Color.WHITE)
-    })
-    addView(TextView(this@createDiscoverPreviewTitle).apply {
-        text = "${t("discover_preview")} · ${t("discover_preview_open")}"
-        textSize = 12f
-        maxLines = 1
-        ellipsize = android.text.TextUtils.TruncateAt.END
-        // Keep this supporting copy neutral so a continuously swiped title never reads as a
-        // green action affordance beside the warm product palette.
-        setTextColor(0xFF8D8D93.toInt())
-        setPadding(0, dp(4), 0, 0)
-    })
-    setOnClickListener { openDiscoverPreviewAsFullPlayer() }
-}
-
-private fun DramaAppActivity.openDiscoverPreviewAsFullPlayer() {
-    if (!sdkDiscoverPreviewActive) return
-    val drama = selectedDrama ?: return
-    val card = sdkDramaCardsByCatalogId[drama.id] ?: return
-    showSdkDramaPlayer(
-        catalogDrama = drama,
-        card = card,
-        startIndex = currentEpisodeIndex,
-        resumePositionSeconds = playerProgressSeconds,
-        previewOnly = false,
-    )
 }
 
 private fun DramaAppActivity.onSdkItemSelected(episodeIndex: Int) {
