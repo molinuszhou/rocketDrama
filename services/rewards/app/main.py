@@ -46,10 +46,13 @@ geo_country_resolver = GeoCountryResolver(settings.geoip_db_path)
 
 def client_ip(request: Request) -> str:
     """Read the client IP from the Nginx-controlled forwarding chain."""
+    real_ip = request.headers.get("x-real-ip", "").strip()
+    if real_ip:
+        return real_ip
     forwarded = request.headers.get("x-forwarded-for", "")
     if forwarded:
-        return forwarded.split(",", 1)[0].strip()
-    return request.headers.get("x-real-ip", "").strip()
+        return forwarded.rsplit(",", 1)[-1].strip()
+    return ""
 
 app = FastAPI(
     title="DramaFlow Rewards Service",
