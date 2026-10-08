@@ -63,4 +63,4 @@ internal fun ReportingAuditLog.recordProvider(
     errorCode: String = "",
     revenue: AdRevenueAuditValues = AdRevenueAuditValues(),
     detail: String = "",
-) = Unit
+) = record(provider.wireName, eventName, status, placement, adUnitId, errorCode, revenue, detail)
