@@ -44,9 +44,16 @@ class RewardsService:
                 cursor.fetchone()
         return {"status": "ok", "database": "ok", "environment": self.settings.environment, "now": self._now()}
 
-    def bootstrap(self, user_id: str, region: str | None = None, attribution: dict[str, Any] | None = None) -> dict[str, Any]:
+    def bootstrap(
+        self,
+        user_id: str,
+        region: str | None = None,
+        *,
+        geo_country: str | None = None,
+        attribution: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         with self._transaction() as connection:
-            self._ensure_user(connection, user_id, region)
+            self._ensure_user(connection, user_id, region, geo_country)
             if attribution:
                 self._update_attribution(connection, user_id=user_id, **attribution)
             self._ensure_random_chests(connection, user_id, self._business_date(), self._policy(connection))
@@ -1143,7 +1150,7 @@ class RewardsService:
                 connection,
                 f"""
                 SELECT
-                    u.user_id, u.market_code, u.cash_wallet_micros, u.available_balance_micros,
+                    u.user_id, u.market_code, u.geo_country, u.cash_wallet_micros, u.available_balance_micros,
                     u.total_gems_earned, u.created_at, u.updated_at,
                     u.appsflyer_uid, u.attribution_status, u.attribution_media_source,
                     u.attribution_campaign, u.attribution_channel, u.attribution_surface,
@@ -1178,6 +1185,7 @@ class RewardsService:
             return {
                 "user_id": row["user_id"],
                 "market_code": row["market_code"],
+                "geo_country": row["geo_country"] or "",
                 "currency": {"code": row["currency_code"], "symbol": row["currency_symbol"]},
                 "wallet": {
                     "cash_wallet": self._money(int(row["cash_wallet_micros"]), wallet_policy),
@@ -2639,7 +2647,13 @@ class RewardsService:
         )
         return requested_market if row else "DEFAULT"
 
-    def _ensure_user(self, connection: psycopg.Connection[Any], user_id: str, region: str | None = None) -> None:
+    def _ensure_user(
+        self,
+        connection: psycopg.Connection[Any],
+        user_id: str,
+        region: str | None = None,
+        geo_country: str | None = None,
+    ) -> None:
         requested_market = self._active_market_or_default(connection, self._normalise_market_code(region))
         self._execute(
             connection,
@@ -2656,6 +2670,13 @@ class RewardsService:
                   AND gems_balance = 0 AND cash_wallet_micros = 0 AND available_balance_micros = 0
                 """,
                 (requested_market, user_id),
+            )
+        country = (geo_country or "").strip().upper()[:2]
+        if len(country) == 2 and country.isalpha():
+            self._execute(
+                connection,
+                "UPDATE users SET geo_country = %s, updated_at = NOW() WHERE user_id = %s AND (geo_country IS NULL OR geo_country = '')",
+                (country, user_id),
             )
         wallet_policy = self._wallet_policy(connection, user_id)
         self._execute(

@@ -14,6 +14,7 @@ class Settings:
     allow_debug_ad_proof: bool
     admin_dashboard_token: str | None
     timezone: str
+    geoip_db_path: str | None
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -34,4 +35,5 @@ class Settings:
             allow_debug_ad_proof=allow_debug_ad_proof,
             admin_dashboard_token=os.getenv("ADMIN_DASHBOARD_TOKEN", "").strip() or None,
             timezone=os.getenv("TIMEZONE", "Asia/Shanghai").strip() or "Asia/Shanghai",
+            geoip_db_path=os.getenv("GEOIP_DB_PATH", "/usr/share/GeoIP/GeoLite2-Country.mmdb").strip() or None,
         )

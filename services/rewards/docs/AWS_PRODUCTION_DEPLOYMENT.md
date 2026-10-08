@@ -58,6 +58,14 @@ CORS_ORIGINS=https://www.joyelleasia.com
 TIMEZONE=UTC
 ```
 
+服务端默认使用本地 MaxMind **GeoLite2-Country.mmdb** 解析请求 IP。请从 MaxMind 官方账户下载授权数据库，并放到：
+
+```text
+services/rewards/geoip/GeoLite2-Country.mmdb
+```
+
+如需使用其他宿主机路径，在 `.env.production` 设置 `GEOIP_DB_HOST_PATH`。服务只保存两位 ISO 国家代码到 `users.geo_country`，不保存原始 IP；数据库缺失或解析失败时接口仍可正常运行，只是该字段为空。
+
 ### 3. 启动容器
 
 先确认 `18100` 未被占用：
@@ -182,11 +190,11 @@ https://www.joyelleasia.com/joyedrama-rewards/admin
 
 控制台在这个反向代理子路径下会自动把 API 请求发送至 `/joyedrama-rewards/v2/admin/...`，不会错误请求主站的 `/v2/...`。
 
-- **用户与归因**：查询匿名用户 ID、市场、钱包、观看/广告参与计数，以及最小 AppsFlyer 归因记录和服务端推导的 A/B 面；不提供点击 ID、site ID 或原始归因载荷。
+- **用户与归因**：查询匿名用户 ID、市场、GeoIP 国家、钱包、观看/广告参与计数，以及最小 AppsFlyer 归因记录和服务端推导的 A/B 面；不提供原始 IP、点击 ID、site ID 或原始归因载荷。
 - **广告运营**：查询 TopOn 回调写入的原始广告运营事件（保留 90 天）和长期日汇总，含广告位、ADN、展示、paid-impression 和客户端 eCPM 估算。
 - **上报记录**：查询 AppsFlyer、Firebase、炫羽的客户端投递状态镜像（保留 90 天）。这是客户端 SDK/HTTP 回调观察结果，不取代三个渠道后台的最终接收或结算数据。
 
-新增的 `037_v1708_reporting_delivery_events.sql` 同样由服务启动时自动迁移；更新容器后无需重建数据库。
+新增的 `037_v1708_reporting_delivery_events.sql`、`038_v1709_reporting_user_uid.sql` 和 `039_v1710_user_geo_country.sql` 同样由服务启动时自动迁移；更新容器后无需重建数据库。
 
 ## 五、生产安全要求
 
@@ -232,7 +240,7 @@ docker compose -p joyedrama-rewards \
   --env-file .env.production \
   -f docker-compose.production.yml down -v
 
-# 首次创建空卷时执行 001_init.sql；Rewards API 启动后会依次补跑 002–037 迁移。
+# 首次创建空卷时执行 001_init.sql；Rewards API 启动后会依次补跑 002–039 迁移。
 docker compose -p joyedrama-rewards \
   --env-file .env.production \
   -f docker-compose.production.yml up -d --build

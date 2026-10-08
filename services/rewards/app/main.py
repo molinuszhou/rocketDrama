@@ -35,11 +35,21 @@ from app.schemas import (
     WatchEventRequest,
     WithdrawalPreflightRequest,
 )
+from app.geo import GeoCountryResolver
 from app.service import RewardsService, ServiceError
 
 settings = Settings.from_environment()
 apply_runtime_migrations(settings)
 service = RewardsService(settings)
+geo_country_resolver = GeoCountryResolver(settings.geoip_db_path)
+
+
+def client_ip(request: Request) -> str:
+    """Read the client IP from the Nginx-controlled forwarding chain."""
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        return forwarded.split(",", 1)[0].strip()
+    return request.headers.get("x-real-ip", "").strip()
 
 app = FastAPI(
     title="DramaFlow Rewards Service",
@@ -66,12 +76,13 @@ def health() -> dict:
 
 
 @app.post("/v2/bootstrap", response_model=ApiEnvelope)
-def bootstrap(payload: BootstrapRequest) -> dict:
+def bootstrap(payload: BootstrapRequest, request: Request) -> dict:
     return {
         "code": 0,
         "data": service.bootstrap(
             payload.user_id,
             payload.region,
+            geo_country=geo_country_resolver.country_for_ip(client_ip(request)),
             attribution=payload.attribution.model_dump() if payload.attribution else None,
         ),
     }
