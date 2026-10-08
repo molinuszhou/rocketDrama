@@ -111,7 +111,7 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
         }, matchParams(bottom = 16))
         addView(LinearLayout(this@createWithdrawalPage).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(22), dp(20), dp(22), dp(20))
-            background = amberGlassDrawable(24, strong = true)
+            background = gradientDrawable(intArrayOf(COLOR_INK, COLOR_PLUM, 0xFF24304A.toInt()), 24)
             val balanceRow = LinearLayout(this@createWithdrawalPage).apply { gravity = Gravity.CENTER_VERTICAL }
             balanceRow.addView(LinearLayout(this@createWithdrawalPage).apply {
                 orientation = LinearLayout.VERTICAL
@@ -183,7 +183,7 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
                         typeface = Typeface.DEFAULT_BOLD
                         gravity = Gravity.CENTER
                         setTextColor(if (goalReached) Color.WHITE else COLOR_TEXT_MUTED)
-                        background = if (goalReached) rewardActionDrawable(12) else amberGlassDrawable(12)
+                        background = roundedDrawable(if (goalReached) COLOR_ACCENT else 0x334D5A52, 12)
                         isClickable = true
                         setOnClickListener {
                             if (goalReached) requestWithdrawalForGoal(wallet, rawGoal)
@@ -246,7 +246,7 @@ private fun DramaAppActivity.showWithdrawalAccountDialog(linkButton: TextView) {
         card.addView(LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(12), dp(9), dp(12), dp(9))
-            background = amberGlassDrawable(16, strong = provider == selected)
+            background = roundedDrawable(if (provider == selected) 0x22FF6D4A else COLOR_SURFACE, 16)
             isClickable = true
             addView(ImageView(this@showWithdrawalAccountDialog).apply {
                 setImageResource(iconRes)
@@ -261,7 +261,7 @@ private fun DramaAppActivity.showWithdrawalAccountDialog(linkButton: TextView) {
                 addView(TextView(this@showWithdrawalAccountDialog).apply { text = provider.replaceFirstChar(Char::titlecase); textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
                 addView(TextView(this@showWithdrawalAccountDialog).apply { text = t("withdrawal_account"); textSize = 11f; setTextColor(COLOR_TEXT_MUTED) })
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            addView(TextView(this@showWithdrawalAccountDialog).apply { text = if (provider == selected) "✓" else ""; textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_ACTION_GREEN) })
+            addView(TextView(this@showWithdrawalAccountDialog).apply { text = if (provider == selected) "✓" else ""; textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_ACCENT) })
             setOnClickListener {
                 dialog.dismiss()
                 showWithdrawalAccountInput(provider, linkButton)
@@ -339,7 +339,7 @@ private fun DramaAppActivity.showWithdrawalProgressDialog(amount: String) {
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER_HORIZONTAL
         setPadding(dp(24), dp(24), dp(24), dp(20))
-        background = gradientDrawable(intArrayOf(COLOR_CARD, 0xFF162B1E.toInt()), 28)
+        background = gradientDrawable(intArrayOf(COLOR_CARD, 0xFF2A2116.toInt()), 28)
         addView(TextView(this@showWithdrawalProgressDialog).apply {
             text = "✓"
             textSize = 25f

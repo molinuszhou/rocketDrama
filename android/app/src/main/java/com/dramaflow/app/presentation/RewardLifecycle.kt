@@ -372,7 +372,7 @@ internal fun DramaAppActivity.formatWelcomeRewardCashValue(snapshot: RewardsApiC
     }
 
 internal fun DramaAppActivity.addWelcomeConfetti(host: FrameLayout) {
-        val colors = intArrayOf(COLOR_CORAL, COLOR_SUNSET, COLOR_AQUA, COLOR_PURPLE, 0xFFB7F29B.toInt())
+        val colors = intArrayOf(COLOR_CORAL, COLOR_SUNSET, COLOR_AQUA, COLOR_PURPLE, 0xFFFFDB6A.toInt())
         repeat(28) { index ->
             val dot = View(this).apply { background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(colors[index % colors.size]) }; alpha = 0f }
             val size = dp(8 + index % 5 * 2)
@@ -399,7 +399,7 @@ internal fun DramaAppActivity.showCheckinRewardDialog(snapshot: RewardsApiClient
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(12), dp(22), dp(12), dp(18))
-            background = amberGlassDrawable(26, strong = true)
+            background = gradientDrawable(intArrayOf(COLOR_CARD, COLOR_SURFACE), 26)
         }
         content.addView(TextView(this).apply {
             text = t("checkin_rewards")
@@ -424,7 +424,7 @@ internal fun DramaAppActivity.showCheckinRewardDialog(snapshot: RewardsApiClient
             textSize = 28f
             gravity = Gravity.CENTER
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(COLOR_SUNSET)
+            setTextColor(COLOR_CORAL)
             setPadding(0, dp(7), 0, dp(16))
         })
         content.addView(createCheckinTierStrip(snapshot), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -449,7 +449,7 @@ internal fun DramaAppActivity.showCheckinRewardDialog(snapshot: RewardsApiClient
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
             setTextColor(COLOR_TEXT_PRIMARY)
-            background = rewardActionDrawable(18)
+            background = gradientDrawable(intArrayOf(COLOR_ACCENT, COLOR_PURPLE), 18)
             setPadding(dp(14), dp(13), dp(14), dp(13))
             setOnClickListener {
                 dialog.dismiss()
@@ -503,8 +503,8 @@ internal fun DramaAppActivity.createCheckinTierStrip(snapshot: RewardsApiClient.
                 setPadding(dp(4), dp(8), dp(4), dp(8))
                 background = roundedDrawable(
                     when {
-                        isToday -> 0xD84A2B16.toInt()
-                        isDone -> 0xCC3A2717.toInt()
+                        isToday -> COLOR_CORAL
+                        isDone -> 0xFF2E473F.toInt()
                         else -> COLOR_SURFACE
                     },
                     17,
@@ -529,7 +529,7 @@ internal fun DramaAppActivity.createCheckinTierStrip(snapshot: RewardsApiClient.
                     gravity = Gravity.CENTER
                     maxLines = 1
                     ellipsize = android.text.TextUtils.TruncateAt.END
-                    setTextColor(if (isToday) COLOR_SUNSET else if (isDone) COLOR_SUNSET else COLOR_TEXT_PRIMARY)
+                    setTextColor(if (isToday) Color.WHITE else if (isDone) COLOR_SUNSET else COLOR_TEXT_PRIMARY)
                     setPadding(0, dp(4), 0, 0)
                 })
             }, LinearLayout.LayoutParams(dp(96), dp(76)).apply { if (index > 0) marginStart = dp(7) })

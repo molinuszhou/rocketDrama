@@ -655,7 +655,6 @@ class DramaAppActivity : FragmentActivity() {
         clearExternalAdReturnCheckpoint()
         playerShown = false
         activeTab = playerReturnTab
-        // “发现”只保留 PSSDK 首集预览流；从预览或完整播放返回时都重新进入该状态。
         if (activeTab == MainTab.DISCOVER) discoverPreviewPresented = false
         if (catalogItems.isNotEmpty()) renderActiveTab() else loadCatalog()
     }
@@ -904,7 +903,7 @@ class DramaAppActivity : FragmentActivity() {
 
     internal fun pageCanvasDrawable(): GradientDrawable = GradientDrawable(
         GradientDrawable.Orientation.TL_BR,
-        intArrayOf(COLOR_INK, COLOR_BACKGROUND, COLOR_WARM_PEACH),
+        intArrayOf(COLOR_BACKGROUND, COLOR_BACKGROUND),
     )
 
     internal fun gradientDrawable(colors: IntArray, radiusDp: Int): GradientDrawable = GradientDrawable(
@@ -916,25 +915,6 @@ class DramaAppActivity : FragmentActivity() {
         shape = GradientDrawable.RECTANGLE
         cornerRadius = dp(radiusDp).toFloat()
         setColor(color)
-    }
-
-    /** Dark translucent amber surface used above drama artwork without becoming an opaque orange block. */
-    internal fun amberGlassDrawable(radiusDp: Int, strong: Boolean = false): GradientDrawable = GradientDrawable(
-        GradientDrawable.Orientation.TL_BR,
-        if (strong) intArrayOf(0xE83A2517.toInt(), 0xDA1A110B.toInt(), 0xC8392417.toInt())
-        else intArrayOf(0xC72E1D12.toInt(), 0xB31B120C.toInt(), 0xB82A1A10.toInt()),
-    ).apply {
-        cornerRadius = dp(radiusDp).toFloat()
-        setStroke(dp(1), 0x5CFFD08A)
-    }
-
-    /** Bright green is reserved for available reward actions, with a soft halo rather than a flat slab. */
-    internal fun rewardActionDrawable(radiusDp: Int): GradientDrawable = GradientDrawable(
-        GradientDrawable.Orientation.TL_BR,
-        intArrayOf(0xFF35D979.toInt(), 0xFF22B961.toInt(), 0xFF55E690.toInt()),
-    ).apply {
-        cornerRadius = dp(radiusDp).toFloat()
-        setStroke(dp(1), COLOR_ACTION_GREEN_GLOW)
     }
 
     internal fun topRoundedDrawable(color: Int, radiusDp: Int): GradientDrawable = GradientDrawable().apply {

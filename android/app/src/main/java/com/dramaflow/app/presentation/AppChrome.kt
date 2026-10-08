@@ -71,7 +71,7 @@ internal fun DramaAppActivity.createInlineNotice(message: String): View = TextVi
         setTextColor(COLOR_TEXT_MUTED)
         gravity = Gravity.CENTER
         setPadding(dp(18), dp(28), dp(18), dp(28))
-        background = amberGlassDrawable(16)
+        background = roundedDrawable(COLOR_CARD, 16)
     }
 
     /** Non-reward pages expose one simple, direct-cash wallet. */
@@ -83,7 +83,7 @@ internal fun DramaAppActivity.createPersistentAssetHeader(): View {
             setPadding(dp(16), 0, dp(16), 0)
             val wallet = rewardsSnapshot?.wallet
             val balanceBar = LinearLayout(this@createPersistentAssetHeader).apply {
-                gravity = Gravity.CENTER_VERTICAL; background = amberGlassDrawable(20); setPadding(dp(5), dp(4), dp(5), dp(4)); clipToOutline = true
+                gravity = Gravity.CENTER_VERTICAL; background = roundedDrawable(COLOR_CARD, 20); setPadding(dp(5), dp(4), dp(5), dp(4)); clipToOutline = true
                 addView(createAssetPill(icon = R.drawable.wallet_money, label = t("wallet_balance"), value = wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—", isGem = false) { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) }, LinearLayout.LayoutParams(0, dp(72), 1f))
                 val charge = TextView(this@createPersistentAssetHeader).apply {
                     textSize = 10f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; maxLines = 1
@@ -134,7 +134,7 @@ internal fun DramaAppActivity.createAssetPill(icon: Int, label: String, value: S
 
 internal fun DramaAppActivity.createCashoutSummary(wallet: RewardsApiClient.Wallet): View = LinearLayout(this).apply {
         gravity = Gravity.CENTER
-        setPadding(dp(8), dp(14), dp(8), dp(14)); background = amberGlassDrawable(22)
+        setPadding(dp(8), dp(14), dp(8), dp(14)); background = roundedDrawable(COLOR_CARD, 22)
         val items = listOf(
             Triple(R.drawable.wallet_money, t("available_balance"), formatCurrencyAmount(wallet, wallet.availableBalance, wallet.availableBalanceUsdReference, includeUsdReference = false)),
             Triple(R.drawable.wallet_money, t("tomorrow_transfer"), formatCurrencyAmount(wallet, wallet.release.expectedTomorrowTransfer, wallet.release.expectedTomorrowTransferUsdReference, includeUsdReference = false)),
@@ -290,7 +290,7 @@ internal fun DramaAppActivity.animateClaimedCash(previous: String, current: Stri
 }
 
 internal fun DramaAppActivity.createPlayerAssetStrip(): View = LinearLayout(this).apply {
-        gravity = Gravity.CENTER_VERTICAL; setPadding(dp(10), dp(6), dp(10), dp(6)); background = amberGlassDrawable(22); alpha = 0.90f
+        gravity = Gravity.CENTER_VERTICAL; setPadding(dp(10), dp(6), dp(10), dp(6)); background = roundedDrawable(0xA6000000.toInt(), 22); alpha = 0.84f
         val wallet = rewardsSnapshot?.wallet
         val walletIcon = ImageView(this@createPlayerAssetStrip).apply { setImageResource(R.drawable.wallet_money); scaleType = ImageView.ScaleType.CENTER_INSIDE; isClickable = true; contentDescription = t("wallet"); setOnClickListener { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) } }
         cashBalanceAnchor = walletIcon
@@ -332,13 +332,20 @@ internal fun DramaAppActivity.createTopSafePlayerAssetStrip(): View {
 internal fun DramaAppActivity.formatGems(value: Long): String = String.format(Locale.US, "%,d", value)
 
 internal fun DramaAppActivity.createBottomNavigation(): View = LinearLayout(this).apply {
-        gravity = Gravity.CENTER; setPadding(dp(14), dp(9), dp(14), dp(10)); background = amberGlassDrawable(26); elevation = dp(10).toFloat()
+        gravity = Gravity.CENTER; setPadding(dp(14), dp(9), dp(14), dp(10)); background = topRoundedDrawable(COLOR_CARD, 26); elevation = dp(10).toFloat()
         MainTab.entries.forEach { tab ->
             val active = activeTab == tab
             addView(LinearLayout(this@createBottomNavigation).apply {
                 orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER; isClickable = true
                 setOnClickListener {
                     if (activeTab != tab) {
+                        // The non-immersive Discover preview owns a PSSDK Fragment. Remove it
+                        // before rendering another tab so its media surface cannot outlive the page.
+                        if (sdkPlayerShown) {
+                            releasePlayer()
+                            dismissSdkDramaPlayerIfShown()
+                            playerShown = false
+                        }
                         if (tab == MainTab.DISCOVER) discoverPreviewPresented = false
                         activeTab = tab
                         renderActiveTab()

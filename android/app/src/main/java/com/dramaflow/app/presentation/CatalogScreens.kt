@@ -167,8 +167,7 @@ internal fun DramaAppActivity.createDiscoverPage(): View = scrollPage { content 
                 return@scrollPage
             }
         }
-        // A provider preview is the only Discover destination. This fallback is intentionally kept
-        // empty while the provider mapping refreshes so legacy poster shelves never flash onscreen.
+        // Discover only exposes the PSSDK first-episode preview. Never fall back to the old poster grid.
         content.addView(createCatalogLoadingSkeleton(), matchParams(bottom = 18))
     }
 

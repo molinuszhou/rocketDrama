@@ -35,7 +35,7 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
     previewOnly: Boolean = false,
 ) {
     releasePlayer()
-    configurePlayerWindow()
+    if (previewOnly) configureCatalogWindow() else configurePlayerWindow()
     supportFragmentManager.findFragmentByTag(SDK_PLAYER_FRAGMENT_TAG)?.let { fragment ->
         supportFragmentManager.beginTransaction().remove(fragment).commitNowAllowingStateLoss()
     }
@@ -88,7 +88,9 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
     // Re-apply the host window policy after that work settles so the gesture handle does not sit
     // beneath JoyeDrama's bottom dock.
     root.postDelayed({
-        if (sdkPlayerShown && !playerInImmersiveMode) configurePlayerWindow()
+        if (sdkPlayerShown && !playerInImmersiveMode) {
+            if (previewOnly) configureCatalogWindow() else configurePlayerWindow()
+        }
     }, 180L)
 
     // Preload is advisory: it reduces the chance of a first-frame stall, while a provider
@@ -105,48 +107,51 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
         })
     }
 
-    // PSSDK remains the actual player. These are JoyeDrama controls mapped only to public APIs.
-    // Retain references and explicitly raise them after the Fragment completes its asynchronous
-    // view creation; otherwise a provider-owned video surface can visually cover the lower host
-    // controls on some devices.
-    val topBar = createPlayerTopBar()
-    playerTopChrome = topBar
-    val controlDock = createSdkPlayerControlDock()
-    playerControlsPanel = controlDock
-    val controlsReveal = transparentPlayerTextButton(t("show_controls"), t("show_controls")) { setPlayerControlsVisible(true) }
-    controlsReveal.visibility = View.GONE
-    playerControlsRevealButton = controlsReveal
-    val rewardWheel = createFloatingRewardWheel(compact = true)
-    root.addView(topBar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(132), Gravity.TOP))
-    root.addView(controlDock, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(106), Gravity.BOTTOM).apply {
-        marginStart = dp(12)
-        marginEnd = dp(12)
-        bottomMargin = dp(6)
-    })
-    root.addView(rewardWheel, FrameLayout.LayoutParams(dp(112), dp(96), Gravity.END or Gravity.BOTTOM).apply {
-        marginEnd = 0
-        bottomMargin = dp(166)
-    })
-    root.addView(controlsReveal, FrameLayout.LayoutParams(dp(86), dp(38), Gravity.END or Gravity.BOTTOM).apply {
-        marginEnd = dp(14)
-        bottomMargin = dp(16)
-    })
     if (previewOnly) {
         root.addView(createDiscoverPreviewTitle(catalogDrama), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM).apply {
             marginStart = dp(18)
             marginEnd = dp(18)
-            bottomMargin = dp(118)
+            bottomMargin = dp(82)
         })
+        // Discover is browseable rather than immersive: keep normal app navigation visible.
+        root.addView(createBottomNavigation(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(68), Gravity.BOTTOM))
+    } else {
+        // PSSDK remains the actual player. These are JoyeDrama controls mapped only to public APIs.
+        // Retain references and explicitly raise them after the Fragment completes its asynchronous
+        // view creation; otherwise a provider-owned video surface can visually cover the lower host
+        // controls on some devices.
+        val topBar = createPlayerTopBar()
+        playerTopChrome = topBar
+        val controlDock = createSdkPlayerControlDock()
+        playerControlsPanel = controlDock
+        val controlsReveal = transparentPlayerTextButton(t("show_controls"), t("show_controls")) { setPlayerControlsVisible(true) }
+        controlsReveal.visibility = View.GONE
+        playerControlsRevealButton = controlsReveal
+        val rewardWheel = createFloatingRewardWheel(compact = true)
+        root.addView(topBar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(132), Gravity.TOP))
+        root.addView(controlDock, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(106), Gravity.BOTTOM).apply {
+            marginStart = dp(12)
+            marginEnd = dp(12)
+            bottomMargin = dp(6)
+        })
+        root.addView(rewardWheel, FrameLayout.LayoutParams(dp(112), dp(96), Gravity.END or Gravity.BOTTOM).apply {
+            marginEnd = 0
+            bottomMargin = dp(166)
+        })
+        root.addView(controlsReveal, FrameLayout.LayoutParams(dp(86), dp(38), Gravity.END or Gravity.BOTTOM).apply {
+            marginEnd = dp(14)
+            bottomMargin = dp(16)
+        })
+        root.post {
+            topBar.bringToFront()
+            controlDock.bringToFront()
+            controlsReveal.bringToFront()
+            rewardWheel.bringToFront()
+            ViewCompat.requestApplyInsets(topBar)
+            root.invalidate()
+        }
     }
-    root.post {
-        topBar.bringToFront()
-        controlDock.bringToFront()
-        controlsReveal.bringToFront()
-        rewardWheel.bringToFront()
-        ViewCompat.requestApplyInsets(topBar)
-        root.invalidate()
-    }
-    showPlayerGestureCoachmarkIfNeeded()
+    if (!previewOnly) showPlayerGestureCoachmarkIfNeeded()
 }
 
 /** Opens the provider's recommended first episode while preserving its native vertical episode browsing. */
@@ -161,7 +166,7 @@ internal fun DramaAppActivity.showSdkDiscoverPreview(drama: LocalDrama) {
 private fun DramaAppActivity.createDiscoverPreviewTitle(drama: LocalDrama): View = LinearLayout(this).apply {
     orientation = LinearLayout.VERTICAL
     setPadding(dp(16), dp(11), dp(16), dp(11))
-    background = amberGlassDrawable(18, strong = true)
+    background = gradientDrawable(intArrayOf(0xE611271B.toInt(), 0xE60D1E14.toInt()), 18)
     isClickable = true
     contentDescription = "${drama.title} ${t("discover_preview_open")}".trim()
     addView(TextView(this@createDiscoverPreviewTitle).apply {
@@ -177,7 +182,7 @@ private fun DramaAppActivity.createDiscoverPreviewTitle(drama: LocalDrama): View
         textSize = 12f
         maxLines = 1
         ellipsize = android.text.TextUtils.TruncateAt.END
-        setTextColor(COLOR_SUNSET)
+        setTextColor(COLOR_PURPLE)
         setPadding(0, dp(4), 0, 0)
     })
     setOnClickListener { openDiscoverPreviewAsFullPlayer() }
@@ -228,8 +233,7 @@ internal fun DramaAppActivity.showSdkResolutionPicker() {
 private fun DramaAppActivity.showPlayerGestureCoachmarkIfNeeded() {
     if (getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getBoolean("player_gesture_coachmark_seen", false)) return
     val coachmark = FrameLayout(this).apply {
-        // Keep the drama visible; the coachmark is a glass cue rather than a grey blackout layer.
-        background = android.graphics.drawable.ColorDrawable(0x26000000)
+        background = android.graphics.drawable.ColorDrawable(0xAE000000.toInt())
         isClickable = true
         setOnClickListener { finishPlayerGestureCoachmark(this) }
     }
@@ -237,7 +241,7 @@ private fun DramaAppActivity.showPlayerGestureCoachmarkIfNeeded() {
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER
         setPadding(dp(26), dp(22), dp(26), dp(20))
-        background = amberGlassDrawable(26, strong = true)
+        background = gradientDrawable(intArrayOf(0xF312271B.toInt(), 0xF20D1E14.toInt()), 26)
         addView(TextView(this@showPlayerGestureCoachmarkIfNeeded).apply {
             text = "☝"
             textSize = 48f
@@ -254,7 +258,7 @@ private fun DramaAppActivity.showPlayerGestureCoachmarkIfNeeded() {
             text = "↕     ↔"
             textSize = 25f
             gravity = Gravity.CENTER
-            setTextColor(COLOR_ACCENT)
+            setTextColor(COLOR_PURPLE)
         })
         addView(TextView(this@showPlayerGestureCoachmarkIfNeeded).apply {
             text = t("player_gesture_coachmark_title")
@@ -270,13 +274,6 @@ private fun DramaAppActivity.showPlayerGestureCoachmarkIfNeeded() {
             gravity = Gravity.CENTER
             setTextColor(0xD9FFFFFF.toInt())
             setPadding(0, dp(8), 0, 0)
-        })
-        addView(TextView(this@showPlayerGestureCoachmarkIfNeeded).apply {
-            text = t("continue_label")
-            textSize = 12f
-            gravity = Gravity.CENTER
-            setTextColor(COLOR_SUNSET)
-            setPadding(0, dp(15), 0, 0)
         })
     }
     coachmark.addView(panel, FrameLayout.LayoutParams(dp(292), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
@@ -295,7 +292,7 @@ private fun DramaAppActivity.finishPlayerGestureCoachmark(view: View) {
 private fun DramaAppActivity.createSdkPlayerControlDock(): View = LinearLayout(this).apply {
     orientation = LinearLayout.VERTICAL
     setPadding(dp(10), dp(4), dp(10), dp(6))
-    background = amberGlassDrawable(18)
+    background = roundedDrawable(0xA6000000.toInt(), 18)
     addView(createPlayerProgressControls(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
     addView(createPlayerActionRow(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(38)))
 }
