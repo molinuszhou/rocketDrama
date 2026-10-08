@@ -18,20 +18,22 @@ internal const val AD_RETURN_SAVED_AT_MILLIS = "ad_return_saved_at_millis"
 internal const val AD_RETURN_CHECKPOINT_MAX_AGE_MILLIS = 10 * 60 * 1_000L
 internal const val TAG = "JoyeDramaPlayer"
 /**
- * 深色墨绿是产品操作与正向状态色；暖金仅用于余额、现金与已获得奖励，
- * 避免红色在西方语境中被误读为风险或错误。
+ * JoyeDrama 的主视觉是雨夜暖光：深棕黑承接内容，琥珀与暖金提示进度、余额和导航。
+ * 仅“领取 / 加速”等可操作奖励使用发光绿色，避免绿色吞没短剧内容的情绪氛围。
  */
-internal const val COLOR_BACKGROUND = 0xFF08120E.toInt()
-internal const val COLOR_CARD = 0xFF101D17.toInt()
-internal const val COLOR_SURFACE = 0xFF182820.toInt()
-internal const val COLOR_ACCENT = 0xFF2FB66B.toInt()
-internal const val COLOR_PURPLE = 0xFF83DFA2.toInt()
-internal const val COLOR_INK = 0xFF07100B.toInt()
-internal const val COLOR_PLUM = 0xFF143022.toInt()
-internal const val COLOR_CORAL = 0xFF35C875.toInt()
-internal const val COLOR_SUNSET = 0xFFFFCC69.toInt()
-internal const val COLOR_AQUA = 0xFF55CDB3.toInt()
-internal const val COLOR_MIST_BLUE = 0xFF0F1B16.toInt()
-internal const val COLOR_WARM_PEACH = 0xFF202A1B.toInt()
+internal const val COLOR_BACKGROUND = 0xFF120D09.toInt()
+internal const val COLOR_CARD = 0xD4211712.toInt()
+internal const val COLOR_SURFACE = 0xCC2D2017.toInt()
+internal const val COLOR_ACCENT = 0xFFFFA429.toInt()
+internal const val COLOR_PURPLE = 0xFFFFD58A.toInt()
+internal const val COLOR_INK = 0xFF0C0806.toInt()
+internal const val COLOR_PLUM = 0xFF332015.toInt()
+internal const val COLOR_CORAL = 0xFFFF8D25.toInt()
+internal const val COLOR_SUNSET = 0xFFFFD27A.toInt()
+internal const val COLOR_AQUA = 0xFFFFB35A.toInt()
+internal const val COLOR_MIST_BLUE = 0xFF1B120C.toInt()
+internal const val COLOR_WARM_PEACH = 0xFF3B2517.toInt()
+internal const val COLOR_ACTION_GREEN = 0xFF35D979.toInt()
+internal const val COLOR_ACTION_GREEN_GLOW = 0xFF9AF4BB.toInt()
 internal const val COLOR_TEXT_PRIMARY = 0xFFF6F6F8.toInt()
-internal const val COLOR_TEXT_MUTED = 0xFFA8A8B2.toInt()
+internal const val COLOR_TEXT_MUTED = 0xFFC5B7A9.toInt()

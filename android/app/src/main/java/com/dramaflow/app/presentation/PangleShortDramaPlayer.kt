@@ -161,7 +161,7 @@ internal fun DramaAppActivity.showSdkDiscoverPreview(drama: LocalDrama) {
 private fun DramaAppActivity.createDiscoverPreviewTitle(drama: LocalDrama): View = LinearLayout(this).apply {
     orientation = LinearLayout.VERTICAL
     setPadding(dp(16), dp(11), dp(16), dp(11))
-    background = gradientDrawable(intArrayOf(0xE611271B.toInt(), 0xE60D1E14.toInt()), 18)
+    background = amberGlassDrawable(18, strong = true)
     isClickable = true
     contentDescription = "${drama.title} ${t("discover_preview_open")}".trim()
     addView(TextView(this@createDiscoverPreviewTitle).apply {
@@ -177,7 +177,7 @@ private fun DramaAppActivity.createDiscoverPreviewTitle(drama: LocalDrama): View
         textSize = 12f
         maxLines = 1
         ellipsize = android.text.TextUtils.TruncateAt.END
-        setTextColor(COLOR_PURPLE)
+        setTextColor(COLOR_SUNSET)
         setPadding(0, dp(4), 0, 0)
     })
     setOnClickListener { openDiscoverPreviewAsFullPlayer() }
@@ -228,7 +228,8 @@ internal fun DramaAppActivity.showSdkResolutionPicker() {
 private fun DramaAppActivity.showPlayerGestureCoachmarkIfNeeded() {
     if (getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getBoolean("player_gesture_coachmark_seen", false)) return
     val coachmark = FrameLayout(this).apply {
-        background = android.graphics.drawable.ColorDrawable(0xAE000000.toInt())
+        // Keep the drama visible; the coachmark is a glass cue rather than a grey blackout layer.
+        background = android.graphics.drawable.ColorDrawable(0x26000000)
         isClickable = true
         setOnClickListener { finishPlayerGestureCoachmark(this) }
     }
@@ -236,7 +237,7 @@ private fun DramaAppActivity.showPlayerGestureCoachmarkIfNeeded() {
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER
         setPadding(dp(26), dp(22), dp(26), dp(20))
-        background = gradientDrawable(intArrayOf(0xF312271B.toInt(), 0xF20D1E14.toInt()), 26)
+        background = amberGlassDrawable(26, strong = true)
         addView(TextView(this@showPlayerGestureCoachmarkIfNeeded).apply {
             text = "☝"
             textSize = 48f
@@ -253,7 +254,7 @@ private fun DramaAppActivity.showPlayerGestureCoachmarkIfNeeded() {
             text = "↕     ↔"
             textSize = 25f
             gravity = Gravity.CENTER
-            setTextColor(COLOR_PURPLE)
+            setTextColor(COLOR_ACCENT)
         })
         addView(TextView(this@showPlayerGestureCoachmarkIfNeeded).apply {
             text = t("player_gesture_coachmark_title")
@@ -269,6 +270,13 @@ private fun DramaAppActivity.showPlayerGestureCoachmarkIfNeeded() {
             gravity = Gravity.CENTER
             setTextColor(0xD9FFFFFF.toInt())
             setPadding(0, dp(8), 0, 0)
+        })
+        addView(TextView(this@showPlayerGestureCoachmarkIfNeeded).apply {
+            text = t("continue_label")
+            textSize = 12f
+            gravity = Gravity.CENTER
+            setTextColor(COLOR_SUNSET)
+            setPadding(0, dp(15), 0, 0)
         })
     }
     coachmark.addView(panel, FrameLayout.LayoutParams(dp(292), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
@@ -287,7 +295,7 @@ private fun DramaAppActivity.finishPlayerGestureCoachmark(view: View) {
 private fun DramaAppActivity.createSdkPlayerControlDock(): View = LinearLayout(this).apply {
     orientation = LinearLayout.VERTICAL
     setPadding(dp(10), dp(4), dp(10), dp(6))
-    background = roundedDrawable(0xA6000000.toInt(), 18)
+    background = amberGlassDrawable(18)
     addView(createPlayerProgressControls(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
     addView(createPlayerActionRow(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(38)))
 }

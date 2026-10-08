@@ -155,7 +155,7 @@ internal fun DramaAppActivity.updateCrownSummaryChargeButton(button: TextView) {
         val available = next != null && cooldown <= 0
         button.text = if (cooldown > 0) t("cooling") else t("crown_accelerate")
         button.setTextColor(if (available) Color.WHITE else COLOR_TEXT_MUTED)
-        button.background = if (available) gradientDrawable(intArrayOf(COLOR_ACCENT, COLOR_PURPLE), 13) else roundedDrawable(COLOR_SURFACE, 13)
+        button.background = if (available) rewardActionDrawable(13) else amberGlassDrawable(13)
         button.alpha = if (available) 1f else 0.65f
         button.isClickable = available
         button.setOnClickListener { next?.takeIf { crownChargeCooldownRemainingSeconds() <= 0 }?.let(::showCrownRewardedUpgradeDialog) }
@@ -183,8 +183,8 @@ internal fun DramaAppActivity.updatePlayerWalletBoostButton(button: TextView) {
         button.text = if (cooldown > 0) t("charge_cooldown", cooldown) else t("extra_reward")
         button.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_wallet, 0, 0, 0)
         button.compoundDrawablePadding = dp(4)
-        button.setTextColor(if (available) COLOR_CORAL else COLOR_TEXT_MUTED)
-        button.background = roundedDrawable(if (available) 0x2235C875 else COLOR_SURFACE, 13)
+        button.setTextColor(if (available) COLOR_ACTION_GREEN_GLOW else COLOR_TEXT_MUTED)
+        button.background = if (available) roundedDrawable(0x2B35D979, 13) else amberGlassDrawable(13)
         button.alpha = if (available) 1f else 0.72f
         button.isClickable = available
         button.setOnClickListener { if (available) showWalletReleaseBoostDialog() }
@@ -198,8 +198,8 @@ internal fun DramaAppActivity.updateWalletHeaderBoostButton(button: TextView) {
         button.text = if (cooldown > 0) t("charge_cooldown", cooldown) else t("extra_reward")
         button.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_wallet, 0, 0, 0)
         button.compoundDrawablePadding = dp(4)
-        button.setTextColor(if (available) COLOR_CORAL else COLOR_TEXT_MUTED)
-        button.background = roundedDrawable(if (available) 0x2235C875 else COLOR_SURFACE, 14)
+        button.setTextColor(if (available) COLOR_ACTION_GREEN_GLOW else COLOR_TEXT_MUTED)
+        button.background = if (available) roundedDrawable(0x2B35D979, 14) else amberGlassDrawable(14)
         button.alpha = if (available) 1f else 0.72f
         button.isClickable = available
         button.setOnClickListener { if (available) showWalletReleaseBoostDialog() }
@@ -222,7 +222,7 @@ internal fun DramaAppActivity.updateWalletChargeButton(button: TextView) {
         val available = wallet?.release?.boostAvailable == true && cooldown <= 0
         button.text = if (cooldown > 0) t("charge_cooldown", cooldown) else t("wallet_boost_action")
         button.setTextColor(if (available) Color.WHITE else COLOR_TEXT_MUTED)
-        button.background = roundedDrawable(if (available) COLOR_ACCENT else COLOR_SURFACE, 15)
+        button.background = if (available) rewardActionDrawable(15) else amberGlassDrawable(15)
         button.alpha = if (available) 1f else 0.72f
         button.isClickable = available
         button.setOnClickListener { if (available) showWalletReleaseBoostDialog() }
@@ -244,7 +244,7 @@ internal fun DramaAppActivity.updateFloatingRewardBoostButton(button: TextView) 
         button.visibility = View.VISIBLE
         button.text = t("floating_boost_short")
         button.setTextColor(Color.WHITE)
-        button.background = gradientDrawable(intArrayOf(COLOR_CORAL, COLOR_SUNSET), 14)
+        button.background = rewardActionDrawable(14)
         button.isClickable = episodeId != null
         button.alpha = 1f
         button.setOnClickListener { if (episodeId == null) toast(t("episode_not_loaded")) else requestEpisodeRewardBoost(episodeId) }
@@ -272,7 +272,7 @@ internal fun DramaAppActivity.createRingCard(): View {
                 typeface = Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER
                 setTextColor(COLOR_TEXT_PRIMARY)
-                background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setStroke(dp(5), if (ring?.claimable == true) COLOR_ACCENT else COLOR_PURPLE); setColor(COLOR_SURFACE) }
+                background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setStroke(dp(5), if (ring?.claimable == true) COLOR_ACTION_GREEN else COLOR_ACCENT); setColor(COLOR_SURFACE) }
             }
             addView(circle, LinearLayout.LayoutParams(dp(58), dp(58)))
             addView(LinearLayout(this@createRingCard).apply {
@@ -287,7 +287,7 @@ internal fun DramaAppActivity.createRingCard(): View {
             addView(TextView(this@createRingCard).apply {
                 text = if (ring?.claimable == true) t("claim_all") else t("keep_watching")
                 textSize = 13f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_PRIMARY)
-                background = roundedDrawable(if (ring?.claimable == true) COLOR_ACCENT else COLOR_SURFACE, 14)
+                background = if (ring?.claimable == true) rewardActionDrawable(14) else amberGlassDrawable(14)
                 setPadding(dp(12), dp(8), dp(12), dp(8)); isClickable = true
                 setOnClickListener { if (ring?.claimable == true) showEpisodeRewardClaimDialog() else { activeTab = MainTab.DISCOVER; renderActiveTab() } }
             })
@@ -372,7 +372,7 @@ internal fun DramaAppActivity.createCheckinCard(): View {
                 typeface = Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER
                 setTextColor(COLOR_TEXT_PRIMARY)
-                background = roundedDrawable(if (snapshot?.checkinSignedToday == true) COLOR_SURFACE else COLOR_ACCENT, 14)
+                background = if (snapshot?.checkinSignedToday == true) amberGlassDrawable(14) else rewardActionDrawable(14)
                 setPadding(dp(16), dp(10), dp(16), dp(10))
                 setOnClickListener { if (snapshot?.checkinSignedToday != true) completeDailyCheckin() }
                 isClickable = snapshot != null && snapshot.checkinSignedToday != true
@@ -393,7 +393,7 @@ internal fun DramaAppActivity.createWelcomeRewardCard(snapshot: RewardsApiClient
         addView(TextView(this@createWelcomeRewardCard).apply {
             text = t("watch_ad_claim")
             textSize = 14f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
-            background = roundedDrawable(COLOR_CORAL, 14); setPadding(dp(14), dp(10), dp(14), dp(10)); isClickable = true
+            background = rewardActionDrawable(14); setPadding(dp(14), dp(10), dp(14), dp(10)); isClickable = true
             setOnClickListener { claimWelcomeBonus() }
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)))
     }
@@ -522,7 +522,7 @@ internal fun DramaAppActivity.showCashRewardReceipt(amount: String, onConfirmed:
         typeface = Typeface.DEFAULT_BOLD
         gravity = Gravity.CENTER
         setTextColor(Color.WHITE)
-        background = gradientDrawable(intArrayOf(COLOR_CORAL, COLOR_SUNSET), 18)
+        background = rewardActionDrawable(18)
         setPadding(0, dp(13), 0, dp(13))
         isClickable = true
         setOnClickListener {

@@ -218,7 +218,7 @@ internal fun DramaAppActivity.createPlayerChrome(): View {
         val controls = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(14), dp(10), dp(14), dp(12))
-            background = topRoundedDrawable(0x9E0D0B12.toInt(), 22)
+            background = amberGlassDrawable(22)
             isClickable = true
         }
         playerControlsPanel = controls
@@ -285,7 +285,7 @@ internal fun DramaAppActivity.createPlayerTopBar(): View {
             setImageResource(R.drawable.ic_arrow_back)
             imageTintList = ColorStateList.valueOf(Color.WHITE)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            background = roundedDrawable(0x720D0B12, 17)
+            background = amberGlassDrawable(17)
             contentDescription = t("back")
             isClickable = true
             setOnClickListener { showCatalog() }

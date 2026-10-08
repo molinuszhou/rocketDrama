@@ -148,14 +148,6 @@ internal fun DramaAppActivity.createCatalogLoadingSkeleton(): View = LinearLayou
 
 internal fun DramaAppActivity.createDiscoverPage(): View = scrollPage { content ->
         val recommended = recommendedCatalogItems()
-        content.addView(createPageTitle(t("discover"), t("discover_subtitle")), matchParams(bottom = 16))
-        content.addView(createCategoryTabs(), matchParams(bottom = 16))
-        if (selectedCatalogCategoryId != null) {
-            content.addView(createSectionHeader(selectedCatalogGenre.orEmpty(), t("discover_subtitle")), matchParams(bottom = 12))
-            if (categoryPageLoadInFlight && categoryCatalogItems.isEmpty()) content.addView(createCatalogLoadingSkeleton(), matchParams(bottom = 18))
-            else addDramaGrid(content, categoryCatalogItems)
-            return@scrollPage
-        }
         if (catalogItems.isEmpty()) {
             content.addView(createCatalogLoadingSkeleton(), matchParams(bottom = 18))
             return@scrollPage
@@ -175,13 +167,9 @@ internal fun DramaAppActivity.createDiscoverPage(): View = scrollPage { content 
                 return@scrollPage
             }
         }
-        primaryFeaturedDrama(recommended)?.let { content.addView(createHeroBanner(it), matchParams(bottom = 22)) }
-        content.addView(createSectionHeader(t("popular_this_week"), t("recommended_for_you")), matchParams(bottom = 12))
-        if (recommended.isNotEmpty()) content.addView(createHorizontalDramaShelf(recommended.take(SHELF_ITEM_LIMIT)), matchParams(bottom = 22))
-        catalogGenreGroups().forEach { (genre, dramas) ->
-            content.addView(createSectionHeader("$genre ${t("discover")}", t("episodes_count", dramas.size)), matchParams(bottom = 12))
-            content.addView(createHorizontalDramaShelf(dramas.take(SHELF_ITEM_LIMIT)), matchParams(bottom = 20))
-        }
+        // A provider preview is the only Discover destination. This fallback is intentionally kept
+        // empty while the provider mapping refreshes so legacy poster shelves never flash onscreen.
+        content.addView(createCatalogLoadingSkeleton(), matchParams(bottom = 18))
     }
 
 internal fun DramaAppActivity.primaryFeaturedDrama(recommended: List<LocalDrama>): LocalDrama? = recommended.firstOrNull() ?: catalogItems.firstOrNull()
