@@ -82,8 +82,8 @@ internal fun DramaAppActivity.createHomePage(): View = scrollPage { content ->
     val shelf = primaryItems.filter { it.id != featured?.id }.take(SHELF_ITEM_LIMIT)
     if (shelf.isNotEmpty()) {
         content.addView(createSectionHeader(
-            if (hasCatalogPreferenceSignals()) t("continue_watching") else t("popular_this_week"),
             t("recommended_for_you"),
+            "",
         ), matchParams(bottom = 10))
         content.addView(createHorizontalDramaShelf(shelf), matchParams(bottom = 20))
     }
@@ -179,6 +179,7 @@ internal fun DramaAppActivity.createProfilePage(): View = scrollPage { content -
                 title = t("continue_watching"),
                 subtitle = t("home_subtitle"),
                 showAll = watchedItems.size > 3,
+                viewAllLabel = t("all_history"),
                 onShowAll = { showProfileCollectionPage(showFavorites = false) },
             ),
             matchParams(bottom = 12),
@@ -188,12 +189,20 @@ internal fun DramaAppActivity.createProfilePage(): View = scrollPage { content -
             watchedItems.take(3).forEach { content.addView(createHistoryRow(it), matchParams(bottom = 10)) }
         }
 
-        content.addView(createSectionHeader(t("favorites"), t("favorites_subtitle")), matchParams(top = 4, bottom = 12))
         val favoriteItems = favoriteDramas()
+        content.addView(
+            createProfileSectionHeader(
+                title = t("favorites"),
+                subtitle = t("favorites_subtitle"),
+                showAll = favoriteItems.size > 3,
+                viewAllLabel = t("all_favorites"),
+                onShowAll = { showProfileCollectionPage(showFavorites = true) },
+            ),
+            matchParams(top = 4, bottom = 12),
+        )
         if (favoriteItems.isEmpty()) content.addView(createInlineNotice(t("favorites_empty")), matchParams(bottom = 14))
         else {
             favoriteItems.take(3).forEach { content.addView(createFavoriteRow(it), matchParams(bottom = 10)) }
-            if (favoriteItems.size > 3) content.addView(createProfileViewAllRow(t("favorites")) { showProfileCollectionPage(showFavorites = true) }, matchParams(bottom = 14))
         }
 
         content.addView(createSectionHeader(t("my_services"), t("profile_subtitle")), matchParams(top = 4, bottom = 10))
@@ -220,6 +229,7 @@ internal fun DramaAppActivity.createProfileSectionHeader(
     title: String,
     subtitle: String,
     showAll: Boolean,
+    viewAllLabel: String,
     onShowAll: () -> Unit,
 ): View = LinearLayout(this).apply {
     gravity = Gravity.CENTER_VERTICAL
@@ -239,7 +249,7 @@ internal fun DramaAppActivity.createProfileSectionHeader(
         })
     }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
     if (showAll) addView(TextView(this@createProfileSectionHeader).apply {
-        text = "${t("all_history")} ›"
+        text = "$viewAllLabel ›"
         textSize = 13f
         typeface = Typeface.DEFAULT_BOLD
         gravity = Gravity.CENTER

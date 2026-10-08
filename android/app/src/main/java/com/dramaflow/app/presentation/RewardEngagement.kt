@@ -184,7 +184,7 @@ internal fun DramaAppActivity.updatePlayerWalletBoostButton(button: TextView) {
         button.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_extra_reward_bonus, 0, 0, 0)
         button.compoundDrawablePadding = dp(5)
         button.setTextColor(if (available) COLOR_PURPLE else COLOR_TEXT_MUTED)
-        button.background = if (available) gradientDrawable(intArrayOf(0xFF4B2F1B.toInt(), 0xFF272027.toInt()), 13) else roundedDrawable(COLOR_SURFACE, 13)
+        button.background = roundedDrawable(COLOR_INK, 13)
         button.alpha = if (available) 1f else 0.72f
         button.isClickable = available
         button.setOnClickListener { if (available) showWalletReleaseBoostDialog() }
@@ -199,7 +199,7 @@ internal fun DramaAppActivity.updateWalletHeaderBoostButton(button: TextView) {
         button.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_extra_reward_bonus, 0, 0, 0)
         button.compoundDrawablePadding = dp(5)
         button.setTextColor(if (available) COLOR_PURPLE else COLOR_TEXT_MUTED)
-        button.background = if (available) gradientDrawable(intArrayOf(0xFF4B2F1B.toInt(), 0xFF272027.toInt()), 14) else roundedDrawable(COLOR_SURFACE, 14)
+        button.background = roundedDrawable(COLOR_INK, 14)
         button.alpha = if (available) 1f else 0.72f
         button.isClickable = available
         button.setOnClickListener { if (available) showWalletReleaseBoostDialog() }

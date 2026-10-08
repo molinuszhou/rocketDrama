@@ -62,9 +62,9 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
     val container = FrameLayout(this).apply { id = View.generateViewId() }
     sdkPlayerContainerId = container.id
     root.addView(container, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT).apply {
-        // The provider already renders its own title and episode information. In Discover preview
-        // reserve a real layout area for JoyeDrama's Tab bar rather than covering that native row.
-        if (previewOnly) bottomMargin = dp(68)
+        // Discover reserves a title entry strip plus its normal Tab bar below the PSSDK viewport.
+        // This avoids covering provider controls while keeping the host navigation reachable.
+        if (previewOnly) bottomMargin = dp(112)
     })
 
     val fragment = shortDramaSdk.createDetailFragment(
@@ -112,18 +112,17 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
     }
 
     if (previewOnly) {
-        // Discover is browseable rather than immersive: keep normal app navigation visible while
-        // the resized PSSDK viewport leaves its native title/episode row unobscured above this bar.
-        root.addView(createBottomNavigation(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(68), Gravity.BOTTOM))
-        // Native title / episode metadata can fade out while PSSDK playback is active. Keep one
-        // compact, title-free entry so the user can always open the full episode controls.
+        // Discover is browseable rather than immersive: use the gap above the normal Tab bar for
+        // the current drama title. This is the direct entry to the full episode controls.
         root.addView(
-            createDiscoverEpisodeEntry(),
-            FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42), Gravity.END or Gravity.BOTTOM).apply {
-                marginEnd = dp(14)
-                bottomMargin = dp(78)
+            createDiscoverDramaTitleEntry(),
+            FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44), Gravity.BOTTOM).apply {
+                marginStart = dp(16)
+                marginEnd = dp(16)
+                bottomMargin = dp(68)
             },
         )
+        root.addView(createBottomNavigation(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(68), Gravity.BOTTOM))
     } else {
         // PSSDK remains the actual player. These are JoyeDrama controls mapped only to public APIs.
         // Retain references and explicitly raise them after the Fragment completes its asynchronous
@@ -185,15 +184,15 @@ private fun DramaAppActivity.openDiscoverPreviewEpisodes() {
     )
 }
 
-private fun DramaAppActivity.createDiscoverEpisodeEntry(): View = TextView(this).apply {
-    text = "☰  ${t("discover_open_episodes")}"
-    textSize = 13f
+private fun DramaAppActivity.createDiscoverDramaTitleEntry(): View = TextView(this).apply {
+    text = selectedDrama?.title?.takeIf { it.isNotBlank() } ?: t("watch_now")
+    textSize = 15f
     typeface = android.graphics.Typeface.DEFAULT_BOLD
     gravity = Gravity.CENTER
-    setTextColor(Color.WHITE)
-    setPadding(dp(14), 0, dp(14), 0)
-    background = roundedDrawable(0xD91A171B.toInt(), 18)
-    elevation = dp(5).toFloat()
+    maxLines = 1
+    ellipsize = android.text.TextUtils.TruncateAt.END
+    setTextColor(COLOR_TEXT_PRIMARY)
+    setPadding(dp(16), 0, dp(16), 0)
     isClickable = true
     contentDescription = t("discover_open_episodes")
     setOnClickListener { openDiscoverPreviewEpisodes() }

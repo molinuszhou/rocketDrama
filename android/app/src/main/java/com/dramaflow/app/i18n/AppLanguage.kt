@@ -95,6 +95,7 @@ object AppLanguage {
         "watch_history" to all("Watch history", "Histórico", "Historial", "Historique", "Riwayat tontonan", "观看历史", "觀看歷史"),
         "view_all" to all("View all", "Ver tudo", "Ver todo", "Voir tout", "Lihat semua", "查看全部", "查看全部"),
         "all_history" to all("All history", "Todo o histórico", "Todo el historial", "Tout l’historique", "Semua riwayat", "全部历史", "全部歷史"),
+        "all_favorites" to all("All favorites", "Todos os favoritos", "Todos los favoritos", "Tous les favoris", "Semua favorit", "全部收藏", "全部收藏"),
         "watch_now" to all("Watch now", "Assistir", "Ver ahora", "Regarder maintenant", "Tonton sekarang", "立即观看", "立即觀看"),
         "go_watch" to all("Go watch", "Ir assistir", "Ir a ver", "Aller regarder", "Mulai menonton", "去看剧", "去看劇"),
         "welcome_title" to all("Welcome gift", "Presente de boas-vindas", "Regalo de bienvenida", "Cadeau de bienvenue", "Hadiah selamat datang", "新人专享奖励", "新人專享獎勵"),
