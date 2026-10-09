@@ -51,6 +51,65 @@ cd android
 
 内容服务的离线冒烟脚本可在仓库根目录执行。奖励服务的 HTTP 冒烟测试需要先启动 PostgreSQL 与奖励 API；测试地址默认是 `http://127.0.0.1:8110`，可通过 `REWARDS_TEST_BASE_URL` 覆盖。
 
+## 正式 Release 构建与签名（Windows）
+
+> 以下脚本仅适用于当前 `release/formal-production` 检出的正式工程。脚本使用 `local.properties.release` 中的正式配置，构建期间会临时覆盖 `local.properties`，并在结束（包括失败）后自动恢复原文件。脚本不会保存 Upload Key 密码。
+
+### 前置检查
+
+确认下列受控本地文件存在，且与正式包名 `com.feather.joyelledrama` 对应：
+
+- `local.properties.release`：正式广告、AppsFlyer、Pangle、Rewards HTTPS 地址等构建参数；
+- `app/google-services.json`：Firebase 项目配置；
+- `app/src/main/assets/license/l-42456072209-ch-vod-a-1053223.lic`：Pangle 短剧 License；
+- 工作区根目录的 `joyedrama-upload-key-and-sign-scripts/joyedrama-upload-keystore.jks`：Google Play Upload Key。
+
+脚本运行前会打印当前 Git 分支、版本与包名。若不是预期的正式分支或版本，先停止并检查工程状态。
+
+### 生成已签名 Release 测试 APK
+
+在 PowerShell 中执行：
+
+```powershell
+cd D:\gworkspace\R1\JoyeDrama\android
+powershell -ExecutionPolicy Bypass -File .\scripts\build-release-test-apk.ps1
+```
+
+用于重复构建、希望跳过 Gradle `clean` 时：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build-release-test-apk.ps1 -SkipClean
+```
+
+该脚本依次执行 `:app:assembleRelease`、`zipalign`、Upload Key 签名、签名校验与对齐校验。输出 APK 位于：
+
+```text
+android\release-artifacts\JoyeDrama-release-test-signed-时间戳.apk
+```
+
+### 生成 Google Play 上传 AAB
+
+在 PowerShell 中执行：
+
+```powershell
+cd D:\gworkspace\R1\JoyeDrama\android
+powershell -ExecutionPolicy Bypass -File .\scripts\build-google-play-aab.ps1
+```
+
+用于重复构建、希望跳过 Gradle `clean` 时：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build-google-play-aab.ps1 -SkipClean
+```
+
+该脚本执行 `:app:bundleRelease`，再以 Upload Key 签名和校验 AAB。若已启用 **Google Play App Signing**，上传这个生成的 AAB；Google Play 会用其托管的 App Signing Key 重新签名分发给用户。输出 AAB 位于：
+
+```text
+android\release-artifacts\JoyeDrama-google-play-upload-signed-时间戳.aab
+```
+
+两个脚本均会在签名环节交互要求输入 Upload Key 密码，密码不会写入脚本、Git、构建参数或产物目录。`release-artifacts/` 已被 Git 忽略。
+
 ## 参考资料
 
 [Android app startup guidance](https://developer.android.com/topic/performance/vitals/launch-time) 说明了启动耗时与首帧可交互的测量方法。Pangle 及聚合广告的初始化与激励广告回调规范应以当前接入 SDK 的官方文档为准，并在真机上覆盖完整观看、提前关闭、无填充、隐私撤回、前后台切换与播放恢复场景。
