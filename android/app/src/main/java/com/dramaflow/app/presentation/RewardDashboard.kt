@@ -303,8 +303,10 @@ internal fun DramaAppActivity.createCrownLevelRow(level: RewardsApiClient.CrownP
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER_HORIZONTAL
         val iconFrame = FrameLayout(this@createCrownLevelRow).apply {
-            background = roundedDrawable(COLOR_CARD, 20)
-            addView(ImageView(this@createCrownLevelRow).apply { setImageResource(crownIconRes(level.code)); scaleType = ImageView.ScaleType.CENTER_INSIDE }, FrameLayout.LayoutParams(dp(42), dp(42), Gravity.CENTER))
+            // 3D rank assets include their own metal and gem shading. A card-colour circle here
+            // reads as an unintended black halo against each row, so keep the container clear.
+            background = null
+            addView(ImageView(this@createCrownLevelRow).apply { setImageResource(crownIconRes(level.code)); scaleType = ImageView.ScaleType.CENTER_INSIDE }, FrameLayout.LayoutParams(dp(48), dp(48), Gravity.CENTER))
         }
         addView(iconFrame, LinearLayout.LayoutParams(dp(48), dp(48)))
         addView(TextView(this@createCrownLevelRow).apply {

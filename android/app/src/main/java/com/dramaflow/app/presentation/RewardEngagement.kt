@@ -184,9 +184,9 @@ internal fun DramaAppActivity.updatePlayerWalletBoostButton(button: TextView) {
         // rapidly changing seconds counter.
         button.text = t("bonus_cash")
         button.textSize = 14f
-        button.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_extra_reward_chest_3d, 0, 0, 0)
+        setBonusCashChest(button, sizeDp = 30)
         button.compoundDrawablePadding = dp(4)
-        button.setTextColor(if (available) COLOR_SUNSET else COLOR_TEXT_MUTED)
+        button.setTextColor(COLOR_FLOATING_GOLD)
         button.background = null
         button.alpha = if (available) 1f else 0.72f
         button.isClickable = available
@@ -200,14 +200,23 @@ internal fun DramaAppActivity.updateWalletHeaderBoostButton(button: TextView) {
         button.visibility = if (wallet == null) View.GONE else View.VISIBLE
         button.text = t("bonus_cash")
         button.textSize = 14f
-        button.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_extra_reward_chest_3d, 0, 0, 0)
+        // Home and Profile have more vertical room than the in-player top bar, so the chest is
+        // intentionally one size larger there while preserving the player's existing size.
+        setBonusCashChest(button, sizeDp = 38)
         button.compoundDrawablePadding = dp(4)
-        button.setTextColor(if (available) COLOR_SUNSET else COLOR_TEXT_MUTED)
+        button.setTextColor(COLOR_FLOATING_GOLD)
         button.background = null
         button.alpha = if (available) 1f else 0.72f
         button.isClickable = available
         button.setOnClickListener { if (available) showWalletReleaseBoostDialog() }
     }
+
+private fun DramaAppActivity.setBonusCashChest(button: TextView, sizeDp: Int) {
+    val chest = getDrawable(R.drawable.ic_extra_reward_chest_3d)?.mutate() ?: return
+    val size = dp(sizeDp)
+    chest.setBounds(0, 0, size, size)
+    button.setCompoundDrawables(chest, null, null, null)
+}
 
 internal fun DramaAppActivity.updateWalletChargeQuotaLabel(label: TextView) {
         val release = rewardsSnapshot?.wallet?.release

@@ -26,6 +26,8 @@ internal const val COLOR_INK = 0xFF0D0D0F.toInt()
 internal const val COLOR_PLUM = 0xFF231A2C.toInt()
 internal const val COLOR_CORAL = 0xFFFF704D.toInt()
 internal const val COLOR_SUNSET = 0xFFFFA94D.toInt()
+// Shared with the floating cash wheel so wallet and bonus-cash labels read as one asset family.
+internal const val COLOR_FLOATING_GOLD = 0xFFFFD35C.toInt()
 internal const val COLOR_AQUA = 0xFF56CEC1.toInt()
 internal const val COLOR_MIST_BLUE = 0xFF10151B.toInt()
 internal const val COLOR_WARM_PEACH = 0xFF211815.toInt()

@@ -100,7 +100,9 @@ internal fun DramaAppActivity.createPersistentAssetHeader(): View {
                     walletChargeCooldownRings.add(cooldown); updateWalletChargeCooldownRing(cooldown)
                     addView(cooldown, LinearLayout.LayoutParams(dp(28), dp(28)).apply { marginStart = dp(4) })
                 }
-                addView(chargeSlot, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(60)).apply { marginStart = dp(4) })
+                // About 20 physical pixels at xxhdpi: aligns the Bonus Cash group with the
+                // visual edge of the wallet mark rather than the rounded card's outer edge.
+                addView(chargeSlot, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(60)).apply { marginStart = dp(4); marginEnd = dp(8) })
             }
             addView(balanceBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(76)))
         }
@@ -139,10 +141,10 @@ internal fun DramaAppActivity.createAssetPill(icon: Int, label: String, value: S
         addView(image, LinearLayout.LayoutParams(dp(66), dp(66)))
         addView(LinearLayout(this@createAssetPill).apply {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(5), 0, 0, 0)
-            val valueView = TextView(this@createAssetPill).apply { text = value; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY); maxLines = 1; includeFontPadding = false; letterSpacing = -0.02f; setAutoSizeTextTypeUniformWithConfiguration(16, 27, 1, android.util.TypedValue.COMPLEX_UNIT_SP) }
+            val valueView = TextView(this@createAssetPill).apply { text = value; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_FLOATING_GOLD); maxLines = 1; includeFontPadding = false; letterSpacing = -0.02f; setAutoSizeTextTypeUniformWithConfiguration(16, 27, 1, android.util.TypedValue.COMPLEX_UNIT_SP) }
         if (isGem) gemBalanceLabel = valueView else cashBalanceLabel = valueView
             addView(valueView)
-            addView(TextView(this@createAssetPill).apply { text = label; textSize = 11f; setTextColor(COLOR_TEXT_MUTED); maxLines = 1 })
+            addView(TextView(this@createAssetPill).apply { text = label; textSize = 11f; setTextColor(COLOR_FLOATING_GOLD); maxLines = 1 })
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
     }
 
@@ -316,7 +318,7 @@ internal fun DramaAppActivity.createPlayerAssetStrip(): View = FrameLayout(this)
         val walletIcon = ImageView(this@createPlayerAssetStrip).apply { setImageResource(R.drawable.wallet_money); scaleType = ImageView.ScaleType.CENTER_INSIDE; isClickable = true; contentDescription = t("wallet"); setOnClickListener { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) } }
         cashBalanceAnchor = walletIcon
         walletChip.addView(walletIcon, LinearLayout.LayoutParams(dp(38), dp(38)))
-        val cash = TextView(this@createPlayerAssetStrip).apply { text = wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(dp(5), 0, 0, 0); isClickable = true; setOnClickListener { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) } }
+        val cash = TextView(this@createPlayerAssetStrip).apply { text = wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_FLOATING_GOLD); setPadding(dp(5), 0, 0, 0); isClickable = true; setOnClickListener { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) } }
         cashBalanceLabel = cash
         walletChip.addView(cash)
         addView(walletChip, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(50), Gravity.START or Gravity.CENTER_VERTICAL).apply { marginStart = dp(56) })
@@ -336,7 +338,7 @@ internal fun DramaAppActivity.createPlayerAssetStrip(): View = FrameLayout(this)
             walletChargeCooldownRings.add(cooldown); updateWalletChargeCooldownRing(cooldown)
             addView(cooldown, LinearLayout.LayoutParams(dp(26), dp(26)).apply { marginStart = dp(4) })
         }
-        addView(extraSlot, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(50), Gravity.END or Gravity.CENTER_VERTICAL).apply { marginEnd = dp(8) })
+        addView(extraSlot, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(50), Gravity.END or Gravity.CENTER_VERTICAL).apply { marginEnd = dp(16) })
     }
 
 internal fun DramaAppActivity.createTopSafePlayerAssetStrip(): View {

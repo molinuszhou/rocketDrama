@@ -252,7 +252,7 @@ internal fun DramaAppActivity.createProfileSectionHeader(
         textSize = 13f
         typeface = Typeface.DEFAULT_BOLD
         gravity = Gravity.CENTER
-        setTextColor(COLOR_CORAL)
+        setTextColor(COLOR_SUNSET)
         setPadding(dp(10), dp(8), 0, dp(8))
         isClickable = true
         setOnClickListener { onShowAll() }
@@ -264,7 +264,7 @@ internal fun DramaAppActivity.createProfileViewAllRow(title: String, onClick: ()
     textSize = 14f
     typeface = Typeface.DEFAULT_BOLD
     gravity = Gravity.CENTER
-    setTextColor(COLOR_CORAL)
+    setTextColor(COLOR_SUNSET)
     background = roundedDrawable(COLOR_SURFACE, 15)
     isClickable = true
     setOnClickListener { onClick() }
