@@ -263,7 +263,9 @@ internal fun DramaAppActivity.showStartupCheckinWhenReady() {
                 startupCheckinPromptShown = true
                 showPendingShortDramaCatalogDiagnostic()
                 root.postDelayed({
-                    if (!isFinishing && !isDestroyed && rewardsSnapshot?.checkinSignedToday != true) showCheckinRewardDialog(rewardsSnapshot ?: snapshot)
+                    if (!isFinishing && !isDestroyed && !startupCheckinPromptSuppressed && rewardsSnapshot?.checkinSignedToday != true) {
+                        showCheckinRewardDialog(rewardsSnapshot ?: snapshot)
+                    }
                 }, 15_000L)
             }
             return
@@ -315,13 +317,12 @@ internal fun DramaAppActivity.showWelcomeRewardDialog(snapshot: RewardsApiClient
             setAutoSizeTextTypeUniformWithConfiguration(34, 58, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
             setPadding(dp(8), dp(4), dp(8), dp(4))
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(68)))
-        content.addView(TextView(this@showWelcomeRewardDialog).apply {
-            text = t("welcome_value_label")
-            textSize = 14f
-            gravity = Gravity.CENTER
-            setTextColor(COLOR_TEXT_MUTED)
-            setPadding(0, 0, 0, dp(18))
-        })
+        // The cash amount already communicates the reward. Keep a little breathing room rather
+        // than repeating a second "cash reward" label below it.
+        content.addView(View(this@showWelcomeRewardDialog), LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            dp(14),
+        ))
         content.addView(TextView(this@showWelcomeRewardDialog).apply {
             text = t("watch_ad_claim")
             textSize = 17f
@@ -549,7 +550,13 @@ internal fun DramaAppActivity.formatSevenDayCheckinTotal(snapshot: RewardsApiCli
     return formatRewardUnitsAsCash(snapshot, tiers.sumOf { it.toLong() })
 }
 
-internal fun DramaAppActivity.completeDailyCheckin() {
+internal fun DramaAppActivity.completeDailyCheckin(suppressStartupPrompt: Boolean = false) {
+        if (suppressStartupPrompt) {
+            // A deliberate check-in from Reward Center supersedes the delayed onboarding prompt.
+            startupCheckinPromptRequested = false
+            startupCheckinPromptShown = true
+            startupCheckinPromptSuppressed = true
+        }
         requestRewardedAction("rv_checkin_complete", onSettled = { action ->
             resumeAfterFullscreenAdIfNeeded()
             if (action.idempotent) {

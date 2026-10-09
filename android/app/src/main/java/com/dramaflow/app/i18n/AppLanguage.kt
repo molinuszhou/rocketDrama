@@ -160,6 +160,7 @@ object AppLanguage {
         "today_day_reward" to all("Day %1\$d · cash reward", "Dia %1\$d · recompensa em dinheiro", "Día %1\$d · recompensa en efectivo", "Jour %1\$d · récompense en espèces", "Hari %1\$d · hadiah uang", "第 %1\$d 天 · 现金奖励", "第 %1\$d 天 · 現金獎勵"),
         "profile_subtitle" to all("Your viewing progress and reward details", "Seu progresso e recompensas", "Tu progreso y recompensas", "Votre progression et détails des récompenses", "Progres tontonan dan hadiah", "追剧进度与奖励明细", "追劇進度與獎勵明細"),
         "my_services" to all("My services", "Meus serviços", "Mis servicios", "Mes services", "Layanan saya", "我的服务", "我的服務"),
+        "other_settings" to all("Other settings", "Outras configurações", "Otros ajustes", "Autres réglages", "Pengaturan lainnya", "其他设置", "其他設定"),
         "settings" to all("Settings", "Configurações", "Ajustes", "Réglages", "Pengaturan", "设置", "設定"),
         "ad_settings" to all("Ad settings", "Configurações de anúncios", "Ajustes de anuncios", "Réglages des publicités", "Pengaturan iklan", "广告设置", "廣告設定"),
         "privacy_terms" to all("Privacy terms", "Termos de privacidade", "Términos de privacidad", "Conditions de confidentialité", "Ketentuan privasi", "隐私条款", "隱私條款"),

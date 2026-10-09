@@ -74,6 +74,9 @@ internal fun DramaAppActivity.createTasksPage(): View {
         content.addView(createRewardsHeroHeader(snapshot), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(244)))
         if (snapshot == null) content.addView(createInlineNotice(t("ledger_note")), matchParams(top = 10, bottom = 10))
         else {
+            if (snapshot.welcome.available) {
+                content.addView(createWelcomeRewardCard(snapshot), matchParams(top = 10, bottom = 10))
+            }
             content.addView(createDailyBenefitsPanel(snapshot), matchParams(top = 10, bottom = 10))
             content.addView(createEpisodeTaskLine(snapshot), matchParams(bottom = 10))
         }
@@ -275,7 +278,7 @@ internal fun DramaAppActivity.createCrownRoadPanel(snapshot: RewardsApiClient.Sn
     orientation = LinearLayout.VERTICAL
     setPadding(dp(16), dp(16), dp(16), dp(13))
     background = roundedDrawable(COLOR_CARD, 24)
-    addView(createRewardPanelTitle(t("crown_road"), "", t("crown_accelerate"), R.drawable.ic_crown) {
+    addView(createRewardPanelTitle(t("crown_road"), "", t("crown_accelerate"), R.drawable.ic_crown_royal) {
         snapshot?.crownProgress?.firstOrNull { !it.earned }?.let(::showCrownRewardedUpgradeDialog)
     })
     val crowns = snapshot?.crownProgress?.sortedBy { it.levelRank }.orEmpty()
@@ -458,7 +461,8 @@ internal fun DramaAppActivity.createDailyBenefitsPanel(snapshot: RewardsApiClien
         background = primaryActionDrawable()
         isClickable = snapshot != null
         setOnClickListener {
-            if (snapshot?.checkinSignedToday == true) showCheckinCalendarReminderPrompt() else completeDailyCheckin()
+            if (snapshot?.checkinSignedToday == true) showCheckinCalendarReminderPrompt()
+            else completeDailyCheckin(suppressStartupPrompt = true)
         }
     }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)))
 }

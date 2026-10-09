@@ -172,7 +172,6 @@ internal fun DramaAppActivity.primaryFeaturedDrama(recommended: List<LocalDrama>
 
 
 internal fun DramaAppActivity.createProfilePage(): View = scrollPage { content ->
-        content.addView(createProfileHero(), matchParams(bottom = 16))
         val watchedItems = recentWatchedDramas()
         content.addView(
             createProfileSectionHeader(
@@ -205,7 +204,7 @@ internal fun DramaAppActivity.createProfilePage(): View = scrollPage { content -
             favoriteItems.take(3).forEach { content.addView(createFavoriteRow(it), matchParams(bottom = 10)) }
         }
 
-        content.addView(createSectionHeader(t("my_services"), t("profile_subtitle")), matchParams(top = 4, bottom = 10))
+        content.addView(createSectionHeader(t("other_settings"), ""), matchParams(top = 4, bottom = 10))
         content.addView(createSettingsRow(t("settings"), t("privacy_terms"), "›") { showSettingsCenter() }, matchParams(bottom = 8))
         content.addView(createSettingsRow(t("language"), AppLanguage.label(this), "›") { showLanguageSettings() }, matchParams(bottom = 16))
         // This resolves to real CSV audit/export rows in the Debug source set and to a no-op in

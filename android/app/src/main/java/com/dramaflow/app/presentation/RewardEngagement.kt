@@ -180,10 +180,13 @@ internal fun DramaAppActivity.updatePlayerWalletBoostButton(button: TextView) {
         val cooldown = walletChargeCooldownRemainingSeconds()
         val available = wallet?.release?.boostAvailable == true && cooldown <= 0
         button.visibility = if (wallet == null) View.GONE else View.VISIBLE
-        button.text = if (cooldown > 0) t("charge_cooldown", cooldown) else t("bonus_cash")
+        // The ring itself communicates cooldown progress; do not replace the action label with a
+        // rapidly changing seconds counter.
+        button.text = t("bonus_cash")
+        button.textSize = 14f
         button.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_extra_reward_bonus, 0, 0, 0)
-        button.compoundDrawablePadding = dp(3)
-        button.setTextColor(if (available) COLOR_PURPLE else COLOR_TEXT_MUTED)
+        button.compoundDrawablePadding = dp(4)
+        button.setTextColor(if (available) COLOR_SUNSET else COLOR_TEXT_MUTED)
         button.background = null
         button.alpha = if (available) 1f else 0.72f
         button.isClickable = available
@@ -195,10 +198,11 @@ internal fun DramaAppActivity.updateWalletHeaderBoostButton(button: TextView) {
         val cooldown = walletChargeCooldownRemainingSeconds()
         val available = wallet?.release?.boostAvailable == true && cooldown <= 0
         button.visibility = if (wallet == null) View.GONE else View.VISIBLE
-        button.text = if (cooldown > 0) t("charge_cooldown", cooldown) else t("bonus_cash")
+        button.text = t("bonus_cash")
+        button.textSize = 14f
         button.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_extra_reward_bonus, 0, 0, 0)
-        button.compoundDrawablePadding = dp(3)
-        button.setTextColor(if (available) COLOR_PURPLE else COLOR_TEXT_MUTED)
+        button.compoundDrawablePadding = dp(4)
+        button.setTextColor(if (available) COLOR_SUNSET else COLOR_TEXT_MUTED)
         button.background = null
         button.alpha = if (available) 1f else 0.72f
         button.isClickable = available
@@ -387,8 +391,8 @@ internal fun DramaAppActivity.createWelcomeRewardCard(snapshot: RewardsApiClient
         background = gradientDrawable(intArrayOf(COLOR_CARD, 0xFF2A2116.toInt()), 20)
         addView(TextView(this@createWelcomeRewardCard).apply { text = t("newcomer_reward"); textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
         addView(TextView(this@createWelcomeRewardCard).apply {
-            text = "新人现金奖励 ${formatWelcomeRewardCashValue(snapshot) ?: "—"}"
-            textSize = 13f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(6), 0, dp(13))
+            text = formatWelcomeRewardCashValue(snapshot) ?: "—"
+            textSize = 28f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_SUNSET); setPadding(0, dp(6), 0, dp(13))
         })
         addView(TextView(this@createWelcomeRewardCard).apply {
             text = t("watch_ad_claim")
@@ -405,17 +409,21 @@ internal fun DramaAppActivity.claimWelcomeBonus(onCompleted: (() -> Unit)? = nul
                 toast(t("welcome_claimed"))
                 onCompleted?.invoke()
             } else {
-                showBrandedChoiceDialog(
-                    t("welcome_rewards_guide_title"),
-                    t("welcome_rewards_guide_message"),
-                    t("welcome_rewards_guide_action"),
-                    {
-                        activeTab = MainTab.TASKS
-                        if (playerShown) showCatalog() else if (catalogItems.isNotEmpty()) renderActiveTab()
-                        onCompleted?.invoke()
-                    },
-                    cancelable = false,
-                )
+                onCompleted?.invoke()
+                // Let the wallet celebration settle before guiding a new user toward Reward Center.
+                root.postDelayed({
+                    if (isFinishing || isDestroyed) return@postDelayed
+                    showBrandedChoiceDialog(
+                        t("welcome_rewards_guide_title"),
+                        t("welcome_rewards_guide_message"),
+                        t("welcome_rewards_guide_action"),
+                        {
+                            activeTab = MainTab.TASKS
+                            if (playerShown) showCatalog() else if (catalogItems.isNotEmpty()) renderActiveTab()
+                        },
+                        cancelable = false,
+                    )
+                }, 3_000L)
             }
         })
     }

@@ -149,6 +149,8 @@ class DramaAppActivity : FragmentActivity() {
     internal var restoredPositionSeconds = 0
     internal var startupCheckinPromptRequested = false
     internal var startupCheckinPromptShown = false
+    /** A deliberate Reward Center check-in must never be followed by the delayed onboarding dialog. */
+    internal var startupCheckinPromptSuppressed = false
     internal var startupWelcomePromptShown = false
     internal var selectedDrama: LocalDrama? = null
     internal var currentEpisodeIndex = 0
