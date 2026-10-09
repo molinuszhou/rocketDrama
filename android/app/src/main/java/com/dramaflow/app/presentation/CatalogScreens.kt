@@ -471,7 +471,6 @@ internal fun DramaAppActivity.createHeroBanner(drama: LocalDrama): View = FrameL
             setPadding(dp(4), dp(4), dp(12), dp(4))
             addView(ImageView(this@createHeroBanner).apply {
                 setImageResource(R.drawable.ic_play_coral)
-                imageTintList = ColorStateList.valueOf(COLOR_INK)
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
             }, LinearLayout.LayoutParams(dp(42), dp(42)))
             addView(TextView(this@createHeroBanner).apply { text = t("watch_now"); textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_INK); setPadding(dp(5), 0, 0, 0) })
