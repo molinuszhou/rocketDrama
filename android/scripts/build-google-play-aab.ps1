@@ -96,9 +96,13 @@ if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
 $OutputDirectory = (Resolve-Path -LiteralPath $OutputDirectory).Path
 
-$branch = (& git -c "safe.directory=$($repositoryRoot.Replace('\', '/'))" -C $repositoryRoot branch --show-current 2>$null).Trim()
-$versionLine = (Get-Content -LiteralPath (Join-Path $androidRoot "app\build.gradle.kts") | Where-Object { $_ -match '^\s*versionName\s*=' } | Select-Object -First 1).Trim()
-$applicationIdLine = (Get-Content -LiteralPath (Join-Path $androidRoot "app\build.gradle.kts") | Where-Object { $_ -match '^\s*formalApplicationId\s*=' } | Select-Object -First 1).Trim()
+$branchLine = & git -c "safe.directory=$($repositoryRoot.Replace('\', '/'))" -C $repositoryRoot branch --show-current 2>$null | Select-Object -First 1
+$branch = if ([string]::IsNullOrWhiteSpace($branchLine)) { "unknown" } else { $branchLine.Trim() }
+$buildScriptLines = Get-Content -LiteralPath (Join-Path $androidRoot "app\build.gradle.kts")
+$versionLine = $buildScriptLines | Where-Object { $_ -match '^\s*versionName\s*=' } | Select-Object -First 1
+$versionLine = if ([string]::IsNullOrWhiteSpace($versionLine)) { "not found" } else { $versionLine.Trim() }
+$applicationIdLine = $buildScriptLines | Where-Object { $_ -match '^\s*val\s+formalApplicationId\s*=' } | Select-Object -First 1
+$applicationIdLine = if ([string]::IsNullOrWhiteSpace($applicationIdLine)) { "not found" } else { $applicationIdLine.Trim() }
 Write-Host "Current branch: $branch" -ForegroundColor Cyan
 Write-Host "Current Gradle version: $versionLine" -ForegroundColor Cyan
 Write-Host "Release package: $applicationIdLine" -ForegroundColor Cyan
