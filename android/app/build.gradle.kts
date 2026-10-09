@@ -98,6 +98,9 @@ if (commercialReleaseRequested) {
     check(isAdmobAndroidAppId(partnerAdmobAppId)) {
         "ADMOB_APP_ID must be the one Android AdMob App ID in ca-app-pub-...~... format, not a ca-app-pub-.../... ad unit ID."
     }
+    check(externalReportingEnabled) {
+        "Commercial Release requires EXTERNAL_REPORTING_ENABLED=true so AppsFlyer, Firebase, Xuanyu and the Rewards delivery ledger remain enabled."
+    }
 }
 
 // Firebase configuration is an environment credential, never committed. Do not apply the Google
@@ -139,8 +142,8 @@ android {
         minSdk = 26
         targetSdk = 36
         // Android 客户端每次代码改动递增补丁版本；服务端/文档单独改动不变更此版本。
-        versionCode = 85
-        versionName = "1.7.1.31"
+        versionCode = 86
+        versionName = "1.7.1.32"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }

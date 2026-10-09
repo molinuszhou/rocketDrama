@@ -41,8 +41,11 @@ internal class ReportingDeliveryEventReporter(context: Context) {
         revenue: AdRevenueAuditValues,
     ) {
         // Rewards Operations is a separate server ledger and must never be mirrored into
-        // the reporting-delivery ledger, avoiding self-generated report loops.
+        // the reporting-delivery ledger, avoiding self-generated report loops. A provider
+        // callback can produce QUEUED/RETRYING/terminal transitions; retain only the terminal
+        // result so one third-party delivery attempt creates one server-side record.
         if (provider !in REMOTE_PROVIDERS) return
+        if (status !in TERMINAL_DELIVERY_STATUSES) return
         val baseUrl = BuildConfig.REWARDS_API_BASE_URL.trim().trimEnd('/')
         if (!baseUrl.startsWith("http://") && !baseUrl.startsWith("https://")) return
         val event = JSONObject()
@@ -87,6 +90,7 @@ internal class ReportingDeliveryEventReporter(context: Context) {
     private companion object {
         val JSON = "application/json; charset=utf-8".toMediaType()
         val REMOTE_PROVIDERS = setOf("AppsFlyer", "Firebase", "Xuanyu")
+        val TERMINAL_DELIVERY_STATUSES = setOf("SUCCESS", "FAILED", "FINAL_FAILED")
         const val MAX_EVENT_NAME_LENGTH = 120
         const val MAX_PLACEMENT_LENGTH = 80
         const val MAX_AD_UNIT_LENGTH = 160
