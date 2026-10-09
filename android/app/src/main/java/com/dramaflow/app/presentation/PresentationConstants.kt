@@ -8,6 +8,7 @@ internal const val BOTTOM_NAV_HEIGHT_DP = 82
 internal const val PREFERENCES = "joyedrama.short_drama"
 internal const val PLAYBACK_HISTORY_PREFERENCES = "joyedrama.playback_history"
 internal const val INSTALLATION_KEY = "anonymous_installation_id"
+internal const val SESSION_TOKEN_KEY = "rewards_session_token"
 internal const val STATE_PLAYER_VISIBLE = "state_player_visible"
 internal const val STATE_DRAMA_ID = "state_drama_id"
 internal const val STATE_EPISODE_INDEX = "state_episode_index"

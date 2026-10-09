@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import date
 
 from fastapi import FastAPI, Header, Request
@@ -14,6 +15,7 @@ from app.schemas import (
     AdMediationEventRequest,
     AdUnavailableEpisodeUnlockRequest,
     AttributionUpdateRequest,
+    AdminLoginRequest,
     BootstrapRequest,
     CheckinRequest,
     ClaimAllEpisodeRewardsRequest,
@@ -71,6 +73,26 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def require_user_session(request: Request, call_next):
+    """Bind anonymous user APIs to a server-signed token instead of trusting a UID alone."""
+    path = request.url.path
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"} and path.startswith("/v2/") and request.headers.get("x-rewards-session") == "v1":
+        exempt = {"/v2/bootstrap", "/v2/operations/ad-mediation-events"}
+        if not path.startswith("/v2/admin/") and path not in exempt:
+            body = await request.body()
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                return JSONResponse(status_code=400, content={"code": 1000, "msg": "请求体格式无效"})
+            identity = payload.get("user_uid") if path == "/v2/operations/reporting-delivery-events" else payload.get("user_id")
+            if not isinstance(identity, str) or not identity.strip():
+                return JSONResponse(status_code=401, content={"code": 1904, "msg": "缺少用户会话身份"})
+            service.verify_user_session(identity, request.headers.get("authorization"))
+            request._body = body
+    return await call_next(request)
+
+
 @app.exception_handler(ServiceError)
 async def service_error_handler(_: Request, error: ServiceError) -> JSONResponse:
     return JSONResponse(status_code=error.status_code, content={"code": error.code, "msg": error.message})
@@ -90,8 +112,15 @@ def bootstrap(payload: BootstrapRequest, request: Request) -> dict:
             payload.region,
             geo_country=geo_country_resolver.country_for_ip(client_ip(request)),
             attribution=payload.attribution.model_dump() if payload.attribution else None,
+            session_token=request.headers.get("authorization"),
+            session_required=bool(request.headers.get("authorization")),
         ),
     }
+
+
+@app.post("/v2/admin/login", response_model=ApiEnvelope)
+def admin_login(payload: AdminLoginRequest) -> dict:
+    return {"code": 0, "data": service.admin_login(payload.username, payload.password)}
 
 
 @app.post("/v2/attribution", response_model=ApiEnvelope)
@@ -310,6 +339,9 @@ def admin_users(
     query: str = "",
     market_code: str = "",
     attribution_surface: str = "",
+    geo_country: str = "",
+    created_start: date | None = None,
+    created_end: date | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> dict:
@@ -320,6 +352,9 @@ def admin_users(
             query=query,
             market_code=market_code,
             attribution_surface=attribution_surface,
+            geo_country=geo_country,
+            created_start=created_start,
+            created_end=created_end,
             limit=limit,
             offset=offset,
         ),
@@ -331,11 +366,21 @@ def admin_reporting_delivery(
     authorization: str | None = Header(default=None),
     start_date: date | None = None,
     end_date: date | None = None,
-    limit: int = 100,
+    page: int = 1,
+    page_size: int = 100,
+    provider: str = "",
+    event_name: str = "",
+    status: str = "",
+    user_uid: str = "",
+    logical_placement: str = "",
+    ad_unit_id: str = "",
 ) -> dict:
     return {
         "code": 0,
-        "data": service.admin_reporting_delivery_metrics(authorization, start_date, end_date, limit),
+        "data": service.admin_reporting_delivery_metrics(
+            authorization, start_date, end_date, page, page_size,
+            provider, event_name, status, user_uid, logical_placement, ad_unit_id,
+        ),
     }
 
 

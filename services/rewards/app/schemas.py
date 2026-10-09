@@ -55,6 +55,11 @@ class BootstrapRequest(BaseModel):
     attribution: AttributionPayload | None = None
 
 
+class AdminLoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=128)
+    password: str = Field(min_length=1, max_length=256)
+
+
 class AttributionUpdateRequest(AttributionPayload):
     user_id: str = Field(min_length=1, max_length=128)
 

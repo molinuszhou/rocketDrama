@@ -43,12 +43,14 @@ chmod 600 .env.production
 nano .env.production
 ```
 
-必须替换以下三项：
+必须替换以下配置：
 
 | 配置项 | 用途 |
 |---|---|
 | `POSTGRES_PASSWORD` | PostgreSQL 数据库密码 |
 | `ADMIN_DASHBOARD_TOKEN` | Rewards 后台管理接口访问令牌 |
+| `SESSION_SIGNING_SECRET` | 新版匿名用户/后台会话签名密钥，必须是独立的高强度随机字符串 |
+| `ADMIN_INITIAL_USERNAME` / `ADMIN_INITIAL_PASSWORD` | 首次启动时创建后台账号；首次登录成功后可从 `.env.production` 删除 |
 
 保留以下默认值即可：
 
@@ -57,6 +59,11 @@ REWARDS_BIND_PORT=18100
 CORS_ORIGINS=https://www.joyelleasia.com
 TIMEZONE=UTC
 ```
+
+新版后台地址仍为 `/joyedrama-rewards/admin`，首次登录使用 `ADMIN_INITIAL_USERNAME` 与
+`ADMIN_INITIAL_PASSWORD`。密码只以 PBKDF2-SHA256 哈希写入 `admin_users`，不会以明文保存；登录后浏览器只保留 12 小时后台会话令牌。
+
+新版 Android 客户端在第一次 Rewards bootstrap 后取得绑定匿名 UID 的 30 天用户会话令牌，之后的奖励、钱包和上报请求都会携带该令牌。用户卸载重装后生成新的匿名 UID，按产品要求从新用户开始。旧客户端没有该协议标记时仍可继续调用原接口，便于灰度更新；待全量升级后可再关闭旧版兼容入口。
 
 服务端默认使用本地 MaxMind **GeoLite2-Country.mmdb** 解析请求 IP。请从 MaxMind 官方账户下载授权数据库，并放到：
 

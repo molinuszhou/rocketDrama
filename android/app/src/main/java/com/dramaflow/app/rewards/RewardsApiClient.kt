@@ -21,6 +21,8 @@ import java.util.concurrent.TimeUnit
  */
 class RewardsApiClient(
     private val baseUrlProvider: () -> String,
+    private val sessionTokenProvider: () -> String? = { null },
+    private val onSessionTokenReceived: (String) -> Unit = {},
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(12, TimeUnit.SECONDS)
@@ -322,7 +324,10 @@ class RewardsApiClient(
     ) {
         post("/v2/bootstrap", JSONObject().put("user_id", userId).put("region", region).also { payload ->
             attribution?.let { payload.put("attribution", it.toJson()) }
-        }, { onSuccess(parseSnapshot(it)) }, onFailure)
+        }, { data ->
+            data.optString("session_token").takeIf { it.isNotBlank() }?.let(onSessionTokenReceived)
+            onSuccess(parseSnapshot(data))
+        }, onFailure)
     }
 
     /** Best-effort out-of-band sync immediately after AppsFlyer resolves install attribution. */
@@ -538,8 +543,11 @@ class RewardsApiClient(
     private fun post(path: String, body: JSONObject, onSuccess: (JSONObject) -> Unit, onFailure: (String) -> Unit) {
         val baseUrl = normalisedBaseUrl()
         if (baseUrl == null) { onFailure("独立积分服务尚未配置"); return }
-        val request = Request.Builder().url(baseUrl + path)
-            .post(body.toString().toRequestBody(JSON)).header("Content-Type", "application/json").build()
+        val builder = Request.Builder().url(baseUrl + path)
+            .post(body.toString().toRequestBody(JSON)).header("Content-Type", "application/json")
+            .header("X-Rewards-Session", "v1")
+        sessionTokenProvider()?.takeIf { it.isNotBlank() }?.let { builder.header("Authorization", "Bearer $it") }
+        val request = builder.build()
         httpClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, error: IOException) = onFailure("积分服务网络错误：${error.message ?: "无法连接"}")
             override fun onResponse(call: Call, response: okhttp3.Response) {

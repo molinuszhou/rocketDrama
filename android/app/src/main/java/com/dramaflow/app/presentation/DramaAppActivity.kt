@@ -284,7 +284,13 @@ class DramaAppActivity : FragmentActivity() {
     internal val topOnAds by lazy {
         TopOnAdsManager(applicationContext, TopOnSettings.fromBuildConfig(), adMediationReporter = adMediationReporter)
     }
-    internal val rewardsApi by lazy { RewardsApiClient(baseUrlProvider = { rewardsBaseUrl() }) }
+    internal val rewardsApi by lazy {
+        RewardsApiClient(
+            baseUrlProvider = { rewardsBaseUrl() },
+            sessionTokenProvider = { getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getString(SESSION_TOKEN_KEY, null) },
+            onSessionTokenReceived = { token -> getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit().putString(SESSION_TOKEN_KEY, token).apply() },
+        )
+    }
     internal val shortDramaSdk by lazy { ShortDramaSdkManager.get(applicationContext) }
 
     override fun onCreate(savedInstanceState: Bundle?) {

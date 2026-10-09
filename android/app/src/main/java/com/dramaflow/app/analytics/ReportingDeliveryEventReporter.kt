@@ -5,6 +5,7 @@ import com.dramaflow.app.BuildConfig
 import com.dramaflow.app.ads.AdRevenueAuditValues
 import com.dramaflow.app.presentation.INSTALLATION_KEY
 import com.dramaflow.app.presentation.PREFERENCES
+import com.dramaflow.app.presentation.SESSION_TOKEN_KEY
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
@@ -62,11 +63,15 @@ internal class ReportingDeliveryEventReporter(context: Context) {
             .put("occurred_at_ms", System.currentTimeMillis())
         revenue.ecpm.toDoubleOrNull()?.let { event.put("ecpm", it) }
         revenue.value.toDoubleOrNull()?.let { event.put("value", it) }
-        val request = Request.Builder()
+        val requestBuilder = Request.Builder()
             .url("$baseUrl/v2/operations/reporting-delivery-events")
             .post(event.toString().toRequestBody(JSON))
             .header("Content-Type", "application/json")
-            .build()
+            .header("X-Rewards-Session", "v1")
+        appContext.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getString(SESSION_TOKEN_KEY, null)
+            ?.takeIf { it.isNotBlank() }
+            ?.let { requestBuilder.header("Authorization", "Bearer $it") }
+        val request = requestBuilder.build()
         httpClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, error: IOException) = Unit
             override fun onResponse(call: Call, response: okhttp3.Response) = response.use { Unit }

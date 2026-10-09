@@ -13,6 +13,9 @@ class Settings:
     cors_origins: list[str]
     allow_debug_ad_proof: bool
     admin_dashboard_token: str | None
+    session_signing_secret: str
+    admin_initial_username: str | None
+    admin_initial_password: str | None
     timezone: str
     geoip_db_path: str | None
 
@@ -26,6 +29,9 @@ class Settings:
         if environment != "development" and allow_debug_ad_proof:
             raise RuntimeError("非 development 环境禁止 ALLOW_DEBUG_AD_PROOF")
         origins = [item.strip() for item in os.getenv("CORS_ORIGINS", "").split(",") if item.strip()]
+        session_secret = os.getenv("SESSION_SIGNING_SECRET", "").strip()
+        if environment != "development" and len(session_secret) < 32:
+            raise RuntimeError("生产环境必须设置至少 32 位 SESSION_SIGNING_SECRET")
         return cls(
             database_url=database_url,
             environment=environment,
@@ -34,6 +40,9 @@ class Settings:
             cors_origins=origins or ["http://localhost"],
             allow_debug_ad_proof=allow_debug_ad_proof,
             admin_dashboard_token=os.getenv("ADMIN_DASHBOARD_TOKEN", "").strip() or None,
+            session_signing_secret=session_secret or os.getenv("ADMIN_DASHBOARD_TOKEN", "").strip(),
+            admin_initial_username=os.getenv("ADMIN_INITIAL_USERNAME", "").strip() or None,
+            admin_initial_password=os.getenv("ADMIN_INITIAL_PASSWORD", "").strip() or None,
             timezone=os.getenv("TIMEZONE", "Asia/Shanghai").strip() or "Asia/Shanghai",
             geoip_db_path=os.getenv("GEOIP_DB_PATH", "/usr/share/GeoIP/GeoLite2-Country.mmdb").strip() or None,
         )

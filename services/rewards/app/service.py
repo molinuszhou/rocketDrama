@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import hmac
 import math
 import secrets
@@ -51,13 +53,63 @@ class RewardsService:
         *,
         geo_country: str | None = None,
         attribution: dict[str, Any] | None = None,
+        session_token: str | None = None,
+        session_required: bool = False,
     ) -> dict[str, Any]:
         with self._transaction() as connection:
+            existing = self._one(connection, "SELECT user_id FROM users WHERE user_id = %s", (user_id,))
+            if existing and session_required:
+                self.verify_user_session(user_id, session_token)
             self._ensure_user(connection, user_id, region, geo_country)
             if attribution:
                 self._update_attribution(connection, user_id=user_id, **attribution)
             self._ensure_random_chests(connection, user_id, self._business_date(), self._policy(connection))
-            return self._snapshot(connection, user_id)
+            snapshot = self._snapshot(connection, user_id)
+            snapshot["session_token"] = self.issue_user_session(user_id)
+            return snapshot
+
+    def issue_user_session(self, user_id: str, ttl_seconds: int = 30 * 24 * 60 * 60) -> str:
+        secret = self.settings.session_signing_secret
+        if not secret:
+            raise ServiceError(1903, "服务端未配置 SESSION_SIGNING_SECRET", 503)
+        expires = int(self._now().timestamp()) + ttl_seconds
+        subject = self._b64encode(user_id)
+        nonce = secrets.token_urlsafe(18)
+        payload = f"usr.{subject}.{expires}.{nonce}"
+        signature = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
+        return f"{payload}.{signature}"
+
+    def verify_user_session(self, user_id: str, authorization: str | None) -> None:
+        token = authorization.removeprefix("Bearer ").strip() if authorization else ""
+        parts = token.split(".")
+        if len(parts) != 5 or parts[0] != "usr":
+            raise ServiceError(1904, "用户会话无效或已过期", 401)
+        try:
+            subject = self._b64decode(parts[1])
+            expires = int(parts[2])
+        except (ValueError, UnicodeDecodeError):
+            raise ServiceError(1904, "用户会话无效或已过期", 401) from None
+        if subject != user_id or expires <= int(self._now().timestamp()):
+            raise ServiceError(1904, "用户会话无效或已过期", 401)
+        payload = ".".join(parts[:4])
+        expected = hmac.new(self.settings.session_signing_secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(parts[4], expected):
+            raise ServiceError(1904, "用户会话无效或已过期", 401)
+
+    def admin_login(self, username: str, password: str) -> dict[str, Any]:
+        normalized = username.strip()[:128]
+        if not normalized or not password:
+            raise ServiceError(1906, "管理员账号或密码不能为空", 422)
+        with self._transaction() as connection:
+            row = self._one(connection, "SELECT username, password_hash, enabled FROM admin_users WHERE username = %s", (normalized,))
+            if not row and self.settings.admin_initial_username == normalized and self.settings.admin_initial_password:
+                password_hash = self._hash_password(self.settings.admin_initial_password)
+                self._execute(connection, "INSERT INTO admin_users (username, password_hash) VALUES (%s, %s) ON CONFLICT (username) DO NOTHING", (normalized, password_hash))
+                row = self._one(connection, "SELECT username, password_hash, enabled FROM admin_users WHERE username = %s", (normalized,))
+            if not row or not bool(row["enabled"]) or not self._verify_password(password, row["password_hash"]):
+                raise ServiceError(1902, "管理员账号或密码无效", 401)
+            self._execute(connection, "UPDATE admin_users SET last_login_at = NOW() WHERE username = %s", (normalized,))
+        return {"session_token": self._issue_admin_session(normalized), "expires_in": 12 * 60 * 60}
 
     def update_attribution(
         self,
@@ -1169,6 +1221,9 @@ class RewardsService:
         query: str = "",
         market_code: str = "",
         attribution_surface: str = "",
+        geo_country: str = "",
+        created_start: date | None = None,
+        created_end: date | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> dict[str, Any]:
@@ -1182,6 +1237,7 @@ class RewardsService:
         normalized_query = query.strip()
         normalized_market = market_code.strip().upper()
         normalized_surface = attribution_surface.strip().upper()
+        normalized_country = geo_country.strip().upper()
         if normalized_query:
             clauses.append(
                 "(u.user_id ILIKE %s OR u.appsflyer_uid ILIKE %s OR u.attribution_media_source ILIKE %s OR u.attribution_campaign ILIKE %s)"
@@ -1196,6 +1252,15 @@ class RewardsService:
                 raise ServiceError(2312, "归因面仅支持 A 或 B", 422)
             clauses.append("u.attribution_surface = %s")
             params.append(normalized_surface)
+        if normalized_country:
+            clauses.append("u.geo_country = %s")
+            params.append(normalized_country[:2])
+        if created_start:
+            clauses.append("u.created_at >= %s")
+            params.append(created_start)
+        if created_end:
+            clauses.append("u.created_at < (%s::date + INTERVAL '1 day')")
+            params.append(created_end)
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         with self._transaction() as connection:
             total = self._one(
@@ -1271,7 +1336,14 @@ class RewardsService:
         authorization: str | None,
         start_date: date | None = None,
         end_date: date | None = None,
-        limit: int = 100,
+        page: int = 1,
+        page_size: int = 100,
+        provider: str = "",
+        event_name: str = "",
+        status: str = "",
+        user_uid: str = "",
+        logical_placement: str = "",
+        ad_unit_id: str = "",
     ) -> dict[str, Any]:
         """Return recent AppsFlyer/Firebase/Xuanyu delivery results retained by Rewards."""
 
@@ -1283,7 +1355,20 @@ class RewardsService:
             raise ServiceError(2313, "上报记录开始日期不能晚于结束日期", 422)
         if actual_end - actual_start > timedelta(days=90):
             raise ServiceError(2314, "上报记录最大查询范围为 90 天", 422)
-        actual_limit = min(max(int(limit), 1), 200)
+        actual_page = max(int(page), 1)
+        actual_limit = min(max(int(page_size), 1), 200)
+        actual_offset = (actual_page - 1) * actual_limit
+        filters = ["client_occurred_at >= %s", "client_occurred_at < (%s::date + INTERVAL '1 day')"]
+        filter_params: list[Any] = [actual_start, actual_end]
+        for column, value in (("provider", provider), ("event_name", event_name), ("status", status), ("logical_placement", logical_placement), ("ad_unit_id", ad_unit_id)):
+            normalized = value.strip()
+            if normalized:
+                filters.append(f"{column} = %s")
+                filter_params.append(normalized[:160])
+        if user_uid.strip():
+            filters.append("user_uid ILIKE %s")
+            filter_params.append(f"%{user_uid.strip()[:128]}%")
+        where = " WHERE " + " AND ".join(filters)
         with self._transaction() as connection:
             rows = self._all(
                 connection,
@@ -1291,12 +1376,11 @@ class RewardsService:
                 SELECT user_uid, provider, event_name, status, logical_placement, ad_unit_id,
                        error_code, currency, ecpm, reported_value, client_occurred_at, accepted_at
                 FROM reporting_delivery_events
-                WHERE client_occurred_at >= %s
-                  AND client_occurred_at < (%s::date + INTERVAL '1 day')
+                {where}
                 ORDER BY client_occurred_at DESC, accepted_at DESC
-                LIMIT %s
+                LIMIT %s OFFSET %s
                 """,
-                (actual_start, actual_end, actual_limit),
+                tuple(filter_params + [actual_limit, actual_offset]),
             )
             totals = self._one(
                 connection,
@@ -1307,22 +1391,20 @@ class RewardsService:
                     COUNT(*) FILTER (WHERE status IN ('FAILED', 'FINAL_FAILED')) AS failure_count,
                     COUNT(*) FILTER (WHERE status = 'RETRYING') AS retrying_count
                 FROM reporting_delivery_events
-                WHERE client_occurred_at >= %s
-                  AND client_occurred_at < (%s::date + INTERVAL '1 day')
+                {where}
                 """,
-                (actual_start, actual_end),
+                tuple(filter_params),
             ) or {}
             breakdown = self._all(
                 connection,
                 """
                 SELECT provider, status, COUNT(*) AS event_count
                 FROM reporting_delivery_events
-                WHERE client_occurred_at >= %s
-                  AND client_occurred_at < (%s::date + INTERVAL '1 day')
+                {where}
                 GROUP BY provider, status
                 ORDER BY provider ASC, status ASC
                 """,
-                (actual_start, actual_end),
+                tuple(filter_params),
             )
         def serialize(row: dict[str, Any]) -> dict[str, Any]:
             return {
@@ -1336,7 +1418,11 @@ class RewardsService:
         return {
             "start_date": actual_start.isoformat(),
             "end_date": actual_end.isoformat(),
-            "limit": actual_limit,
+            "page": actual_page,
+            "page_size": actual_limit,
+            "offset": actual_offset,
+            "total": int(totals.get("event_count", 0)),
+            "filters": {"provider": provider, "event_name": event_name, "status": status, "user_uid": user_uid, "logical_placement": logical_placement, "ad_unit_id": ad_unit_id},
             "totals": {key: int(totals.get(key, 0)) for key in ("event_count", "success_count", "failure_count", "retrying_count")},
             "breakdown": [dict(item) | {"event_count": int(item["event_count"])} for item in breakdown],
             "rows": [serialize(row) for row in rows],
@@ -3014,12 +3100,62 @@ class RewardsService:
         }
 
     def _verify_admin_token(self, authorization: str | None) -> None:
-        token = self.settings.admin_dashboard_token
         supplied = authorization.removeprefix("Bearer ").strip() if authorization else ""
-        if not token:
-            raise ServiceError(1901, "运营后台未启用；请设置 ADMIN_DASHBOARD_TOKEN", 404)
-        if not hmac.compare_digest(supplied, token):
-            raise ServiceError(1902, "管理员令牌无效", 401)
+        if supplied.startswith("adm."):
+            parts = supplied.split(".")
+            if len(parts) != 5:
+                raise ServiceError(1902, "管理员会话无效", 401)
+            try:
+                username = self._b64decode(parts[1])
+                expires = int(parts[2])
+            except (ValueError, UnicodeDecodeError):
+                raise ServiceError(1902, "管理员会话无效", 401) from None
+            payload = ".".join(parts[:4])
+            expected = hmac.new(self.settings.session_signing_secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
+            if expires <= int(self._now().timestamp()) or not hmac.compare_digest(parts[4], expected):
+                raise ServiceError(1902, "管理员会话无效或已过期", 401)
+            with self._transaction() as connection:
+                account = self._one(connection, "SELECT enabled FROM admin_users WHERE username = %s", (username,))
+            if not account or not bool(account["enabled"]):
+                raise ServiceError(1902, "管理员账号已停用", 401)
+            return
+        token = self.settings.admin_dashboard_token
+        if token and hmac.compare_digest(supplied, token):
+            return
+        raise ServiceError(1902, "管理员令牌无效", 401)
+
+    def _issue_admin_session(self, username: str, ttl_seconds: int = 12 * 60 * 60) -> str:
+        expires = int(self._now().timestamp()) + ttl_seconds
+        payload = f"adm.{self._b64encode(username)}.{expires}.{secrets.token_urlsafe(18)}"
+        signature = hmac.new(self.settings.session_signing_secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
+        return f"{payload}.{signature}"
+
+    @staticmethod
+    def _b64encode(value: str) -> str:
+        return base64.urlsafe_b64encode(value.encode()).decode().rstrip("=")
+
+    @staticmethod
+    def _b64decode(value: str) -> str:
+        return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4)).decode()
+
+    @staticmethod
+    def _hash_password(password: str) -> str:
+        iterations = 310_000
+        salt = secrets.token_bytes(16)
+        digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, iterations)
+        return f"pbkdf2_sha256${iterations}${base64.urlsafe_b64encode(salt).decode()}${base64.urlsafe_b64encode(digest).decode()}"
+
+    @staticmethod
+    def _verify_password(password: str, encoded: str) -> bool:
+        try:
+            algorithm, iterations, salt_b64, digest_b64 = encoded.split("$", 3)
+            if algorithm != "pbkdf2_sha256":
+                return False
+            actual = hashlib.pbkdf2_hmac("sha256", password.encode(), base64.urlsafe_b64decode(salt_b64), int(iterations))
+            expected = base64.urlsafe_b64decode(digest_b64)
+            return hmac.compare_digest(actual, expected)
+        except (ValueError, TypeError):
+            return False
 
     def _round_reward(self, policy: dict[str, Any], round_number: int) -> int:
         raw = policy["r0_gems"] * math.pow(float(round_number), -float(policy["decay_alpha"]))

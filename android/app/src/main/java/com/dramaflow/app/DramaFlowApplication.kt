@@ -7,6 +7,7 @@ import com.dramaflow.app.analytics.EngagementAnalytics
 import com.dramaflow.app.content.ShortDramaSdkManager
 import com.dramaflow.app.presentation.INSTALLATION_KEY
 import com.dramaflow.app.presentation.PREFERENCES
+import com.dramaflow.app.presentation.SESSION_TOKEN_KEY
 import com.dramaflow.app.rewards.RewardsApiClient
 import java.util.UUID
 
@@ -21,7 +22,11 @@ class DramaFlowApplication : Application() {
         // Attribution and analytics are reporting services rather than TopOn SDK initialization.
         // Starting them here preserves AppsFlyer install/open attribution while TopOn still waits
         // for an eligible, consented ad request.
-        val rewardsApi = RewardsApiClient(baseUrlProvider = { BuildConfig.REWARDS_API_BASE_URL })
+        val rewardsApi = RewardsApiClient(
+            baseUrlProvider = { BuildConfig.REWARDS_API_BASE_URL },
+            sessionTokenProvider = { getSharedPreferences(PREFERENCES, MODE_PRIVATE).getString(SESSION_TOKEN_KEY, null) },
+            onSessionTokenReceived = { token -> getSharedPreferences(PREFERENCES, MODE_PRIVATE).edit().putString(SESSION_TOKEN_KEY, token).apply() },
+        )
         EngagementAnalytics.get(this).apply {
             setAttributionSyncListener { attribution ->
                 if (rewardsApi.isConfigured) {
