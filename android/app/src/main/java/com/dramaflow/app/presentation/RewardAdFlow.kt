@@ -110,6 +110,7 @@ internal fun DramaAppActivity.requestRewardedAction(
         showFullscreenAdLoadingOverlay()
         topOnAds.showRewarded(
             activity = this,
+            logicalPlacement = placementId,
             onWillShow = {
                 rewardedWasPresented = true
                 fullscreenAdRequestInFlight = false

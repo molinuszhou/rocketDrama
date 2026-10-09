@@ -194,6 +194,7 @@ android {
             buildConfigField("String", "TOPON_INTERSTITIAL_PLACEMENT_ID", "\"${escapeBuildConfig(partnerTopOnInterstitialPlacementId)}\"")
             buildConfigField("String", "TOPON_SPLASH_PLACEMENT_ID", "\"${escapeBuildConfig(partnerTopOnSplashPlacementId)}\"")
             buildConfigField("boolean", "TOPON_DEMO_MODE", "false")
+            buildConfigField("boolean", "ANALYTICS_DEBUG", "false")
             // Formal release always uses the Pangle short-drama SDK and AppsFlyer attribution split.
             buildConfigField("boolean", "RELEASE_AB_ROUTING_ENABLED", "true")
             buildConfigField("String", "REWARDS_API_BASE_URL", "\"${escapeBuildConfig(rewardsApiBaseUrl)}\"")

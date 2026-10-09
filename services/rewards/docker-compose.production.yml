@@ -1,5 +1,6 @@
 # 正式环境：宿主机原生 Nginx 负责公网 HTTPS；本编排绝不占用 80、443。
 # Rewards API 仅绑定到 127.0.0.1，由 Nginx 反向代理。
+version: "2.4"
 services:
   postgres:
     image: postgres:16-alpine

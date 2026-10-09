@@ -15,8 +15,11 @@ SET mid_episode_interstitial_enabled = TRUE,
 WHERE id = 1;
 
 -- USD is the single default display currency. BR and ID stay as explicitly
--- configured localized markets; HK no longer has a predefined local policy.
-DELETE FROM market_wallet_policy WHERE market_code = 'HK';
+-- configured localized markets. Retain a disabled compatibility row for legacy
+-- HK users instead of deleting a policy that may still be referenced by users.
+UPDATE market_wallet_policy
+SET enabled = FALSE, disabled_at = COALESCE(disabled_at, NOW()), updated_at = NOW()
+WHERE market_code = 'HK';
 
 -- A rebuilt database starts with a consistent US$200 first withdrawal target.
 UPDATE market_wallet_policy

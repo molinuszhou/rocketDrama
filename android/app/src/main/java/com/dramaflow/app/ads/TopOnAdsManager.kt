@@ -186,6 +186,7 @@ class TopOnAdsManager(
 
     fun showRewarded(
         activity: Activity,
+        logicalPlacement: String = "rewarded",
         onWillShow: () -> Unit = {},
         onResult: (RewardedResult) -> Unit,
     ) {
@@ -227,7 +228,7 @@ class TopOnAdsManager(
 
         initialize { init ->
             when (init) {
-                Initialization.Ready -> loadAndShowRewarded(activity, onWillShow, ::deliver)
+                Initialization.Ready -> loadAndShowRewarded(activity, logicalPlacement, onWillShow, ::deliver)
                 Initialization.NotConfigured -> deliver(RewardedResult.Unavailable("尚未配置 TopOn 广告参数"))
                 is Initialization.Failed -> deliver(RewardedResult.Failed(init.code, init.message))
             }
@@ -505,6 +506,7 @@ class TopOnAdsManager(
 
     private fun loadAndShowRewarded(
         activity: Activity,
+        logicalPlacement: String,
         onWillShow: () -> Unit,
         deliver: (RewardedResult) -> Unit,
     ) {
@@ -531,7 +533,7 @@ class TopOnAdsManager(
             deliver(RewardedResult.Failed(REWARDED_LOAD_TIMEOUT_CODE, "rewarded_load_timeout"))
         }
         mainHandler.postDelayed(rewardedTimeout, settings.rewardedLoadTimeoutMillis)
-        ad.setAdRevenueListener(TopOnRevenueListener("rewarded", settings.rewardedPlacementId, "rewarded", analytics, adNetworkAudit, adMediationReporter))
+        ad.setAdRevenueListener(TopOnRevenueListener(logicalPlacement, settings.rewardedPlacementId, "rewarded", analytics, adNetworkAudit, adMediationReporter))
         ad.setAdListener(object : ATRewardVideoExListener {
             override fun onRewardedVideoAdAgainPlayStart(entity: ATAdInfo) = Unit
             override fun onRewardedVideoAdAgainPlayEnd(entity: ATAdInfo) = Unit
@@ -563,10 +565,10 @@ class TopOnAdsManager(
             override fun onRewardedVideoAdPlayStart(entity: ATAdInfo) {
                 latestInfo = entity
                 Log.i(TAG, "Rewarded shown: ${entity.adNetworkType}/${entity.adsourceId}")
-                auditAdInfo("SHOWN", "rewarded", settings.rewardedPlacementId, "rewarded", entity, "DISPLAYED")
+                auditAdInfo("SHOWN", logicalPlacement, settings.rewardedPlacementId, "rewarded", entity, "DISPLAYED")
                 rewardedPolicy.recordShown()
                 globalFullscreenPolicy.recordShown()
-                analytics.reportTopOnImpression("rewarded", settings.rewardedPlacementId, entity)
+                analytics.reportTopOnImpression(logicalPlacement, settings.rewardedPlacementId, entity)
             }
 
             override fun onRewardedVideoAdPlayEnd(entity: ATAdInfo) {
@@ -575,14 +577,15 @@ class TopOnAdsManager(
 
             override fun onRewardedVideoAdPlayFailed(adError: AdError, entity: ATAdInfo) {
                 latestInfo = entity
+                if (rewardState == RewardState.REWARDED) return
                 rewardState = RewardState.REWARD_FAILED
-                auditAdInfo("PLAY_FAILED", "rewarded", settings.rewardedPlacementId, "rewarded", entity, "FAILED", errorCode(adError), "topon_play_failed")
+                auditAdInfo("PLAY_FAILED", logicalPlacement, settings.rewardedPlacementId, "rewarded", entity, "FAILED", errorCode(adError), "topon_play_failed")
                 deliver(RewardedResult.Failed(errorCode(adError), adError.fullErrorInfo.orEmpty()))
             }
 
             override fun onRewardedVideoAdClosed(entity: ATAdInfo) {
                 latestInfo = entity
-                auditAdInfo("CLOSED", "rewarded", settings.rewardedPlacementId, "rewarded", entity, if (rewardState == RewardState.REWARDED) "REWARDED" else "CANCELLED")
+                auditAdInfo("CLOSED", logicalPlacement, settings.rewardedPlacementId, "rewarded", entity, if (rewardState == RewardState.REWARDED) "REWARDED" else "CANCELLED")
                 if (rewardState == RewardState.REWARDED) deliver(RewardedResult.RewardEarned) else deliver(RewardedResult.Cancelled)
             }
 
@@ -592,12 +595,13 @@ class TopOnAdsManager(
                 rewardState = RewardState.REWARDED
                 latestInfo = entity
                 Log.i(TAG, "Rewarded completed: ${entity.adNetworkType}/${entity.adsourceId}")
-                auditAdInfo("REWARD_COMPLETED", "rewarded", settings.rewardedPlacementId, "rewarded", entity, "COMPLETED")
-                analytics.reportRewardedCompleted("rewarded", settings.rewardedPlacementId, latestInfo)
+                auditAdInfo("REWARD_COMPLETED", logicalPlacement, settings.rewardedPlacementId, "rewarded", entity, "COMPLETED")
+                analytics.reportRewardedCompleted(logicalPlacement, settings.rewardedPlacementId, latestInfo)
             }
 
             override fun onRewardFailed(entity: ATAdInfo) {
                 latestInfo = entity
+                if (rewardState == RewardState.REWARDED) return
                 rewardState = RewardState.REWARD_FAILED
             }
 

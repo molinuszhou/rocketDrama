@@ -927,7 +927,11 @@ class RewardsService:
             raise ServiceError(2301, "广告运营事件时间超出允许范围", 422)
         normalized_currency = currency.strip().upper()
         normalized_ecpm = Decimal(str(ecpm)) if ecpm is not None else None
-        estimated_value = (normalized_ecpm / Decimal("1000")) if normalized_ecpm is not None else Decimal("0")
+        estimated_value = (
+            normalized_ecpm / Decimal("1000")
+            if event_type == "PAID_REVENUE" and normalized_ecpm is not None
+            else Decimal("0")
+        )
         normalized_targets = list(dict.fromkeys(
             target.strip()[:40] for target in reporting_targets if target.strip()
         ))[:10]
@@ -1378,29 +1382,14 @@ class RewardsService:
             )
             if interstitial and interstitial["placement_id"] != expected_interstitial_placement:
                 raise ServiceError(2023, "未找到可结算的插屏激励展示", 409)
+            if not interstitial:
+                # Never let a client manufacture a displayed interstitial by choosing a
+                # fresh event ID. The client must first record the actual shown event;
+                # a lost telemetry request is retryable, not proof of an impression.
+                raise ServiceError(2023, "未找到可结算的插屏激励展示", 409)
             policy = self._policy(connection)
             if not bool(policy["rewarded_fallback_interstitial_enabled"]):
                 raise ServiceError(2020, "激励回退插屏当前未启用", 409)
-            if not interstitial:
-                # The client only reaches this path from a completed creative.
-                # Network loss can prevent the preceding telemetry request from arriving,
-                # so persist the same auditable display record here before granting the
-                # original entitlement. This keeps a shown fallback from losing its reward.
-                self._daily_counter(connection, user_id, business_date, lock=True)
-                self._execute(
-                    connection,
-                    """INSERT INTO interstitial_events (event_id, user_id, business_date, placement_id)
-                       VALUES (%s, %s, %s, %s)
-                       ON CONFLICT (event_id) DO NOTHING""",
-                    (interstitial_event_id, user_id, business_date, expected_interstitial_placement),
-                )
-                self._execute(
-                    connection,
-                    """UPDATE daily_counters
-                       SET interstitial_count = interstitial_count + 1, last_interstitial_at = NOW()
-                       WHERE user_id = %s AND business_date = %s""",
-                    (user_id, business_date),
-                )
             result = self._rewarded_action(
                 connection=connection,
                 user_id=user_id,

@@ -54,7 +54,7 @@ object PssdkRevenueReporter {
         "USD" -> PSSDK.RevenueInfo.CurrencyType.USD
         "VND" -> PSSDK.RevenueInfo.CurrencyType.VND
         "CNY" -> PSSDK.RevenueInfo.CurrencyType.CNY
-        "THP" -> PSSDK.RevenueInfo.CurrencyType.THP
+        "THP", "THB" -> PSSDK.RevenueInfo.CurrencyType.THP
         "RM", "MYR" -> PSSDK.RevenueInfo.CurrencyType.RM
         "IDR" -> PSSDK.RevenueInfo.CurrencyType.IDR
         "SGD" -> PSSDK.RevenueInfo.CurrencyType.SGD

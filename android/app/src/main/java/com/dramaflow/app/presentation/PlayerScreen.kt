@@ -563,10 +563,12 @@ internal fun DramaAppActivity.togglePlaybackFromVideoTap() {
         if (sdkPlayerShown) {
             if (playerIsPaused) {
                 currentSdkPlayerFragment()?.startPlay()
+                sdkPlaybackActive = true
                 playerIsPaused = false
                 updatePauseOverlayVisibility(false)
             } else {
                 currentSdkPlayerFragment()?.pausePlay()
+                sdkPlaybackActive = false
                 playerIsPaused = true
                 updatePauseOverlayVisibility(true)
             }

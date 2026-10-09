@@ -347,6 +347,7 @@ class DramaAppActivity : FragmentActivity() {
         }
         if (resumeSdkPlaybackWhenForeground && sdkPlayerShown && !fullscreenAdInProgress) {
             currentSdkPlayerFragment()?.startPlay()
+            sdkPlaybackActive = true
             playerIsPaused = false
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             resumeSdkPlaybackWhenForeground = false
@@ -432,7 +433,7 @@ class DramaAppActivity : FragmentActivity() {
         if (fullscreenAdInProgress || fullscreenAdRequestInFlight) saveExternalAdReturnCheckpoint()
         resumePlaybackWhenForeground = playerShown && exoPlayer?.isPlaying == true && !fullscreenAdInProgress
         if (resumePlaybackWhenForeground) exoPlayer?.pause()
-        resumeSdkPlaybackWhenForeground = sdkPlayerShown && sdkPlaybackActive && !fullscreenAdInProgress
+        resumeSdkPlaybackWhenForeground = sdkPlayerShown && sdkPlaybackActive && !playerIsPaused && !fullscreenAdInProgress
         if (resumeSdkPlaybackWhenForeground) currentSdkPlayerFragment()?.pausePlay()
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         super.onStop()
