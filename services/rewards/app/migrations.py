@@ -60,6 +60,7 @@ def apply_runtime_migrations(settings: Settings) -> None:
         ("044_v1715_admin_auth", sql_directory / "044_v1715_admin_auth.sql"),
         ("045_v1716_withdrawal_reservations", sql_directory / "045_v1716_withdrawal_reservations.sql"),
         ("046_v1717_user_scoped_ledger_idempotency", sql_directory / "046_v1717_user_scoped_ledger_idempotency.sql"),
+        ("047_v1718_rebuild_recent_ad_mediation_metrics", sql_directory / "047_v1718_rebuild_recent_ad_mediation_metrics.sql"),
     )
     with psycopg.connect(settings.database_url, autocommit=True) as connection:
         with connection.cursor() as cursor:

@@ -115,6 +115,9 @@ internal fun DramaAppActivity.requestRewardedAction(
                 rewardedWasPresented = true
                 fullscreenAdRequestInFlight = false
                 fullscreenAdInProgress = true
+                // A clickable creative can hand off to Google Play/Chrome before the normal
+                // close callback. Persist synchronously while the live player still exists.
+                saveExternalAdReturnCheckpoint()
                 runOnUiThread { hideFullscreenAdLoadingOverlay() }
             },
         ) { result -> runOnUiThread {
@@ -401,6 +404,12 @@ internal fun DramaAppActivity.resumeAfterFullscreenAdIfNeeded() {
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             resumeSdkPlaybackWhenForeground = false
         }
+        // A live Activity reaching this point received its normal ad-result callback.
+        // The durable checkpoint is therefore no longer needed and must not revive an old
+        // episode after a later cold launch.
+        if (!fullscreenAdInProgress && !fullscreenAdRequestInFlight && (playerShown || sdkPlayerShown)) {
+            clearExternalAdReturnCheckpoint()
+        }
         if (restoreImmersiveAfterFullscreenAd && !isFinishing && !isDestroyed && (playerShown || sdkPlayerShown)) {
             enterImmersivePlayerMode(announce = false)
         }
@@ -462,6 +471,9 @@ internal fun DramaAppActivity.showPlaybackActionInterstitial(
                 fullscreenAdRequestInFlight = false
                 fullscreenAdInProgress = true
                 resumeAfterFullscreenAd = shouldResume
+                // Store-redirection creatives can terminate the task/process without a normal
+                // mediation callback, so retain the active PSSDK title before the handoff.
+                saveExternalAdReturnCheckpoint()
                 runOnUiThread { hideFullscreenAdLoadingOverlay() }
             },
         ) { result -> runOnUiThread {

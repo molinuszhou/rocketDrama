@@ -345,6 +345,15 @@ class DramaAppActivity : FragmentActivity() {
     override fun onPostResume() {
         super.onPostResume()
         if (!startupContentInitializationStarted) maybeShowAppOpenAd()
+        if ((playerShown || sdkPlayerShown) && (fullscreenAdInProgress || fullscreenAdRequestInFlight)) {
+            // Store/browser click-outs can return without the mediation activity forwarding a
+            // close callback. Do not leave the player blocked behind that stale ad state.
+            logStatus("检测到广告外跳返回，恢复现有播放器")
+            fullscreenAdInProgress = false
+            fullscreenAdRequestInFlight = false
+            hideFullscreenAdLoadingOverlay()
+            resumeAfterFullscreenAdIfNeeded()
+        }
         if (resumePlaybackWhenForeground && playerShown && !fullscreenAdInProgress) {
             exoPlayer?.play()
             playerIsPaused = false

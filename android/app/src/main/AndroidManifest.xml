@@ -9,7 +9,7 @@
 
     <application
         android:name=".DramaFlowApplication"
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@drawable/joyedrama_app_icon"
@@ -19,7 +19,7 @@
         android:networkSecurityConfig="@xml/network_security_config"
         android:usesCleartextTraffic="@bool/uses_cleartext_traffic"
         android:theme="@style/Theme.DramaFlow.Starting"
-        tools:replace="android:dataExtractionRules,android:fullBackupContent">
+        tools:replace="android:allowBackup,android:dataExtractionRules,android:fullBackupContent">
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
             android:value="${ADMOB_APP_ID}" />

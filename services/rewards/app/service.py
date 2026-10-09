@@ -989,7 +989,9 @@ class RewardsService:
         normalized_ecpm = Decimal(str(ecpm)) if ecpm is not None else None
         estimated_value = (
             normalized_ecpm / Decimal("1000")
-            if event_type == "PAID_REVENUE" and normalized_ecpm is not None
+            # A single merged SHOWN record now carries its paid-impression eCPM when
+            # TopOn/MAX makes it available. Do not require a second PAID_REVENUE row.
+            if normalized_ecpm is not None
             else Decimal("0")
         )
         normalized_targets = list(dict.fromkeys(
@@ -1066,7 +1068,7 @@ class RewardsService:
                     ad_source_id,
                     normalized_currency,
                     1 if event_type == "SHOWN" else 0,
-                    1 if event_type == "PAID_REVENUE" else 0,
+                    1 if normalized_ecpm is not None else 0,
                     estimated_value,
                 ),
             )
@@ -1089,59 +1091,141 @@ class RewardsService:
         authorization: str | None,
         start_date: date | None = None,
         end_date: date | None = None,
+        summary_page: int = 1,
+        summary_page_size: int = 50,
+        raw_page: int = 1,
+        raw_page_size: int = 100,
+        logical_placement: str = "",
+        topon_placement_id: str = "",
+        ad_format: str = "",
+        ad_network: str = "",
+        event_type: str = "",
+        reporting_target: str = "",
+        app_version: str = "",
+        currency: str = "",
     ) -> dict[str, Any]:
+        """Return compact daily reconciliations plus independently pageable raw callbacks.
+
+        One actual impression is mirrored once.  A single row may contain eCPM and all
+        downstream reporting targets, so the operations database does not multiply rows
+        by AppsFlyer/Firebase/Xuanyu/PSSDK delivery attempts.
+        """
         self._verify_admin_token(authorization)
         default_end = self._now().date()
         actual_end = end_date or default_end
         actual_start = start_date or actual_end - timedelta(days=6)
         if actual_start > actual_end:
             raise ServiceError(2302, "广告运营报表开始日期不能晚于结束日期", 422)
-        if actual_end - actual_start > timedelta(days=366):
-            raise ServiceError(2303, "广告运营报表最大查询范围为 366 天", 422)
+        if actual_end - actual_start > timedelta(days=90):
+            raise ServiceError(2303, "广告运营原始回调最大查询范围为 90 天", 422)
+
+        summary_page = max(int(summary_page), 1)
+        raw_page = max(int(raw_page), 1)
+        summary_page_size = min(max(int(summary_page_size), 1), 200)
+        raw_page_size = min(max(int(raw_page_size), 1), 200)
+        normalised = {
+            "logical_placement": logical_placement.strip()[:160],
+            "topon_placement_id": topon_placement_id.strip()[:160],
+            "ad_format": ad_format.strip().lower()[:40],
+            "ad_network": ad_network.strip()[:160],
+            "event_type": event_type.strip().upper()[:40],
+            "reporting_target": reporting_target.strip()[:40],
+            "app_version": app_version.strip()[:80],
+            "currency": currency.strip().upper()[:16],
+        }
+        allowed_event_types = {"", "SHOWN", "PAID_REVENUE"}
+        if normalised["event_type"] not in allowed_event_types:
+            raise ServiceError(2304, "不支持的广告事件类型筛选", 422)
+
+        raw_filters = ["client_occurred_at >= %s", "client_occurred_at < (%s::date + INTERVAL '1 day')"]
+        raw_params: list[Any] = [actual_start, actual_end]
+        for column in ("logical_placement", "topon_placement_id", "ad_format", "ad_network", "app_version", "currency"):
+            value = normalised[column]
+            if value:
+                raw_filters.append(f"{column} = %s")
+                raw_params.append(value)
+        if normalised["event_type"]:
+            raw_filters.append("event_type = %s")
+            raw_params.append(normalised["event_type"])
+        if normalised["reporting_target"]:
+            raw_filters.append("%s = ANY(reporting_targets)")
+            raw_params.append(normalised["reporting_target"])
+        raw_where = " WHERE " + " AND ".join(raw_filters)
+
+        # Daily aggregates lack target/event-type dimensions by design.  For those two
+        # filters we aggregate the retained raw records instead, maintaining exactness.
+        raw_only_summary = bool(normalised["event_type"] or normalised["reporting_target"])
+        if raw_only_summary:
+            summary_where, summary_params = raw_where, list(raw_params)
+            summary_source = "ad_mediation_events"
+            summary_select = """
+                client_occurred_at::date AS metric_date, app_version, logical_placement,
+                topon_placement_id, ad_format, ad_network, ad_source_id, currency,
+                COUNT(*) FILTER (WHERE event_type = 'SHOWN') AS shown_count,
+                COUNT(*) FILTER (WHERE ecpm IS NOT NULL) AS paid_revenue_count,
+                COALESCE(SUM(impression_value), 0) AS revenue_value,
+                MAX(accepted_at) AS updated_at
+            """
+            summary_group = "GROUP BY client_occurred_at::date, app_version, logical_placement, topon_placement_id, ad_format, ad_network, ad_source_id, currency"
+        else:
+            summary_filters = ["metric_date BETWEEN %s AND %s"]
+            summary_params = [actual_start, actual_end]
+            for column in ("logical_placement", "topon_placement_id", "ad_format", "ad_network", "app_version", "currency"):
+                value = normalised[column]
+                if value:
+                    summary_filters.append(f"{column} = %s")
+                    summary_params.append(value)
+            summary_where = " WHERE " + " AND ".join(summary_filters)
+            summary_source = "ad_mediation_daily_metrics"
+            summary_select = """
+                metric_date, app_version, logical_placement, topon_placement_id,
+                ad_format, ad_network, ad_source_id, currency,
+                shown_count, paid_revenue_count, revenue_value, updated_at
+            """
+            summary_group = ""
+
         with self._transaction() as connection:
-            rows = self._all(
-                connection,
-                """
-                SELECT metric_date, app_version, logical_placement, topon_placement_id,
-                       ad_format, ad_network, ad_source_id, currency,
-                       shown_count, paid_revenue_count, revenue_value, updated_at
-                FROM ad_mediation_daily_metrics
-                WHERE metric_date BETWEEN %s AND %s
+            summary_total = self._one(connection, f"SELECT COUNT(*) AS count FROM (SELECT 1 FROM {summary_source}{summary_where} {summary_group}) grouped", tuple(summary_params)) or {}
+            rows = self._all(connection, f"""
+                SELECT {summary_select}
+                FROM {summary_source}
+                {summary_where}
+                {summary_group}
                 ORDER BY metric_date DESC, revenue_value DESC, shown_count DESC,
                          logical_placement ASC, ad_network ASC
-                """,
-                (actual_start, actual_end),
-            )
-            totals = self._one(
-                connection,
-                """
-                SELECT COALESCE(SUM(shown_count), 0) AS shown_count,
-                       COALESCE(SUM(paid_revenue_count), 0) AS paid_revenue_count,
-                       COALESCE(SUM(revenue_value), 0) AS revenue_value
-                FROM ad_mediation_daily_metrics
-                WHERE metric_date BETWEEN %s AND %s
-                """,
-                (actual_start, actual_end),
-            ) or {}
-            recent_events = self._all(
-                connection,
-                """
+                LIMIT %s OFFSET %s
+            """, tuple(summary_params + [summary_page_size, (summary_page - 1) * summary_page_size]))
+            if raw_only_summary:
+                totals = self._one(connection, f"""
+                    SELECT COALESCE(SUM(CASE WHEN event_type = 'SHOWN' THEN 1 ELSE 0 END), 0) AS shown_count,
+                           COALESCE(SUM(CASE WHEN ecpm IS NOT NULL THEN 1 ELSE 0 END), 0) AS paid_revenue_count,
+                           COALESCE(SUM(impression_value), 0) AS revenue_value
+                    FROM ad_mediation_events {raw_where}
+                """, tuple(raw_params)) or {}
+            else:
+                totals = self._one(connection, f"""
+                    SELECT COALESCE(SUM(shown_count), 0) AS shown_count,
+                           COALESCE(SUM(paid_revenue_count), 0) AS paid_revenue_count,
+                           COALESCE(SUM(revenue_value), 0) AS revenue_value
+                    FROM ad_mediation_daily_metrics {summary_where}
+                """, tuple(summary_params)) or {}
+            raw_total = self._one(connection, f"SELECT COUNT(*) AS count FROM ad_mediation_events {raw_where}", tuple(raw_params)) or {}
+            raw_events = self._all(connection, f"""
                 SELECT client_event_id, event_type, logical_placement, topon_placement_id,
                        ad_format, ad_network, ad_source_id, app_version, currency, ecpm,
                        impression_value, reporting_targets, client_occurred_at, accepted_at
-                FROM ad_mediation_events
-                WHERE client_occurred_at >= %s
-                  AND client_occurred_at < (%s::date + INTERVAL '1 day')
+                FROM ad_mediation_events {raw_where}
                 ORDER BY client_occurred_at DESC, accepted_at DESC
-                LIMIT 200
-                """,
-                (actual_start, actual_end),
-            )
+                LIMIT %s OFFSET %s
+            """, tuple(raw_params + [raw_page_size, (raw_page - 1) * raw_page_size]))
+
         def serialize(row: dict[str, Any]) -> dict[str, Any]:
             return {
                 **row,
                 "metric_date": row["metric_date"].isoformat(),
                 "currency": row["currency"].strip(),
+                "shown_count": int(row["shown_count"]),
+                "paid_revenue_count": int(row["paid_revenue_count"]),
                 "revenue_value": format(Decimal(str(row["revenue_value"])), "f"),
                 "updated_at": row["updated_at"].isoformat(),
             }
@@ -1155,17 +1239,25 @@ class RewardsService:
                 "client_occurred_at": row["client_occurred_at"].isoformat(),
                 "accepted_at": row["accepted_at"].isoformat(),
             }
+        target_note = "；按事件或回传目标筛选时，日汇总由原始回调实时聚合，查询范围最多 90 天" if raw_only_summary else ""
         return {
             "start_date": actual_start.isoformat(),
             "end_date": actual_end.isoformat(),
+            "summary_page": summary_page,
+            "summary_page_size": summary_page_size,
+            "summary_total": int(summary_total.get("count", 0)),
+            "raw_page": raw_page,
+            "raw_page_size": raw_page_size,
+            "raw_total": int(raw_total.get("count", 0)),
+            "filters": normalised,
             "totals": {
                 "shown_count": int(totals.get("shown_count", 0)),
                 "paid_revenue_count": int(totals.get("paid_revenue_count", 0)),
                 "revenue_value": format(Decimal(str(totals.get("revenue_value", 0))), "f"),
             },
             "rows": [serialize(row) for row in rows],
-            "recent_events": [serialize_event(row) for row in recent_events],
-            "disclaimer": "收入值为客户端 TopOn paid-impression 回调的 eCPM/1000 估算，仅用于运营对账；TopOn/MAX 后台结算报表为财务事实来源。",
+            "raw_events": [serialize_event(row) for row in raw_events],
+            "disclaimer": "每次展示只保留一条客户端广告运营记录；eCPM/1000 仅为运营估算，TopOn/MAX 后台结算报表为财务事实来源" + target_note,
         }
 
     def record_reporting_delivery_event(
@@ -2885,13 +2977,18 @@ class RewardsService:
         region: str | None = None,
         geo_country: str | None = None,
     ) -> None:
-        requested_market = self._active_market_or_default(connection, self._normalise_market_code(region))
+        # The client locale is useful but can remain tied to a handset language or a
+        # Google Play profile.  For a new/zero-balance wallet, the server-resolved
+        # public-network country is the trustworthy fallback for configured markets.
+        locale_market = self._active_market_or_default(connection, self._normalise_market_code(region))
+        geo_market = self._active_market_or_default(connection, self._normalise_market_code(geo_country))
+        requested_market = locale_market if locale_market != "DEFAULT" else geo_market
         self._execute(
             connection,
             "INSERT INTO users (user_id, market_code) VALUES (%s, %s) ON CONFLICT (user_id) DO NOTHING",
             (user_id, requested_market),
         )
-        # 已产生资产的用户不切换币种，避免钱包和账本混入两种本币；零资产默认用户可在首次带地区启动时归入对应市场。
+        # 已产生资产的用户不切换币种，避免钱包和账本混入两种本币；零资产默认用户可在首次带地区或 GeoIP 启动时归入对应市场。
         if requested_market != "DEFAULT":
             self._execute(
                 connection,
