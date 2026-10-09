@@ -382,11 +382,11 @@ internal fun DramaAppActivity.createBottomNavigation(): View = LinearLayout(this
                 }
                 val icon = ImageView(this@createBottomNavigation).apply {
                     setImageResource(tab.iconRes)
-                    imageTintList = ColorStateList.valueOf(if (active) COLOR_FLOATING_GOLD else COLOR_TEXT_MUTED)
+                    imageTintList = ColorStateList.valueOf(if (active) COLOR_CORAL else COLOR_TEXT_MUTED)
                     scaleType = ImageView.ScaleType.CENTER_INSIDE
                 }
                 addView(icon, LinearLayout.LayoutParams(dp(26), dp(26)))
-                addView(TextView(this@createBottomNavigation).apply { text = t(tab.languageKey); textSize = 11f; gravity = Gravity.CENTER; typeface = if (active) Typeface.DEFAULT_BOLD else Typeface.DEFAULT; setTextColor(if (active) COLOR_FLOATING_GOLD else COLOR_TEXT_MUTED); setPadding(0, dp(2), 0, 0) })
+                addView(TextView(this@createBottomNavigation).apply { text = t(tab.languageKey); textSize = 11f; gravity = Gravity.CENTER; typeface = if (active) Typeface.DEFAULT_BOLD else Typeface.DEFAULT; setTextColor(if (active) COLOR_CORAL else COLOR_TEXT_MUTED); setPadding(0, dp(2), 0, 0) })
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         }
     }

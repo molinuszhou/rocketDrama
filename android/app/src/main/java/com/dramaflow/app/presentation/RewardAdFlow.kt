@@ -332,7 +332,8 @@ internal fun DramaAppActivity.wasPlaybackActiveForAd(): Boolean =
 internal fun DramaAppActivity.showFullscreenAdLoadingOverlay() {
         if (isFinishing || isDestroyed) return
         val overlay = fullscreenAdLoadingOverlay ?: FrameLayout(this).apply {
-            setBackgroundColor(0x72000000)
+            // Keep the request modal blocking while leaving the current drama perceptible beneath it.
+            setBackgroundColor(0x4D000000)
             isClickable = true
             isFocusable = true
             contentDescription = t("ad_loading")
@@ -340,7 +341,10 @@ internal fun DramaAppActivity.showFullscreenAdLoadingOverlay() {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER
                 setPadding(dp(22), dp(20), dp(22), dp(18))
-                background = roundedDrawable(0xCC000000.toInt(), 18)
+                background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(0xB8404148.toInt(), 0xA81F2024.toInt())).apply {
+                    cornerRadius = dp(18).toFloat()
+                    setStroke(dp(1), 0x66FFFFFF)
+                }
                 addView(ProgressBar(this@showFullscreenAdLoadingOverlay).apply {
                     indeterminateTintList = ColorStateList.valueOf(0xF2FFFFFF.toInt())
                     alpha = 0.92f
