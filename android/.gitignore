@@ -12,6 +12,7 @@ app/src/main/assets/license/*.lic.*
 .gradle/
 .idea/
 **/build/
+release-artifacts/
 *.iml
 
 # Android Studio / 系统文件
