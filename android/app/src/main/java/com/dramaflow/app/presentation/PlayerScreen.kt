@@ -349,23 +349,25 @@ internal fun DramaAppActivity.triggerSwipePreviousEpisode() {
     }
 
     /**
-     * Horizontal title swipes retain the established three-switch interstitial policy. In Discover
-     * preview, a downward vertical browse switches to the preceding title but is intentionally not
-     * monetized; only an upward browse increments the same counter.
+     * Every deliberate title switch (horizontal in player; either vertical direction in Discover)
+     * shares the same three-switch interstitial counter.
      */
 internal fun DramaAppActivity.switchDramaBySwipe(
     forward: Boolean = true,
     countTowardInterstitial: Boolean = true,
 ) {
-        if (catalogItems.size < 2 || fullscreenAdInProgress) return
+        if (catalogItems.size < 2 || fullscreenAdInProgress || fullscreenAdRequestInFlight) return
         val current = selectedDrama ?: return
         val currentIndex = catalogItems.indexOfFirst { it.id == current.id }.takeIf { it >= 0 } ?: return
         val nextDrama = catalogItems[(currentIndex + if (forward) 1 else catalogItems.lastIndex) % catalogItems.size]
         if (countTowardInterstitial) dramaSwitchSwipeCount += 1
         val policy = rewardsSnapshot?.interstitial
+        // First swipes can happen before the rewards snapshot arrives. Preserve the documented
+        // default of every three title switches rather than silently dropping that first cycle.
+        val switchEveryCount = policy?.dramaSwitchEveryCount?.coerceAtLeast(1) ?: 3
         val shouldShow = countTowardInterstitial &&
-            policy?.dramaSwitchEnabled == true &&
-            dramaSwitchSwipeCount % policy.dramaSwitchEveryCount == 0
+            policy?.dramaSwitchEnabled != false &&
+            dramaSwitchSwipeCount % switchEveryCount == 0
         val switch = {
             if (sdkDiscoverPreviewActive) showSdkDiscoverPreview(nextDrama)
             else showPlayer(nextDrama, 0)

@@ -68,7 +68,7 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
     root.addView(container, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT).apply {
         // Discover only reserves the persistent Tab bar. Its host information panel overlays the
         // lower video area so the PSSDK viewport keeps its full, natural browsing height.
-        if (previewOnly) bottomMargin = dp(68)
+        if (previewOnly) bottomMargin = dp(BOTTOM_NAV_HEIGHT_DP)
     })
 
     val fragment = shortDramaSdk.createDetailFragment(
@@ -121,17 +121,17 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
         root.addView(
             createDiscoverDramaInfoPanel(),
             FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(152), Gravity.BOTTOM).apply {
-                bottomMargin = dp(68)
+                bottomMargin = dp(BOTTOM_NAV_HEIGHT_DP)
             },
         )
         root.addView(
             createDiscoverEpisodeFloatButton(),
             FrameLayout.LayoutParams(dp(82), dp(72), Gravity.END or Gravity.BOTTOM).apply {
                 marginEnd = dp(10)
-                bottomMargin = dp(238)
+                bottomMargin = dp(BOTTOM_NAV_HEIGHT_DP + 170)
             },
         )
-        root.addView(createBottomNavigation(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(68), Gravity.BOTTOM))
+        root.addView(createBottomNavigation(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(BOTTOM_NAV_HEIGHT_DP), Gravity.BOTTOM))
     } else {
         // PSSDK remains the actual player. These are JoyeDrama controls mapped only to public APIs.
         // Retain references and explicitly raise them after the Fragment completes its asynchronous
@@ -168,7 +168,7 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
             root.invalidate()
         }
     }
-    if (!previewOnly) showPlayerGestureCoachmarkIfNeeded()
+    showGestureCoachmarkIfNeeded(previewOnly)
 }
 
 /** Opens the provider's recommended first episode while preserving its native vertical episode browsing. */
@@ -309,23 +309,26 @@ internal fun DramaAppActivity.showSdkResolutionPicker() {
     }
 }
 
-private fun DramaAppActivity.showPlayerGestureCoachmarkIfNeeded() {
-    if (getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getBoolean("player_gesture_coachmark_seen", false)) return
+private fun DramaAppActivity.showGestureCoachmarkIfNeeded(discoverPreview: Boolean) {
+    val preferenceKey = if (discoverPreview) "discover_gesture_coachmark_seen" else "player_gesture_coachmark_seen"
+    if (getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getBoolean(preferenceKey, false)) return
     val coachmark = FrameLayout(this).apply {
-        background = android.graphics.drawable.ColorDrawable(0xAE000000.toInt())
+        // The guide is intentionally translucent grey: it informs without turning the content
+        // behind it into a harsh black interruption.
+        background = android.graphics.drawable.ColorDrawable(0x66000000)
         isClickable = true
-        setOnClickListener { finishPlayerGestureCoachmark(this) }
+        setOnClickListener { finishGestureCoachmark(this, preferenceKey) }
     }
     val panel = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER
         setPadding(dp(26), dp(22), dp(26), dp(20))
-        background = gradientDrawable(intArrayOf(0xF312271B.toInt(), 0xF20D1E14.toInt()), 26)
-        addView(TextView(this@showPlayerGestureCoachmarkIfNeeded).apply {
+        background = gradientDrawable(intArrayOf(0xDE505158.toInt(), 0xD934353A.toInt()), 26)
+        addView(TextView(this@showGestureCoachmarkIfNeeded).apply {
             text = "☝"
             textSize = 48f
             gravity = Gravity.CENTER
-            setTextColor(COLOR_SUNSET)
+            setTextColor(COLOR_FLOATING_GOLD)
         }.also { hand ->
             ObjectAnimator.ofFloat(hand, View.TRANSLATION_Y, dp(14).toFloat(), -dp(16).toFloat(), dp(14).toFloat()).apply {
                 duration = 1_160L
@@ -333,22 +336,22 @@ private fun DramaAppActivity.showPlayerGestureCoachmarkIfNeeded() {
                 start()
             }
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(66)))
-        addView(TextView(this@showPlayerGestureCoachmarkIfNeeded).apply {
-            text = "↕     ↔"
+        addView(TextView(this@showGestureCoachmarkIfNeeded).apply {
+            text = if (discoverPreview) "↕" else "↕     ↔"
             textSize = 25f
             gravity = Gravity.CENTER
-            setTextColor(COLOR_PURPLE)
+            setTextColor(0xFFE2E2E5.toInt())
         })
-        addView(TextView(this@showPlayerGestureCoachmarkIfNeeded).apply {
-            text = t("player_gesture_coachmark_title")
+        addView(TextView(this@showGestureCoachmarkIfNeeded).apply {
+            text = t(if (discoverPreview) "discover_gesture_coachmark_title" else "player_gesture_coachmark_title")
             textSize = 18f
             typeface = android.graphics.Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
             setPadding(0, dp(9), 0, 0)
         })
-        addView(TextView(this@showPlayerGestureCoachmarkIfNeeded).apply {
-            text = t("player_gesture_coachmark")
+        addView(TextView(this@showGestureCoachmarkIfNeeded).apply {
+            text = t(if (discoverPreview) "discover_gesture_coachmark" else "player_gesture_coachmark")
             textSize = 14f
             gravity = Gravity.CENTER
             setTextColor(0xD9FFFFFF.toInt())
@@ -359,12 +362,12 @@ private fun DramaAppActivity.showPlayerGestureCoachmarkIfNeeded() {
     root.addView(coachmark, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
     coachmark.alpha = 0f
     coachmark.animate().alpha(1f).setDuration(260L).start()
-    root.postDelayed({ if (coachmark.parent != null) finishPlayerGestureCoachmark(coachmark) }, 5_000L)
+    root.postDelayed({ if (coachmark.parent != null) finishGestureCoachmark(coachmark, preferenceKey) }, 5_000L)
 }
 
-private fun DramaAppActivity.finishPlayerGestureCoachmark(view: View) {
+private fun DramaAppActivity.finishGestureCoachmark(view: View, preferenceKey: String) {
     (view.parent as? ViewGroup)?.removeView(view)
-    getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit().putBoolean("player_gesture_coachmark_seen", true).apply()
+    getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit().putBoolean(preferenceKey, true).apply()
 }
 
 /** A small host-owned dock with the single authoritative player progress presentation. */
@@ -434,7 +437,7 @@ private fun DramaAppActivity.onSdkOverScroll(direction: Int) {
         val capturedDirectionIsFresh = now - pssdkLastVerticalSwipeAt < 1_300L
         val forward = if (capturedDirectionIsFresh) pssdkLastVerticalSwipeWasUp else direction > 0
         pssdkLastPreviewDramaSwitchAt = now
-        switchDramaBySwipe(forward = forward, countTowardInterstitial = forward)
+        switchDramaBySwipe(forward = forward, countTowardInterstitial = true)
         return
     }
     // Normal player vertical gestures are provider-owned. At a title boundary the callback is the

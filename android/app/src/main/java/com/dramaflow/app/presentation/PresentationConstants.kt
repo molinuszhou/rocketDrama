@@ -4,6 +4,7 @@ package com.dramaflow.app.presentation
 internal const val MAX_CATALOG_GENRES = 6
 internal const val SHELF_ITEM_LIMIT = 6
 internal const val FREE_EPISODES = 3
+internal const val BOTTOM_NAV_HEIGHT_DP = 82
 internal const val PREFERENCES = "joyedrama.short_drama"
 internal const val PLAYBACK_HISTORY_PREFERENCES = "joyedrama.playback_history"
 internal const val INSTALLATION_KEY = "anonymous_installation_id"
@@ -28,6 +29,8 @@ internal const val COLOR_CORAL = 0xFFFF704D.toInt()
 internal const val COLOR_SUNSET = 0xFFFFA94D.toInt()
 // Shared with the floating cash wheel so wallet and bonus-cash labels read as one asset family.
 internal const val COLOR_FLOATING_GOLD = 0xFFFFD35C.toInt()
+// Home drama metadata is deliberately warmer and more yellow than the coral category selector.
+internal const val COLOR_HOME_EPISODE_GOLD = 0xFFE3A84A.toInt()
 internal const val COLOR_AQUA = 0xFF56CEC1.toInt()
 internal const val COLOR_MIST_BLUE = 0xFF10151B.toInt()
 internal const val COLOR_WARM_PEACH = 0xFF211815.toInt()

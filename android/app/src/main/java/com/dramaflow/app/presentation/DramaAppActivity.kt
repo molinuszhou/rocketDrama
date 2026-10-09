@@ -356,8 +356,8 @@ class DramaAppActivity : FragmentActivity() {
     /**
      * PSSDK consumes its own View gestures, so the host observes raw touch events at the Activity
      * boundary without returning `true`. Full-player vertical gestures stay provider-owned; on the
-     * Discover first-episode preview, either vertical direction switches title. Only an upward
-     * preview gesture counts towards the three-switch interstitial policy.
+     * Discover first-episode preview, either vertical direction switches title and each successful
+     * title browse counts towards the same three-switch interstitial policy.
      */
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
         observePssdkSwipe(event)
@@ -397,7 +397,7 @@ class DramaAppActivity : FragmentActivity() {
                             if (sdkPlayerShown && sdkDiscoverPreviewActive && !fullscreenAdInProgress) {
                                 switchDramaBySwipe(
                                     forward = swipeWasUp,
-                                    countTowardInterstitial = swipeWasUp,
+                                    countTowardInterstitial = true,
                                 )
                             }
                         }
@@ -646,10 +646,10 @@ class DramaAppActivity : FragmentActivity() {
                 },
             )
         }
-        root.addView(createBottomNavigation(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(68), Gravity.BOTTOM))
+        root.addView(createBottomNavigation(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(BOTTOM_NAV_HEIGHT_DP), Gravity.BOTTOM))
         root.addView(createFloatingRewardWheel(), FrameLayout.LayoutParams(dp(130), dp(112), Gravity.END or Gravity.BOTTOM).apply {
             marginEnd = 0
-            bottomMargin = dp(80)
+            bottomMargin = dp(BOTTOM_NAV_HEIGHT_DP + 12)
         })
     }
 
@@ -865,6 +865,9 @@ class DramaAppActivity : FragmentActivity() {
 
     internal fun persistPlaybackProgress(positionSeconds: Int = playerProgressSeconds) {
         val drama = selectedDrama ?: return
+        // Discover is a browse-only feed preview. It must never turn a scrolled title into
+        // Continue Watching history; history begins only after the user opens the full player.
+        if (sdkDiscoverPreviewActive) return
         if ((!playerShown && !sdkPlayerShown) || currentEpisodeIndex !in drama.episodes.indices) return
         val safePosition = positionSeconds.coerceAtLeast(0)
         playbackHistory.edit()
@@ -917,6 +920,8 @@ class DramaAppActivity : FragmentActivity() {
 
     internal fun persistNextEpisodeResume(completedIndex: Int) {
         val drama = selectedDrama ?: return
+        // Keep provider-feed preview episodes out of both the history list and saved resume state.
+        if (sdkDiscoverPreviewActive) return
         val nextIndex = (completedIndex + 1).coerceAtMost(drama.episodes.lastIndex.coerceAtLeast(0))
         playbackHistory.edit()
             .putInt(resumePreferenceKey(drama.id, "episode"), nextIndex)

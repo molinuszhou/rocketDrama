@@ -360,7 +360,8 @@ internal fun DramaAppActivity.createTopSafePlayerAssetStrip(): View {
 internal fun DramaAppActivity.formatGems(value: Long): String = String.format(Locale.US, "%,d", value)
 
 internal fun DramaAppActivity.createBottomNavigation(): View = LinearLayout(this).apply {
-        gravity = Gravity.CENTER; setPadding(dp(14), dp(9), dp(14), dp(10)); background = topRoundedDrawable(COLOR_CARD, 26); elevation = dp(10).toFloat()
+        // A taller dock gives every tab a reliable touch target rather than a narrow text/icon strip.
+        gravity = Gravity.CENTER; setPadding(dp(12), dp(8), dp(12), dp(11)); background = topRoundedDrawable(COLOR_CARD, 26); elevation = dp(10).toFloat()
         MainTab.entries.forEach { tab ->
             val active = activeTab == tab
             addView(LinearLayout(this@createBottomNavigation).apply {
@@ -381,11 +382,11 @@ internal fun DramaAppActivity.createBottomNavigation(): View = LinearLayout(this
                 }
                 val icon = ImageView(this@createBottomNavigation).apply {
                     setImageResource(tab.iconRes)
-                    imageTintList = ColorStateList.valueOf(if (active) COLOR_CORAL else COLOR_TEXT_MUTED)
+                    imageTintList = ColorStateList.valueOf(if (active) COLOR_FLOATING_GOLD else COLOR_TEXT_MUTED)
                     scaleType = ImageView.ScaleType.CENTER_INSIDE
                 }
-                addView(icon, LinearLayout.LayoutParams(dp(24), dp(24)))
-                addView(TextView(this@createBottomNavigation).apply { text = t(tab.languageKey); textSize = 11f; gravity = Gravity.CENTER; typeface = if (active) Typeface.DEFAULT_BOLD else Typeface.DEFAULT; setTextColor(if (active) COLOR_CORAL else COLOR_TEXT_MUTED); setPadding(0, dp(2), 0, 0) })
+                addView(icon, LinearLayout.LayoutParams(dp(26), dp(26)))
+                addView(TextView(this@createBottomNavigation).apply { text = t(tab.languageKey); textSize = 11f; gravity = Gravity.CENTER; typeface = if (active) Typeface.DEFAULT_BOLD else Typeface.DEFAULT; setTextColor(if (active) COLOR_FLOATING_GOLD else COLOR_TEXT_MUTED); setPadding(0, dp(2), 0, 0) })
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         }
     }

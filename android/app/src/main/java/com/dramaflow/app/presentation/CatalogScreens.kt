@@ -322,10 +322,10 @@ internal fun DramaAppActivity.showProfileCollectionPage(showFavorites: Boolean) 
     root.removeAllViews()
     root.addView(page, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
     root.addView(createPersistentAssetHeader(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(120), Gravity.TOP))
-    root.addView(createBottomNavigation(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(68), Gravity.BOTTOM))
+    root.addView(createBottomNavigation(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(BOTTOM_NAV_HEIGHT_DP), Gravity.BOTTOM))
     root.addView(createFloatingRewardWheel(), FrameLayout.LayoutParams(dp(130), dp(112), Gravity.END or Gravity.BOTTOM).apply {
         marginEnd = 0
-        bottomMargin = dp(80)
+        bottomMargin = dp(BOTTOM_NAV_HEIGHT_DP + 12)
     })
 }
 
@@ -461,7 +461,7 @@ internal fun DramaAppActivity.createHeroBanner(drama: LocalDrama): View = FrameL
             background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(0xBD10131A.toInt(), 0x2410131A.toInt(), 0xDF10131A.toInt()))
         }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         val copy = LinearLayout(this@createHeroBanner).apply { orientation = LinearLayout.VERTICAL }
-        copy.addView(createPill(t("featured_this_week"), COLOR_CORAL))
+        copy.addView(createPill(t("featured_this_week"), COLOR_HOME_EPISODE_GOLD))
         copy.addView(TextView(this@createHeroBanner).apply { text = drama.title.ifBlank { t("watch_now") }; textSize = 27f; maxLines = 2; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(0, dp(12), 0, dp(4)) })
         copy.addView(TextView(this@createHeroBanner).apply { text = t("episodes_count", drama.total.coerceAtLeast(1)); textSize = 13f; setTextColor(0xE6FFFFFF.toInt()) })
         addView(copy, FrameLayout.LayoutParams(dp(235), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.START).apply { leftMargin = dp(18); bottomMargin = dp(18) })
@@ -641,7 +641,7 @@ internal fun DramaAppActivity.createCompactDramaCard(drama: LocalDrama): View = 
             addView(View(this@createCompactDramaCard).apply {
                 background = GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP, intArrayOf(0xA90D1118.toInt(), Color.TRANSPARENT))
             }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-            addView(createPill(t("episodes_count", drama.total.coerceAtLeast(1)), COLOR_CORAL), FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.START).apply { leftMargin = dp(8); bottomMargin = dp(8) })
+            addView(createPill(t("episodes_count", drama.total.coerceAtLeast(1)), COLOR_HOME_EPISODE_GOLD), FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.START).apply { leftMargin = dp(8); bottomMargin = dp(8) })
         }
         addView(poster, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(184)))
         addView(TextView(this@createCompactDramaCard).apply {
@@ -723,7 +723,7 @@ internal fun DramaAppActivity.createHistoryRow(drama: LocalDrama): View = Linear
         setOnClickListener { showPlayer(drama, resumeEpisode, resumeSecond) }
         addView(ImageView(this@createHistoryRow).apply { scaleType = ImageView.ScaleType.CENTER_CROP; background = posterFallbackDrawable(); load(drama.coverImage) { placeholder(posterFallbackDrawable()); error(posterFallbackDrawable()) } }, LinearLayout.LayoutParams(dp(48), dp(64)))
         addView(TextView(this@createHistoryRow).apply { text = "${drama.title}\n${t("watch_progress", resumeEpisode + 1, formatPlaybackTime(resumeSecond))}"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY); maxLines = 2; setPadding(dp(12), 0, dp(8), 0) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        addView(TextView(this@createHistoryRow).apply { text = "${t("continue_label")} ›"; textSize = 13f; setTextColor(COLOR_ACCENT) })
+        addView(TextView(this@createHistoryRow).apply { text = "${t("continue_label")} ›"; textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_SUNSET) })
     }
 
 internal fun DramaAppActivity.createSettingsRow(title: String, subtitle: String, trailing: String, action: () -> Unit): View = LinearLayout(this).apply {
@@ -840,7 +840,7 @@ internal fun DramaAppActivity.createDramaCard(drama: LocalDrama): View = LinearL
             addView(View(this@createDramaCard).apply {
                 background = GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP, intArrayOf(0x8F111722.toInt(), Color.TRANSPARENT))
             }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-            addView(createPill(t("episodes_count", drama.total.coerceAtLeast(1)), COLOR_CORAL), FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.START).apply { leftMargin = dp(7); bottomMargin = dp(7) })
+            addView(createPill(t("episodes_count", drama.total.coerceAtLeast(1)), COLOR_HOME_EPISODE_GOLD), FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.START).apply { leftMargin = dp(7); bottomMargin = dp(7) })
         }
         addView(poster, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(195)))
         addView(TextView(this@createDramaCard).apply {
