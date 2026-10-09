@@ -278,7 +278,7 @@ internal fun DramaAppActivity.createCrownRoadPanel(snapshot: RewardsApiClient.Sn
     orientation = LinearLayout.VERTICAL
     setPadding(dp(16), dp(16), dp(16), dp(13))
     background = roundedDrawable(COLOR_CARD, 24)
-    addView(createRewardPanelTitle(t("crown_road"), "", t("crown_accelerate"), R.drawable.ic_crown_royal) {
+    addView(createRewardPanelTitle(t("crown_road"), "", t("crown_accelerate"), R.drawable.ic_crown_royal_3d) {
         snapshot?.crownProgress?.firstOrNull { !it.earned }?.let(::showCrownRewardedUpgradeDialog)
     })
     val crowns = snapshot?.crownProgress?.sortedBy { it.levelRank }.orEmpty()
@@ -348,11 +348,11 @@ internal fun DramaAppActivity.createCrownLevelRow(level: RewardsApiClient.CrownP
 }
 
 internal fun DramaAppActivity.crownIconRes(code: String): Int = when (code) {
-    "BRONZE" -> R.drawable.ic_crown_bronze
-    "SILVER" -> R.drawable.ic_crown_silver
-    "GOLD" -> R.drawable.ic_crown_gold
-    "DIAMOND" -> R.drawable.ic_crown_diamond
-    else -> R.drawable.ic_crown_royal
+    "BRONZE" -> R.drawable.ic_rank_bronze_coin_3d
+    "SILVER" -> R.drawable.ic_rank_silver_coin_3d
+    "GOLD" -> R.drawable.ic_rank_gold_coin_3d
+    "DIAMOND" -> R.drawable.ic_rank_diamond_3d
+    else -> R.drawable.ic_crown_royal_3d
 }
 
 internal fun DramaAppActivity.formatCompactGems(value: Long): String = when {

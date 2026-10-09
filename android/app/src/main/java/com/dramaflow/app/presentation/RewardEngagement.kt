@@ -184,7 +184,7 @@ internal fun DramaAppActivity.updatePlayerWalletBoostButton(button: TextView) {
         // rapidly changing seconds counter.
         button.text = t("bonus_cash")
         button.textSize = 14f
-        button.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_extra_reward_bonus, 0, 0, 0)
+        button.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_extra_reward_chest_3d, 0, 0, 0)
         button.compoundDrawablePadding = dp(4)
         button.setTextColor(if (available) COLOR_SUNSET else COLOR_TEXT_MUTED)
         button.background = null
@@ -200,7 +200,7 @@ internal fun DramaAppActivity.updateWalletHeaderBoostButton(button: TextView) {
         button.visibility = if (wallet == null) View.GONE else View.VISIBLE
         button.text = t("bonus_cash")
         button.textSize = 14f
-        button.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_extra_reward_bonus, 0, 0, 0)
+        button.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_extra_reward_chest_3d, 0, 0, 0)
         button.compoundDrawablePadding = dp(4)
         button.setTextColor(if (available) COLOR_SUNSET else COLOR_TEXT_MUTED)
         button.background = null

@@ -83,7 +83,9 @@ internal fun DramaAppActivity.createPersistentAssetHeader(): View {
             setPadding(dp(16), 0, dp(16), 0)
             val wallet = rewardsSnapshot?.wallet
             val balanceBar = LinearLayout(this@createPersistentAssetHeader).apply {
-                gravity = Gravity.CENTER_VERTICAL; background = roundedDrawable(COLOR_CARD, 20); setPadding(dp(5), dp(4), dp(5), dp(4)); clipToOutline = true
+                // Wallet glyph starts 13dp inside the bar (5dp container + 8dp pill padding).
+                // Mirror that inset at the trailing edge so Bonus Cash does not feel pushed right.
+                gravity = Gravity.CENTER_VERTICAL; background = roundedDrawable(COLOR_CARD, 20); setPadding(dp(5), dp(4), dp(13), dp(4)); clipToOutline = true
                 addView(createAssetPill(icon = R.drawable.wallet_money, label = t("wallet_balance"), value = wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—", isGem = false) { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) }, LinearLayout.LayoutParams(0, dp(72), 1f))
                 val charge = TextView(this@createPersistentAssetHeader).apply {
                     textSize = 14f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER_VERTICAL; maxLines = 1
@@ -301,15 +303,23 @@ internal fun DramaAppActivity.animateClaimedCash(previous: String, current: Stri
         }
 }
 
-internal fun DramaAppActivity.createPlayerAssetStrip(): View = LinearLayout(this).apply {
-        gravity = Gravity.CENTER_VERTICAL; setPadding(dp(10), dp(6), dp(10), dp(6)); background = roundedDrawable(0xA6000000.toInt(), 22); alpha = 0.84f
+internal fun DramaAppActivity.createPlayerAssetStrip(): View = FrameLayout(this).apply {
+        clipChildren = false
+        clipToPadding = false
         val wallet = rewardsSnapshot?.wallet
+        val walletChip = LinearLayout(this@createPlayerAssetStrip).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(8), dp(6), dp(10), dp(6))
+            background = roundedDrawable(0xA6000000.toInt(), 22)
+            alpha = 0.84f
+        }
         val walletIcon = ImageView(this@createPlayerAssetStrip).apply { setImageResource(R.drawable.wallet_money); scaleType = ImageView.ScaleType.CENTER_INSIDE; isClickable = true; contentDescription = t("wallet"); setOnClickListener { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) } }
         cashBalanceAnchor = walletIcon
-        addView(walletIcon, LinearLayout.LayoutParams(dp(38), dp(38)))
+        walletChip.addView(walletIcon, LinearLayout.LayoutParams(dp(38), dp(38)))
         val cash = TextView(this@createPlayerAssetStrip).apply { text = wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(dp(5), 0, 0, 0); isClickable = true; setOnClickListener { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) } }
         cashBalanceLabel = cash
-        addView(cash)
+        walletChip.addView(cash)
+        addView(walletChip, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(50), Gravity.START or Gravity.CENTER_VERTICAL).apply { marginStart = dp(56) })
         val extraReward = TextView(this@createPlayerAssetStrip).apply {
             textSize = 14f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER_VERTICAL; maxLines = 1
             setPadding(0, dp(5), 0, dp(5)); contentDescription = t("bonus_cash")
@@ -318,18 +328,21 @@ internal fun DramaAppActivity.createPlayerAssetStrip(): View = LinearLayout(this
         updatePlayerWalletBoostButton(extraReward)
         val extraSlot = LinearLayout(this@createPlayerAssetStrip).apply {
             gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(10), dp(6), dp(10), dp(6))
+            background = roundedDrawable(0xA6000000.toInt(), 22)
+            alpha = 0.84f
             addView(extraReward, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34)))
             val cooldown = ChargeCooldownRingView(this@createPlayerAssetStrip)
             walletChargeCooldownRings.add(cooldown); updateWalletChargeCooldownRing(cooldown)
             addView(cooldown, LinearLayout.LayoutParams(dp(26), dp(26)).apply { marginStart = dp(4) })
         }
-        addView(extraSlot, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(38)).apply { marginStart = dp(8) })
+        addView(extraSlot, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(50), Gravity.END or Gravity.CENTER_VERTICAL).apply { marginEnd = dp(8) })
     }
 
 internal fun DramaAppActivity.createTopSafePlayerAssetStrip(): View {
         val shell = FrameLayout(this)
         val strip = createPlayerAssetStrip()
-        shell.addView(strip, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(26) })
+        shell.addView(strip, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50), Gravity.TOP).apply { topMargin = dp(26) })
         ViewCompat.setOnApplyWindowInsetsListener(shell) { _, insets ->
             val safeTop = insets.getInsets(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()).top
             val params = strip.layoutParams as FrameLayout.LayoutParams
