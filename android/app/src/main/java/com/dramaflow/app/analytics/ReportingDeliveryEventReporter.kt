@@ -67,10 +67,12 @@ internal class ReportingDeliveryEventReporter(context: Context) {
             .url("$baseUrl/v2/operations/reporting-delivery-events")
             .post(event.toString().toRequestBody(JSON))
             .header("Content-Type", "application/json")
-            .header("X-Rewards-Session", "v1")
         appContext.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getString(SESSION_TOKEN_KEY, null)
             ?.takeIf { it.isNotBlank() }
-            ?.let { requestBuilder.header("Authorization", "Bearer $it") }
+            ?.let {
+                requestBuilder.header("X-Rewards-Session", "v1")
+                requestBuilder.header("Authorization", "Bearer $it")
+            }
         val request = requestBuilder.build()
         httpClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, error: IOException) = Unit

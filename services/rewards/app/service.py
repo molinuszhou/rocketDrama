@@ -7,7 +7,7 @@ import math
 import secrets
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 from typing import Any, Iterator
 from zoneinfo import ZoneInfo
 
@@ -333,13 +333,21 @@ class RewardsService:
         with self._transaction() as connection:
             self._ensure_user(connection, user_id)
             business_date = self._business_date()
+            # Serialize each user's episode completion decision before checking IDs so
+            # concurrent requests with different event UUIDs cannot advance progress twice.
+            self._one(connection, "SELECT user_id FROM users WHERE user_id = %s FOR UPDATE", (user_id,))
             duplicate = self._one(connection, "SELECT event_id FROM watch_events WHERE event_id = %s", (event_id,))
             already_rewarded = self._one(
                 connection,
                 "SELECT id FROM episode_reward_claims WHERE user_id = %s AND episode_id = %s",
                 (user_id, episode_id),
             )
-            if duplicate or already_rewarded:
+            already_watched = self._one(
+                connection,
+                "SELECT event_id FROM watch_events WHERE user_id = %s AND drama_id = %s AND episode_id = %s LIMIT 1",
+                (user_id, drama_id, episode_id),
+            )
+            if duplicate or already_rewarded or already_watched:
                 return {"idempotent": True, "result": {"gems_added": 0, "episode_reward": None, "ten_round_claim": None}, "snapshot": self._snapshot(connection, user_id)}
 
             policy = self._policy(connection)
@@ -1372,7 +1380,7 @@ class RewardsService:
         with self._transaction() as connection:
             rows = self._all(
                 connection,
-                """
+                f"""
                 SELECT user_uid, provider, event_name, status, logical_placement, ad_unit_id,
                        error_code, currency, ecpm, reported_value, client_occurred_at, accepted_at
                 FROM reporting_delivery_events
@@ -1384,7 +1392,7 @@ class RewardsService:
             )
             totals = self._one(
                 connection,
-                """
+                f"""
                 SELECT
                     COUNT(*) AS event_count,
                     COUNT(*) FILTER (WHERE status = 'SUCCESS') AS success_count,
@@ -1397,7 +1405,7 @@ class RewardsService:
             ) or {}
             breakdown = self._all(
                 connection,
-                """
+                f"""
                 SELECT provider, status, COUNT(*) AS event_count
                 FROM reporting_delivery_events
                 {where}
@@ -1629,30 +1637,66 @@ class RewardsService:
             """, (user_id, normalized_provider, identifier))
             return {"provider": normalized_provider, "account_identifier": identifier, "linked": True}
 
-    def create_withdrawal_request(self, *, user_id: str, threshold: str) -> dict[str, Any]:
+    def create_withdrawal_request(self, *, user_id: str, threshold: str, client_request_id: str | None = None) -> dict[str, Any]:
         with self._transaction() as connection:
             self._ensure_user(connection, user_id)
             policy = self._policy(connection)
             wallet_policy = self._wallet_policy(connection, user_id)
+            # Pre-v1.7.1.6 clients do not send a key. Keep their UI compatible while
+            # enforcing the reservation lock; new clients always supply a stable key.
+            request_key = client_request_id.strip() if client_request_id else f"legacy-withdrawal-{secrets.token_urlsafe(18)}"
+            # Serialise both the available-balance decision and duplicate request-key check.
+            user = self._one(connection, "SELECT cash_wallet_micros FROM users WHERE user_id = %s FOR UPDATE", (user_id,))
+            existing = self._one(
+                connection,
+                """SELECT request_id, provider, amount_micros, status, created_at
+                FROM withdrawal_requests WHERE user_id = %s AND client_request_id = %s""",
+                (user_id, request_key),
+            )
+            if existing:
+                return {
+                    "idempotent": True, "request_id": str(existing["request_id"]), "provider": existing["provider"],
+                    "amount": self._money(int(existing["amount_micros"]), wallet_policy), "status": existing["status"],
+                    "created_at": existing["created_at"].isoformat(),
+                }
             account = self._one(connection, "SELECT provider FROM withdrawal_accounts WHERE user_id = %s", (user_id,))
             if not account:
                 raise ServiceError(2412, "请先关联提现账户", 409)
-            user = self._one(connection, "SELECT cash_wallet_micros FROM users WHERE user_id = %s", (user_id,))
             try:
-                amount_micros = int((Decimal(threshold) * Decimal(1_000_000)).quantize(Decimal("1")))
+                requested_amount = Decimal(threshold)
             except Exception as error:
                 raise ServiceError(2413, "提现金额格式无效", 422) from error
+            if not requested_amount.is_finite() or requested_amount <= 0:
+                raise ServiceError(2413, "提现金额格式无效", 422)
+            fraction_digits = int(wallet_policy["currency_fraction_digits"])
+            smallest_unit = Decimal(10) ** -fraction_digits
+            if requested_amount != requested_amount.quantize(smallest_unit, rounding=ROUND_DOWN):
+                raise ServiceError(2413, "提现金额的小数位不符合当前地区币种规则", 422)
+            amount_micros = int((requested_amount * Decimal(1_000_000)).quantize(Decimal("1"), rounding=ROUND_DOWN))
             minimum = int(wallet_policy["withdrawal_threshold_micros"])
             balance = int(user["cash_wallet_micros"])
             if not bool(policy["withdrawal_enabled"]):
                 raise ServiceError(2414, "提现功能当前未启用", 409)
             if amount_micros < minimum or balance < amount_micros:
                 raise ServiceError(2415, "余额未达到该提现目标", 409)
+            # The row lock and in-transaction debit make the same balance unavailable to a
+            # later pending request. Rejection/cancellation must restore this reservation.
+            self._execute(
+                connection,
+                "UPDATE users SET cash_wallet_micros = cash_wallet_micros - %s, updated_at = NOW() WHERE user_id = %s",
+                (amount_micros, user_id),
+            )
             row = self._one(connection, """
-                INSERT INTO withdrawal_requests (user_id, provider, amount_micros)
-                VALUES (%s, %s, %s) RETURNING request_id, status, created_at
-            """, (user_id, account["provider"], amount_micros))
-            return {"request_id": str(row["request_id"]), "provider": account["provider"],
+                INSERT INTO withdrawal_requests (
+                    user_id, provider, amount_micros, client_request_id, currency_code,
+                    currency_fraction_digits, market_code, reserved_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+                RETURNING request_id, status, created_at
+            """, (
+                user_id, account["provider"], amount_micros, request_key, wallet_policy["currency_code"],
+                fraction_digits, wallet_policy["market_code"],
+            ))
+            return {"idempotent": False, "request_id": str(row["request_id"]), "provider": account["provider"],
                     "amount": self._money(amount_micros, wallet_policy), "status": row["status"],
                     "created_at": row["created_at"].isoformat()}
 
@@ -2689,10 +2733,16 @@ class RewardsService:
     ) -> int:
         if gems <= 0:
             return 0
-        existing = self._one(connection, "SELECT id FROM ledger_entries WHERE reference_type = %s AND reference_id = %s", (reference_type, reference_id))
+        # Lock first so a concurrent delivery of the same idempotency key observes
+        # the entry inserted by the first transaction rather than racing the unique key.
+        user = self._one(connection, "SELECT total_gems_earned FROM users WHERE user_id = %s FOR UPDATE", (user_id,))
+        existing = self._one(
+            connection,
+            "SELECT id FROM ledger_entries WHERE user_id = %s AND reference_type = %s AND reference_id = %s",
+            (user_id, reference_type, reference_id),
+        )
         if existing:
             return 0
-        user = self._one(connection, "SELECT total_gems_earned FROM users WHERE user_id = %s FOR UPDATE", (user_id,))
         total_before = int(user["total_gems_earned"])
         cap = int(policy.get("gems_earned_cap", 0))
         if cap > 0 and total_before >= cap:
@@ -2705,18 +2755,18 @@ class RewardsService:
             tier4 = int(policy.get("gem_damping_tier4_threshold", 0))
             tier5 = int(policy.get("gem_damping_tier5_threshold", 0))
             if tier1 > 0 and total_before < tier1:
-                multiplier = float(policy.get("gem_damping_tier1_multiplier", 1.0))
+                multiplier = Decimal(str(policy.get("gem_damping_tier1_multiplier", 1.0)))
             elif tier2 > 0 and total_before < tier2:
-                multiplier = float(policy.get("gem_damping_tier2_multiplier", 1.0))
+                multiplier = Decimal(str(policy.get("gem_damping_tier2_multiplier", 1.0)))
             elif tier3 > 0 and total_before < tier3:
-                multiplier = float(policy.get("gem_damping_tier3_multiplier", 1.0))
+                multiplier = Decimal(str(policy.get("gem_damping_tier3_multiplier", 1.0)))
             elif tier4 > 0 and total_before < tier4:
-                multiplier = float(policy.get("gem_damping_tier4_multiplier", 1.0))
+                multiplier = Decimal(str(policy.get("gem_damping_tier4_multiplier", 1.0)))
             elif tier5 > 0 and total_before < tier5:
-                multiplier = float(policy.get("gem_damping_tier5_multiplier", policy.get("gem_damping_tier4_multiplier", 1.0)))
+                multiplier = Decimal(str(policy.get("gem_damping_tier5_multiplier", policy.get("gem_damping_tier4_multiplier", 1.0))))
             else:
-                multiplier = float(policy.get("gem_damping_tier6_multiplier", policy.get("gem_damping_tier5_multiplier", 1.0)))
-            credited_gems = max(0, math.floor(gems * multiplier + 1e-9))
+                multiplier = Decimal(str(policy.get("gem_damping_tier6_multiplier", policy.get("gem_damping_tier5_multiplier", 1.0))))
+            credited_gems = max(0, int(Decimal(gems) * multiplier))
             if cap > 0:
                 credited_gems = min(credited_gems, cap - total_before)
         total = total_before + credited_gems
@@ -3170,15 +3220,17 @@ class RewardsService:
     @staticmethod
     def _money(micros: int, wallet_policy: dict[str, Any]) -> str:
         digits = int(wallet_policy["currency_fraction_digits"])
-        amount = micros / 1_000_000
-        return f"{amount:.{digits}f}"
+        precision = Decimal(1).scaleb(-digits)
+        amount = (Decimal(micros) / Decimal(1_000_000)).quantize(precision, rounding=ROUND_HALF_UP)
+        return format(amount, f".{digits}f")
 
     @staticmethod
     def _usd_reference_money(micros: int, wallet_policy: dict[str, Any]) -> str:
         numerator = int(wallet_policy["usd_micros_per_10000_gems"])
         denominator = int(wallet_policy["currency_micros_per_10000_gems"])
         usd_micros = (micros * numerator) // max(denominator, 1)
-        return f"{usd_micros / 1_000_000:.2f}"
+        amount = (Decimal(usd_micros) / Decimal(1_000_000)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        return format(amount, ".2f")
 
     @staticmethod
     def _currency_payload(wallet_policy: dict[str, Any]) -> dict[str, Any]:

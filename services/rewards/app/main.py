@@ -50,14 +50,11 @@ geo_country_resolver = GeoCountryResolver(settings.geoip_db_path)
 
 
 def client_ip(request: Request) -> str:
-    """Read the client IP from the Nginx-controlled forwarding chain."""
-    real_ip = request.headers.get("x-real-ip", "").strip()
-    if real_ip:
-        return real_ip
+    """Read the first client IP from an Nginx-sanitised forwarding chain."""
     forwarded = request.headers.get("x-forwarded-for", "")
     if forwarded:
-        return forwarded.rsplit(",", 1)[-1].strip()
-    return ""
+        return forwarded.split(",", 1)[0].strip()
+    return request.headers.get("x-real-ip", "").strip()
 
 app = FastAPI(
     title="DramaFlow Rewards Service",
@@ -69,7 +66,7 @@ app.add_middleware(
     allow_origins=settings.cors_origins,
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT"],
-    allow_headers=["Content-Type", "Authorization", "X-Device-Id"],
+    allow_headers=["Content-Type", "Authorization", "X-Device-Id", "X-Rewards-Session"],
 )
 
 
@@ -77,8 +74,10 @@ app.add_middleware(
 async def require_user_session(request: Request, call_next):
     """Bind anonymous user APIs to a server-signed token instead of trusting a UID alone."""
     path = request.url.path
-    if request.method in {"POST", "PUT", "PATCH", "DELETE"} and path.startswith("/v2/") and request.headers.get("x-rewards-session") == "v1":
-        exempt = {"/v2/bootstrap", "/v2/operations/ad-mediation-events"}
+    session_protocol_requested = request.headers.get("x-rewards-session") == "v1"
+    needs_session = settings.require_user_session or session_protocol_requested
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"} and path.startswith("/v2/") and needs_session:
+        exempt = {"/v2/bootstrap"}
         if not path.startswith("/v2/admin/") and path not in exempt:
             body = await request.body()
             try:
@@ -88,7 +87,10 @@ async def require_user_session(request: Request, call_next):
             identity = payload.get("user_uid") if path == "/v2/operations/reporting-delivery-events" else payload.get("user_id")
             if not isinstance(identity, str) or not identity.strip():
                 return JSONResponse(status_code=401, content={"code": 1904, "msg": "缺少用户会话身份"})
-            service.verify_user_session(identity, request.headers.get("authorization"))
+            try:
+                service.verify_user_session(identity, request.headers.get("authorization"))
+            except ServiceError as error:
+                return JSONResponse(status_code=error.status_code, content={"code": error.code, "msg": error.message})
             request._body = body
     return await call_next(request)
 
@@ -100,7 +102,9 @@ async def service_error_handler(_: Request, error: ServiceError) -> JSONResponse
 
 @app.get("/health", response_model=HealthResponse)
 def health() -> dict:
-    return service.health()
+    payload = service.health()
+    payload["geoip"] = geo_country_resolver.diagnostics()
+    return payload
 
 
 @app.post("/v2/bootstrap", response_model=ApiEnvelope)
@@ -113,7 +117,7 @@ def bootstrap(payload: BootstrapRequest, request: Request) -> dict:
             geo_country=geo_country_resolver.country_for_ip(client_ip(request)),
             attribution=payload.attribution.model_dump() if payload.attribution else None,
             session_token=request.headers.get("authorization"),
-            session_required=bool(request.headers.get("authorization")),
+            session_required=settings.require_user_session or request.headers.get("x-rewards-session") == "v1",
         ),
     }
 
@@ -277,8 +281,15 @@ def update_crown_multiplier(payload: CrownMultiplierUpdateRequest, authorization
 
 
 @app.get("/admin", response_class=HTMLResponse, include_in_schema=False)
-def admin_dashboard() -> str:
-    return DASHBOARD_HTML
+def admin_dashboard() -> HTMLResponse:
+    return HTMLResponse(
+        DASHBOARD_HTML,
+        headers={
+            "Content-Security-Policy": "default-src 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'; form-action 'self'; connect-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'",
+            "Referrer-Policy": "no-referrer",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @app.post("/v2/wallet/exchange", response_model=ApiEnvelope)

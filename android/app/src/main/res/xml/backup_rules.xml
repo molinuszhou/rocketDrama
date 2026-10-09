@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
     <include domain="sharedpref" path="." />
+    <!-- Do not restore the anonymous Rewards identity or its bearer session to another device. -->
+    <exclude domain="sharedpref" path="joyedrama.short_drama.xml" />
 </full-backup-content>

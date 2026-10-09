@@ -34,6 +34,7 @@ class AdMediationEventReporter(
     context: Context,
     private val baseUrlProvider: () -> String,
     private val installationIdProvider: () -> String,
+    private val sessionTokenProvider: () -> String? = { null },
     private val reportingAudit: ReportingAuditLog = ReportingAuditLog.get(context),
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(4, TimeUnit.SECONDS)
@@ -104,11 +105,15 @@ class AdMediationEventReporter(
             synchronized(lock) { sending = false }
             return
         }
-        val request = Request.Builder()
+        val requestBuilder = Request.Builder()
             .url("$baseUrl/v2/operations/ad-mediation-events")
             .post(event.toString().toRequestBody(JSON))
             .header("Content-Type", "application/json")
-            .build()
+        sessionTokenProvider()?.takeIf { it.isNotBlank() }?.let { token ->
+            requestBuilder.header("X-Rewards-Session", "v1")
+            requestBuilder.header("Authorization", "Bearer $token")
+        }
+        val request = requestBuilder.build()
         httpClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, error: IOException) {
                 recordRetry(event, "network_error")
@@ -121,7 +126,7 @@ class AdMediationEventReporter(
                         JSONObject(it.body?.string().orEmpty()).optInt("code", -1) == 0
                     }.getOrDefault(false)
                     if (!accepted) {
-                        if (it.code in 400..499 && it.code != 429) {
+                        if (it.code in 400..499 && it.code !in setOf(401, 429)) {
                             synchronized(lock) { removeLocked(event.getString("client_event_id")) }
                             reportingAudit.recordProvider(
                                 ReportingProvider.REWARDS_OPERATIONS,

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -302,6 +302,7 @@ class WithdrawalAccountRequest(BaseModel):
 class WithdrawalRequest(BaseModel):
     user_id: str = Field(min_length=1, max_length=128)
     threshold: str = Field(min_length=1, max_length=32)
+    client_request_id: str | None = Field(default=None, min_length=8, max_length=160)
 
 
 class ApiEnvelope(BaseModel):
@@ -319,3 +320,4 @@ class HealthResponse(BaseModel):
     database: str
     environment: str
     now: datetime
+    geoip: dict[str, Any] | None = None

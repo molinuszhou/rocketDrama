@@ -40,8 +40,19 @@ class GeoCountryResolver:
         try:
             country = reader.country(ip).country.iso_code or ""
             return country.strip().upper()[:2]
-        except Exception:
+        except Exception as error:
+            # Never log raw addresses; the exception category is sufficient for production diagnosis.
+            LOGGER.warning("GeoIP country lookup failed: %s", type(error).__name__)
             return ""
+
+    def diagnostics(self) -> dict[str, object]:
+        """Return safe operational state without exposing request IPs or database contents."""
+        return {
+            "database_path_configured": bool(self.database_path),
+            "database_exists": bool(self.database_path and self.database_path.is_file()),
+            "reader_ready": self._reader is not None,
+            "geoip_library_available": geoip2 is not None,
+        }
 
     def _get_reader(self):
         if self._reader is not None:

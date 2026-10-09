@@ -14,6 +14,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import android.widget.FrameLayout
+import java.util.concurrent.atomic.AtomicBoolean
 import com.dramaflow.app.BuildConfig
 import com.dramaflow.app.analytics.EngagementAnalytics
 import com.dramaflow.app.content.PssdkRevenueReporter
@@ -709,14 +710,6 @@ class TopOnAdsManager(
         )
         if (event == "SHOWN") {
             adMediationReporter?.recordShown(logicalPlacement, topOnPlacementId, adFormat, adInfo)
-            val impressionValue = if (adInfo.ecpm.isFinite() && adInfo.ecpm >= 0.0) adInfo.ecpm / 1_000.0 else -1.0
-            PssdkRevenueReporter.reportAdImpression(
-                adnName = AdNetworkIdentity.from(adInfo).networkName,
-                currency = adInfo.currency,
-                revenue = impressionValue,
-                adFormat = adFormat,
-                aboutUnlock = logicalPlacement == "rv_episode_pass" || logicalPlacement == "int_rewarded_fallback",
-            )
         }
     }
 
@@ -756,9 +749,20 @@ class TopOnAdsManager(
         private val adNetworkAudit: AdNetworkAuditLog,
         private val adMediationReporter: AdMediationEventReporter?,
     ) : ATAdRevenueListener {
+        private val paidReported = AtomicBoolean(false)
+
         override fun onAdRevenuePaid(adInfo: ATAdInfo) {
+            if (!paidReported.compareAndSet(false, true)) return
             adNetworkAudit.recordPaidRevenue(logicalPlacement, adUnitId, adFormat, adInfo)
             analytics.reportTopOnRevenue(logicalPlacement, adUnitId, adInfo)
+            val impressionValue = if (adInfo.ecpm.isFinite() && adInfo.ecpm >= 0.0) adInfo.ecpm / 1_000.0 else -1.0
+            PssdkRevenueReporter.reportAdImpression(
+                adnName = AdNetworkIdentity.from(adInfo).networkName,
+                currency = adInfo.currency,
+                revenue = impressionValue,
+                adFormat = adFormat,
+                aboutUnlock = logicalPlacement == "rv_episode_pass" || logicalPlacement == "int_rewarded_fallback",
+            )
         }
     }
 

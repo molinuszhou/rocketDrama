@@ -347,7 +347,8 @@ class RewardsApiClient(
 
     fun requestWithdrawal(userId: String, threshold: String, onSuccess: (JSONObject) -> Unit, onFailure: (String) -> Unit) = post(
         "/v2/withdrawals/request",
-        JSONObject().put("user_id", userId).put("threshold", threshold), onSuccess, onFailure,
+        JSONObject().put("user_id", userId).put("threshold", threshold)
+            .put("client_request_id", "withdrawal-${UUID.randomUUID()}"), onSuccess, onFailure,
     )
 
     fun recordWatchEvent(

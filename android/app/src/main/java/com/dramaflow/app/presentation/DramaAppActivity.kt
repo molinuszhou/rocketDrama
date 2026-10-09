@@ -279,6 +279,7 @@ class DramaAppActivity : FragmentActivity() {
             applicationContext,
             baseUrlProvider = { rewardsBaseUrl() },
             installationIdProvider = { anonymousInstallationId() },
+            sessionTokenProvider = { getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getString(SESSION_TOKEN_KEY, null) },
         )
     }
     internal val topOnAds by lazy {
@@ -439,8 +440,12 @@ class DramaAppActivity : FragmentActivity() {
         if (fullscreenAdInProgress || fullscreenAdRequestInFlight) saveExternalAdReturnCheckpoint()
         resumePlaybackWhenForeground = playerShown && exoPlayer?.isPlaying == true && !fullscreenAdInProgress
         if (resumePlaybackWhenForeground) exoPlayer?.pause()
-        resumeSdkPlaybackWhenForeground = sdkPlayerShown && sdkPlaybackActive && !playerIsPaused && !fullscreenAdInProgress
-        if (resumeSdkPlaybackWhenForeground) currentSdkPlayerFragment()?.pausePlay()
+        // pauseForFullscreenAd already records whether PSSDK must resume when the ad closes.
+        // Do not overwrite that intent when the mediation Activity drives this host through onStop.
+        if (!fullscreenAdInProgress && !fullscreenAdRequestInFlight) {
+            resumeSdkPlaybackWhenForeground = sdkPlayerShown && sdkPlaybackActive && !playerIsPaused
+            if (resumeSdkPlaybackWhenForeground) currentSdkPlayerFragment()?.pausePlay()
+        }
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         super.onStop()
     }

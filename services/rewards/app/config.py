@@ -14,6 +14,7 @@ class Settings:
     allow_debug_ad_proof: bool
     admin_dashboard_token: str | None
     session_signing_secret: str
+    require_user_session: bool
     admin_initial_username: str | None
     admin_initial_password: str | None
     timezone: str
@@ -41,6 +42,7 @@ class Settings:
             allow_debug_ad_proof=allow_debug_ad_proof,
             admin_dashboard_token=os.getenv("ADMIN_DASHBOARD_TOKEN", "").strip() or None,
             session_signing_secret=session_secret or os.getenv("ADMIN_DASHBOARD_TOKEN", "").strip(),
+            require_user_session=os.getenv("REWARDS_REQUIRE_USER_SESSION", "false").strip().lower() == "true",
             admin_initial_username=os.getenv("ADMIN_INITIAL_USERNAME", "").strip() or None,
             admin_initial_password=os.getenv("ADMIN_INITIAL_PASSWORD", "").strip() or None,
             timezone=os.getenv("TIMEZONE", "Asia/Shanghai").strip() or "Asia/Shanghai",

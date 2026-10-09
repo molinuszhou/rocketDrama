@@ -73,6 +73,29 @@ services/rewards/geoip/GeoLite2-Country.mmdb
 
 如需使用其他宿主机路径，在 `.env.production` 设置 `GEOIP_DB_HOST_PATH`。服务只保存两位 ISO 国家代码到 `users.geo_country`，不保存原始 IP；数据库缺失或解析失败时接口仍可正常运行，只是该字段为空。
 
+### GeoIP 必做诊断
+
+仅确认宿主机存在 `geoip/GeoLite2-Country.mmdb` 还不够，还必须确认它已经挂载进正在运行的 API 容器、Python 能读取数据库、Nginx 传给 API 的是公网客户端 IP。升级本版本后，健康检查会返回不含 IP 和文件路径的 GeoIP 状态：
+
+```bash
+curl -fsS http://127.0.0.1:18100/health
+# 预期 geoip.database_path_configured、geoip.database_exists、
+# geoip.geoip_library_available 都为 true。
+
+docker compose -p joyedrama-rewards --env-file .env.production \
+  -f docker-compose.production.yml exec rewards-api \
+  python -c "from app.geo import GeoCountryResolver; r=GeoCountryResolver('/usr/share/GeoIP/GeoLite2-Country.mmdb'); print(r.country_for_ip('8.8.8.8'))"
+# 预期输出 US；若为空，优先检查镜像依赖或容器内挂载。
+
+docker compose -p joyedrama-rewards --env-file .env.production \
+  -f docker-compose.production.yml exec rewards-api \
+  ls -lh /usr/share/GeoIP/GeoLite2-Country.mmdb
+```
+
+在 API 容器测试输出 `US`、但真实用户仍为空时，原因通常是 Nginx 或其前面的 CDN/LB 把私网/代理 IP 传到了 API。项目的 Nginx 片段会覆盖外部可伪造的 `X-Real-IP`、`X-Forwarded-For`，并传递 `$remote_addr`。如果站点前有 CDN/LB，必须先在 **Nginx 的 `http {}` 块**按该提供商公布的 CIDR 配置 `real_ip_header`、`set_real_ip_from` 和 `real_ip_recursive on`，再重载 Nginx；不要无条件信任公网请求自带的转发头。
+
+GeoIP 修复后，已存在但 `geo_country` 为空的用户会在下一次成功 `/v2/bootstrap` 时自动补写国家代码；不会保存历史原始 IP。
+
 ### 3. 启动容器
 
 先确认 `18100` 未被占用：
@@ -164,6 +187,22 @@ nginx -s reload
 ```bash
 curl -fsS https://www.joyelleasia.com/joyedrama-rewards/health
 ```
+
+### 用户会话灰度开关
+
+新版 Android 客户端会携带 `X-Rewards-Session: v1` 和服务端签发的 Bearer 会话。初次部署请保留：
+
+```properties
+REWARDS_REQUIRE_USER_SESSION=false
+```
+
+这样旧 APK 可以继续使用，新的 APK 已受到会话签名校验。待新版 APK 全量发布、并完成奖励、钱包、提现与广告上报回归后，再改为：
+
+```properties
+REWARDS_REQUIRE_USER_SESSION=true
+```
+
+并重新执行 Compose `up -d --build`。开启后，所有用户状态写请求都必须带有效会话；既有用户不能再仅凭匿名 UID 被访问。不要在新版未发布前打开该开关。
 
 ## 四、Android 正式包配置
 
