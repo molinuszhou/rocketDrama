@@ -538,6 +538,12 @@ internal fun DramaAppActivity.setPlayerControlsVisible(visible: Boolean) {
     /** 视频区域单击是唯一的播放/暂停操作；Media3 会同步停止画面、音频和播放时钟。 */
 internal fun DramaAppActivity.updatePauseOverlayVisibility(visible: Boolean) {
         playerPauseOverlay?.visibility = if (visible) View.VISIBLE else View.GONE
+        // Keep the player controls discoverable at a real pause point, then clear the video
+        // surface again as soon as playback resumes. Full-screen ads are excluded so host
+        // controls never appear underneath a mediation creative.
+        if (!fullscreenAdInProgress && !fullscreenAdRequestInFlight && (playerShown || sdkPlayerShown)) {
+            setPlayerControlsVisible(visible)
+        }
     }
 
 internal fun DramaAppActivity.resumePlaybackFromPauseOverlay() {

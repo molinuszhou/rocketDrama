@@ -1388,7 +1388,14 @@ class RewardsService:
                     SELECT COUNT(*) AS watch_count FROM watch_events WHERE user_id = u.user_id
                 ) w ON TRUE
                 LEFT JOIN LATERAL (
-                    SELECT COUNT(*) AS rewarded_count FROM rewarded_ad_events WHERE user_id = u.user_id
+                    -- A rewarded-to-interstitial fallback creates an authorization row in
+                    -- rewarded_ad_events so its cash settlement stays idempotent. It is not an
+                    -- actual rewarded-video impression and must not be counted as one beside
+                    -- the same interstitial in the operator-facing user list.
+                    SELECT COUNT(*) AS rewarded_count
+                    FROM rewarded_ad_events
+                    WHERE user_id = u.user_id
+                      AND verification_method IN ('client_reward_callback', 'debug_test_callback')
                 ) r ON TRUE
                 LEFT JOIN LATERAL (
                     SELECT COUNT(*) AS interstitial_count FROM interstitial_events WHERE user_id = u.user_id

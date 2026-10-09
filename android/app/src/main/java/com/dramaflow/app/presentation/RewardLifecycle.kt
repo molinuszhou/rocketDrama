@@ -123,6 +123,11 @@ internal fun DramaAppActivity.applyRewardsSnapshot(snapshot: RewardsApiClient.Sn
         unlockedEpisodeKeys.addAll(snapshot.unlockedEpisodeTargets)
         lastConfirmedGemBalance = snapshot.wallet.coins
         lastConfirmedCashBalance = snapshot.wallet.cashWallet
+        // Crown Road is refreshed in place to preserve the user's scroll position. Its parent
+        // Reward Center hero is intentionally not rebuilt, so update that live amount directly
+        // before refreshing only the Crown panel. The receipt animation below can still replace
+        // this text with the old value briefly, then settle it on the confirmed new value.
+        cashBalanceLabel?.text = formatWalletTotal(snapshot.wallet, includeUsdReference = false)
         refreshFloatingRewardWheels()
         // PSSDK is still an active JoyeDrama player surface. Re-rendering a tab after its
         // reward callback removes the provider Fragment and incorrectly sends the user to a

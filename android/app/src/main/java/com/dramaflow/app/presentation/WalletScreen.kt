@@ -116,11 +116,25 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
             balanceRow.addView(LinearLayout(this@createWithdrawalPage).apply {
                 orientation = LinearLayout.VERTICAL
                 addView(TextView(this@createWithdrawalPage).apply { text = t("wallet_balance"); textSize = 14f; setTextColor(0xCCFFFFFF.toInt()) })
-                addView(TextView(this@createWithdrawalPage).apply { text = formatWalletTotal(wallet, includeUsdReference = false); textSize = 38f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(0, dp(5), 0, 0); maxLines = 2 })
+                // Keep the same one-line, auto-sizing balance treatment used by Reward Center.
+                // This is essential for 0-decimal currencies such as IDR: wrapping a value like
+                // Rp1.230.000 makes the wallet header look like two separate balances.
+                addView(TextView(this@createWithdrawalPage).apply {
+                    text = formatWalletTotal(wallet, includeUsdReference = false)
+                    textSize = 38f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(Color.WHITE)
+                    setPadding(0, dp(5), 0, 0)
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                    includeFontPadding = false
+                    letterSpacing = -0.02f
+                    setAutoSizeTextTypeUniformWithConfiguration(22, 38, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
+                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)))
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             balanceRow.addView(ImageView(this@createWithdrawalPage).apply {
                 setImageResource(R.drawable.wallet_money); scaleType = ImageView.ScaleType.CENTER_INSIDE; contentDescription = t("wallet")
-            }, LinearLayout.LayoutParams(dp(86), dp(86)))
+            }, LinearLayout.LayoutParams(dp(76), dp(76)))
             addView(balanceRow, matchParams(bottom = 16))
             val extraCashButton = TextView(this@createWithdrawalPage).apply {
                 textSize = 14f
@@ -136,14 +150,26 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
                 bottomMargin = dp(18)
             })
             val balance = wallet.cashWallet.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO
-            val usdBalance = wallet.availableBalanceUsdReference.toBigDecimalOrNull()
-                ?: wallet.cashWalletUsdReference.toBigDecimalOrNull()
-                ?: balance
-            val withdrawalEnabled = rewardsSnapshot?.withdrawal?.enabled == true
-            listOf("200.00", "500.00", "800.00", "1000.00").forEachIndexed { index, rawGoal ->
-                val goalUsd = java.math.BigDecimal(rawGoal)
-                val goalLabel = "US$${goalUsd.setScale(0).toPlainString()}"
-                val goalReached = withdrawalEnabled && usdBalance >= goalUsd
+            val withdrawal = rewardsSnapshot?.withdrawal
+            val withdrawalEnabled = withdrawal?.enabled == true
+            // The minimum comes from the server-issued market wallet policy. Build the familiar
+            // 1× / 2.5× / 4× / 5× ladder from that amount, rather than comparing an IDR/BRL
+            // wallet against hard-coded USD values. This keeps both the label and progress bar
+            // in exactly the currency that the user can eventually withdraw.
+            val baseGoal = withdrawal?.threshold?.toBigDecimalOrNull()
+                ?.takeIf { it.signum() > 0 }
+                ?: java.math.BigDecimal("200")
+            val currencyScale = wallet.currency.fractionDigits.coerceIn(0, 6)
+            val withdrawalGoals = listOf(
+                baseGoal,
+                baseGoal.multiply(java.math.BigDecimal("2.5")),
+                baseGoal.multiply(java.math.BigDecimal("4")),
+                baseGoal.multiply(java.math.BigDecimal("5")),
+            ).map { it.setScale(currencyScale, java.math.RoundingMode.HALF_UP) }
+            withdrawalGoals.forEachIndexed { index, goal ->
+                val rawGoal = goal.toPlainString()
+                val goalLabel = formatCurrencyAmount(wallet, rawGoal, null, includeUsdReference = false)
+                val goalReached = withdrawalEnabled && balance >= goal
                 addView(LinearLayout(this@createWithdrawalPage).apply {
                     orientation = LinearLayout.VERTICAL
                     setPadding(dp(13), dp(10), dp(13), dp(10))
@@ -177,7 +203,7 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
                     addView(goalRow)
                     addView(ProgressBar(this@createWithdrawalPage, null, android.R.attr.progressBarStyleHorizontal).apply {
                         max = 100
-                        progress = usdBalance.multiply(java.math.BigDecimal(100)).divide(goalUsd, 0, java.math.RoundingMode.DOWN).toInt().coerceIn(0, 100)
+                        progress = balance.multiply(java.math.BigDecimal(100)).divide(goal, 0, java.math.RoundingMode.DOWN).toInt().coerceIn(0, 100)
                         progressTintList = ColorStateList.valueOf(if (index == 0) COLOR_SUNSET else COLOR_ACCENT)
                         backgroundTintList = ColorStateList.valueOf(0x44FFFFFF)
                     }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(6)).apply { topMargin = dp(8); bottomMargin = dp(2) })
@@ -310,15 +336,6 @@ private fun DramaAppActivity.requestWithdrawalForGoal(wallet: RewardsApiClient.W
 private fun DramaAppActivity.isWithdrawalAccountLinked(): Boolean =
     rewardsSnapshot?.withdrawal?.accountLinked
         ?: getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getBoolean("withdrawal_account_linked", false)
-
-private fun DramaAppActivity.showCashoutGoalNotice(goalLabel: String, remainingUsd: java.math.BigDecimal) {
-    val message = if (remainingUsd.signum() > 0) {
-        t("cashout_goal_progress", goalLabel, "US$${remainingUsd.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString()}")
-    } else {
-        rewardsSnapshot?.withdrawal?.reason?.takeIf { it.isNotBlank() } ?: t("cashout_threshold_notice", goalLabel)
-    }
-    showBrandedChoiceDialog(t("withdraw"), message, t("done"))
-}
 
 /**
  * Displays the withdrawal route for every goal tap.  An under-threshold balance is a real,

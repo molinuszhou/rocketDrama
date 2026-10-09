@@ -392,6 +392,7 @@ private fun DramaAppActivity.onSdkEpisodeStarted(episodeIndex: Int, episode: Epi
     midrollInterstitialRequestInFlight = false
     lastMidrollSamplePositionSeconds = -1
     playerIsPaused = false
+    updatePauseOverlayVisibility(false)
     updateEpisodeStatus()
     updatePlayerProgress(0, 0)
     if (sdkDiscoverPreviewActive) discoverPreviewProgressBar?.progress = 0
@@ -418,6 +419,7 @@ private fun DramaAppActivity.onSdkPlaybackProgress(episodeIndex: Int, rawProgres
     val duration = if (rawDuration > 10_000) rawDuration.coerceAtLeast(0) / 1_000 else rawDuration.coerceAtLeast(0)
     sdkPlaybackActive = true
     playerIsPaused = false
+    updatePauseOverlayVisibility(false)
     updatePlayerProgress(progress, duration)
     if (sdkDiscoverPreviewActive && duration > 0) {
         discoverPreviewProgressBar?.progress = (progress * 1_000 / duration).coerceIn(0, 1_000)

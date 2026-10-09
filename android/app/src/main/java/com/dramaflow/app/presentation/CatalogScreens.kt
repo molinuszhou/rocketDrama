@@ -388,14 +388,16 @@ internal fun DramaAppActivity.createCategoryTabs(): View = android.widget.Horizo
         isHorizontalScrollBarEnabled = false
         val row = LinearLayout(this@createCategoryTabs).apply { orientation = LinearLayout.HORIZONTAL }
         val allLabel = t("all_dramas")
-        data class Tab(val label: String, val category: ShortDramaSdkManager.Category?)
+        data class Tab(val label: String, val category: ShortDramaSdkManager.Category?, val fallbackGenre: String? = null)
         val tabs = buildList {
             add(Tab(allLabel, null))
-            if (sdkCatalogCategories.isNotEmpty()) sdkCatalogCategories.take(MAX_CATALOG_GENRES).forEach { add(Tab(it.name, it)) }
-            else catalogGenreGroups().forEachIndexed { index, (name, dramas) -> add(Tab(name, ShortDramaSdkManager.Category(-(index + 1L), name, dramas.size))) }
+            if (sdkCatalogCategories.isNotEmpty()) sdkCatalogCategories.take(MAX_CATALOG_GENRES).forEach { add(Tab(providerCategoryLabel(it.name), it)) }
+            else catalogGenreGroups().forEachIndexed { index, (name, dramas) ->
+                add(Tab(providerCategoryLabel(name), ShortDramaSdkManager.Category(-(index + 1L), name, dramas.size), name))
+            }
         }
         tabs.forEachIndexed { index, tab ->
-            val selected = if (tab.category == null) selectedCatalogCategoryId == null && selectedCatalogGenre == null else tab.category.id == selectedCatalogCategoryId || (selectedCatalogCategoryId == null && tab.label == selectedCatalogGenre)
+            val selected = if (tab.category == null) selectedCatalogCategoryId == null && selectedCatalogGenre == null else tab.category.id == selectedCatalogCategoryId || (selectedCatalogCategoryId == null && tab.fallbackGenre == selectedCatalogGenre)
             row.addView(TextView(this@createCategoryTabs).apply {
                 text = tab.label; textSize = 14f; gravity = Gravity.CENTER
                 setTextColor(if (selected) Color.WHITE else COLOR_TEXT_MUTED)
@@ -404,13 +406,42 @@ internal fun DramaAppActivity.createCategoryTabs(): View = android.widget.Horizo
                 isClickable = true
                 setOnClickListener {
                     if (tab.category == null) selectSdkCatalogCategory(null)
-                    else if (tab.category.id < 0) { selectedCatalogCategoryId = null; selectedCatalogGenre = tab.label; renderActiveTab() }
+                    else if (tab.category.id < 0) { selectedCatalogCategoryId = null; selectedCatalogGenre = tab.fallbackGenre ?: tab.category.name; renderActiveTab() }
                     else selectSdkCatalogCategory(tab.category)
                 }
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { if (index > 0) marginStart = dp(8) })
         }
         addView(row)
     }
+
+/**
+ * PSSDK category IDs are used for requests, but its category-name field is often returned in
+ * Chinese regardless of the app locale. Localise the common provider taxonomy at the host UI
+ * boundary while preserving the original category name/ID for filtering and analytics.
+ */
+internal fun DramaAppActivity.providerCategoryLabel(rawName: String): String {
+    if (AppLanguage.tag(this).startsWith("zh")) return rawName
+    return when (rawName.trim().lowercase(Locale.ROOT).replace("短剧", "").replace("剧", "")) {
+        "甜宠", "甜蜜", "宠爱" -> t("category_sweet_romance")
+        "都市", "现代" -> t("category_urban")
+        "古装", "古风" -> t("category_costume")
+        "逆袭", "逆转" -> t("category_comeback")
+        "穿越", "重生" -> t("category_time_travel")
+        "复仇" -> t("category_revenge")
+        "豪门", "名门" -> t("category_tycoon")
+        "总裁" -> t("category_ceo_romance")
+        "战神" -> t("category_heroic")
+        "萌宝", "亲子" -> t("category_cute_kids")
+        "闪婚" -> t("category_quick_marriage")
+        "虐恋", "虐心" -> t("category_angst_romance")
+        "悬疑" -> t("category_mystery")
+        "家庭" -> t("category_family")
+        "校园" -> t("category_school")
+        "奇幻", "玄幻" -> t("category_fantasy")
+        "言情", "爱情" -> t("category_romance")
+        else -> rawName
+    }
+}
 
     /** 分类、推荐与排序均读取统一内容模型；未来 PSSDK 接通后仅替换 catalogItems 的数据来源。 */
 internal fun DramaAppActivity.catalogGenreGroups(): List<Pair<String, List<LocalDrama>>> = catalogItems

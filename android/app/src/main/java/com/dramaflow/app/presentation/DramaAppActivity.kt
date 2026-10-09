@@ -78,6 +78,8 @@ class DramaAppActivity : FragmentActivity() {
     internal var sdkCatalogCategories: List<ShortDramaSdkManager.Category> = emptyList()
     internal var categoryCatalogItems: List<LocalDrama> = emptyList()
     internal var selectedCatalogCategoryId: Long? = null
+    /** Invalidates provider callbacks started before the user selected another content language. */
+    internal var catalogLanguageRequestGeneration = 0
     internal var categoryNextPage = 1
     internal var categoryHasMorePages = false
     internal var categoryPageLoadInFlight = false
@@ -590,11 +592,51 @@ class DramaAppActivity : FragmentActivity() {
         } })
     }
 
-    internal fun refreshSdkCategories() {
+    internal fun refreshSdkCategories(expectedLanguageTag: String? = null, expectedGeneration: Int? = null) {
         shortDramaSdk.loadCategories(onSuccess = { categories -> runOnUiThread {
+            if (expectedLanguageTag != null && AppLanguage.tag(this) != expectedLanguageTag) return@runOnUiThread
+            if (expectedGeneration != null && catalogLanguageRequestGeneration != expectedGeneration) return@runOnUiThread
             sdkCatalogCategories = categories
             if (startupContentInitializationStarted && (activeTab == MainTab.HOME || activeTab == MainTab.DISCOVER)) renderActiveTab()
         } }, onFailure = { message -> logStatus("PSSDK categories unavailable: $message") })
+    }
+
+    /**
+     * PSSDK applies [PSSDK.setContentLanguage] to new metadata requests only. Re-query the
+     * browse feed and category metadata after a user changes their in-app language, without
+     * reinitialising the SDK or disturbing an active provider player.
+     */
+    internal fun refreshSdkCatalogForContentLanguage(languageTag: String) {
+        if (sdkPlayerShown || playerShown) return
+        val generation = ++catalogLanguageRequestGeneration
+        selectedCatalogCategoryId = null
+        selectedCatalogGenre = null
+        categoryCatalogItems = emptyList()
+        categoryNextPage = 1
+        categoryHasMorePages = false
+        categoryPageLoadInFlight = false
+        catalogPageLoadInFlight = true
+        refreshSdkCategories(expectedLanguageTag = languageTag, expectedGeneration = generation)
+        shortDramaSdk.loadDiscovery(onSuccess = { discovery -> runOnUiThread {
+            if (catalogLanguageRequestGeneration != generation || AppLanguage.tag(this) != languageTag) return@runOnUiThread
+            val cards = (discovery.popular + discovery.latest)
+                .distinctBy { it.id }
+                .filter { it.title.isNotBlank() }
+            if (cards.isNotEmpty()) {
+                sdkDramaCardsByCatalogId.clear()
+                cards.forEach { card -> sdkDramaCardsByCatalogId[sdkCatalogId(card.id)] = card }
+                catalogItems = cards.map(::sdkCatalogDrama)
+                catalogNextPage = 2
+                catalogHasMorePages = discovery.hasMore
+            }
+            catalogPageLoadInFlight = false
+            if (activeTab == MainTab.HOME || activeTab == MainTab.DISCOVER) renderActiveTab()
+        } }, onFailure = { message -> runOnUiThread {
+            if (catalogLanguageRequestGeneration != generation || AppLanguage.tag(this) != languageTag) return@runOnUiThread
+            catalogPageLoadInFlight = false
+            logStatus("PSSDK language refresh unavailable: $message")
+            if (activeTab == MainTab.HOME || activeTab == MainTab.DISCOVER) renderActiveTab()
+        } })
     }
 
     internal fun sdkCatalogId(shortPlayId: Long): String = "pssdk-$shortPlayId"
@@ -1020,8 +1062,10 @@ class DramaAppActivity : FragmentActivity() {
         val options = AppLanguage.options
         val selected = options.indexOfFirst { it.tag == AppLanguage.tag(this) }.coerceAtLeast(0)
         showBrandedOptionsDialog(t("language"), options.map { it.label }, selected) { which ->
-            AppLanguage.save(this, options[which].tag)
-            ShortDramaSdkManager.get(this).setContentLanguageForUi(options[which].tag)
+            val languageTag = options[which].tag
+            AppLanguage.save(this, languageTag)
+            ShortDramaSdkManager.get(this).setContentLanguageForUi(languageTag)
+            refreshSdkCatalogForContentLanguage(languageTag)
             if (withdrawalPageShown) rewardsSnapshot?.wallet?.let(::showWithdrawalPage) else renderActiveTab()
         }
     }
