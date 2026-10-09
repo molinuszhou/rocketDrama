@@ -53,7 +53,7 @@ cd android
 
 ## 正式 Release 构建与签名（Windows）
 
-> 以下脚本仅适用于当前 `release/formal-production` 检出的正式工程。脚本使用 `local.properties.release` 中的正式配置，构建期间会临时覆盖 `local.properties`，并在结束（包括失败）后自动恢复原文件。脚本不会保存 Upload Key 密码。
+> 以下脚本仅适用于当前 `release/formal-production` 检出的正式工程。脚本使用 `local.properties.release` 中的正式配置，构建期间会临时覆盖 `local.properties`，并在结束（包括失败）后自动恢复原文件。构建脚本是**仅本机保存的私有文件**，已由 `.gitignore` 排除，绝不可提交或分享其含有的 Upload Key 密码。
 
 ### 前置检查
 
@@ -108,7 +108,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build-google-play-aab.ps1 -Sk
 android\release-artifacts\JoyeDrama-google-play-upload-signed-时间戳.aab
 ```
 
-两个脚本均会在签名环节交互要求输入 Upload Key 密码，密码不会写入脚本、Git、构建参数或产物目录。`release-artifacts/` 已被 Git 忽略。
+两个脚本均是本机私有文件，密码仅存放在本机脚本中；`scripts/build-release-test-apk.ps1`、`scripts/build-google-play-aab.ps1` 与 `release-artifacts/` 均已被 Git 忽略。不要将脚本、密码、Keystore 或构建参数发送给他人。
 
 ## 参考资料
 
