@@ -755,7 +755,6 @@ class TopOnAdsManager(
         override fun onAdRevenuePaid(adInfo: ATAdInfo) {
             adNetworkAudit.recordPaidRevenue(logicalPlacement, adUnitId, adFormat, adInfo)
             analytics.reportTopOnRevenue(logicalPlacement, adUnitId, adInfo)
-            adMediationReporter?.recordPaidRevenue(logicalPlacement, adUnitId, adFormat, adInfo)
         }
     }
 

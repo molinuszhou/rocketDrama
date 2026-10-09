@@ -13,6 +13,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
@@ -49,10 +50,6 @@ class AdMediationEventReporter(
         enqueue("SHOWN", logicalPlacement, toponPlacementId, adFormat, adInfo)
     }
 
-    fun recordPaidRevenue(logicalPlacement: String, toponPlacementId: String, adFormat: String, adInfo: ATAdInfo) {
-        enqueue("PAID_REVENUE", logicalPlacement, toponPlacementId, adFormat, adInfo)
-    }
-
     /** Attempts a bounded replay of retained events. Safe to call from Activity.onCreate. */
     fun flushPending() {
         synchronized(lock) {
@@ -76,6 +73,7 @@ class AdMediationEventReporter(
             .put("ad_source_id", identity.sourceId)
             .put("app_version", BuildConfig.VERSION_NAME)
             .put("currency", revenue.currency)
+            .put("reporting_targets", JSONArray(REPORTING_TARGETS))
             .put("occurred_at_ms", System.currentTimeMillis())
         revenue.ecpm.toDoubleOrNull()?.let { event.put("ecpm", it) }
         synchronized(lock) {
@@ -215,5 +213,6 @@ class AdMediationEventReporter(
         const val QUEUE_DIRECTORY = "ad_mediation_events"
         const val QUEUE_FILE_NAME = "pending.ndjson"
         const val MAX_PENDING_EVENTS = 100
+        val REPORTING_TARGETS = listOf("PSSDK", "AppsFlyer", "Firebase", "Xuanyu")
     }
 }

@@ -909,6 +909,7 @@ class RewardsService:
         app_version: str,
         currency: str,
         ecpm: float | None,
+        reporting_targets: list[str],
         occurred_at_ms: int,
     ) -> dict[str, Any]:
         """Persist a de-duplicated, non-financial mirror of TopOn callbacks.
@@ -926,7 +927,10 @@ class RewardsService:
             raise ServiceError(2301, "广告运营事件时间超出允许范围", 422)
         normalized_currency = currency.strip().upper()
         normalized_ecpm = Decimal(str(ecpm)) if ecpm is not None else None
-        estimated_value = (normalized_ecpm / Decimal("1000")) if event_type == "PAID_REVENUE" and normalized_ecpm is not None else Decimal("0")
+        estimated_value = (normalized_ecpm / Decimal("1000")) if normalized_ecpm is not None else Decimal("0")
+        normalized_targets = list(dict.fromkeys(
+            target.strip()[:40] for target in reporting_targets if target.strip()
+        ))[:10]
         metric_date = occurred_at.date()
 
         with self._transaction() as connection:
@@ -948,8 +952,8 @@ class RewardsService:
                 INSERT INTO ad_mediation_events (
                     client_event_id, install_id_hash, event_type, logical_placement,
                     topon_placement_id, ad_format, ad_network, ad_source_id,
-                    app_version, currency, ecpm, impression_value, client_occurred_at
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    app_version, currency, ecpm, impression_value, reporting_targets, client_occurred_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     client_event_id,
@@ -964,6 +968,7 @@ class RewardsService:
                     normalized_currency,
                     normalized_ecpm,
                     estimated_value,
+                    normalized_targets,
                     occurred_at,
                 ),
             )
@@ -1059,7 +1064,7 @@ class RewardsService:
                 """
                 SELECT client_event_id, event_type, logical_placement, topon_placement_id,
                        ad_format, ad_network, ad_source_id, app_version, currency, ecpm,
-                       impression_value, client_occurred_at, accepted_at
+                       impression_value, reporting_targets, client_occurred_at, accepted_at
                 FROM ad_mediation_events
                 WHERE client_occurred_at >= %s
                   AND client_occurred_at < (%s::date + INTERVAL '1 day')
@@ -1082,6 +1087,7 @@ class RewardsService:
                 "currency": row["currency"].strip(),
                 "ecpm": format(Decimal(str(row["ecpm"])), "f") if row["ecpm"] is not None else "",
                 "impression_value": format(Decimal(str(row["impression_value"])), "f"),
+                "reporting_targets": row.get("reporting_targets") or [],
                 "client_occurred_at": row["client_occurred_at"].isoformat(),
                 "accepted_at": row["accepted_at"].isoformat(),
             }

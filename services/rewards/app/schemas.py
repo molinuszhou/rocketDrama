@@ -259,6 +259,7 @@ class AdMediationEventRequest(BaseModel):
     app_version: str = Field(min_length=1, max_length=64)
     currency: str = Field(default="", max_length=3, pattern=r"^[A-Za-z]{0,3}$")
     ecpm: float | None = Field(default=None, ge=0.0, le=10_000_000.0)
+    reporting_targets: list[str] = Field(default_factory=list, max_length=10)
     occurred_at_ms: int = Field(ge=0, le=4_102_444_800_000)
 
 

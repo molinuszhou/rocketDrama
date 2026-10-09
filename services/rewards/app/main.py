@@ -278,6 +278,7 @@ def record_ad_mediation_event(payload: AdMediationEventRequest) -> dict:
             app_version=payload.app_version,
             currency=payload.currency,
             ecpm=payload.ecpm,
+            reporting_targets=payload.reporting_targets,
             occurred_at_ms=payload.occurred_at_ms,
         ),
     }
