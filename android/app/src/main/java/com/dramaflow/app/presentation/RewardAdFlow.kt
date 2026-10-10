@@ -149,7 +149,10 @@ internal fun DramaAppActivity.requestRewardedAction(
                 TopOnAdsManager.RewardedResult.Cancelled -> {
                     if (deferCashAnimation) deferNextCashFlight = false
                     fullscreenAdInProgress = false
-                    recordRewardedSkipThenMaybeShowInterstitial(wasPlayingBeforeRewarded)
+                    recordRewardedSkipThenMaybeShowInterstitial(
+                        shouldResume = wasPlayingBeforeRewarded,
+                        preserveEpisodeUnlockTransition = placementId == "rv_episode_pass",
+                    )
                 }
                 is TopOnAdsManager.RewardedResult.Unavailable -> {
                     if (deferCashAnimation) deferNextCashFlight = false
@@ -250,27 +253,51 @@ internal fun DramaAppActivity.handleSettledRewardAction(
 }
 
 /** A user-cancelled rewarded placement may fall back after the configured skip threshold. */
-internal fun DramaAppActivity.recordRewardedSkipThenMaybeShowInterstitial(shouldResume: Boolean, context: String = "rewarded_cancelled") {
+internal fun DramaAppActivity.recordRewardedSkipThenMaybeShowInterstitial(
+    shouldResume: Boolean,
+    context: String = "rewarded_cancelled",
+    preserveEpisodeUnlockTransition: Boolean = false,
+) {
         val notice = t("rewarded_not_completed")
-        if (!rewardsApi.isConfigured) { showRewardedUnavailableNotice(shouldResume, notice); return }
+        if (!rewardsApi.isConfigured) {
+            showRewardedUnavailableNotice(shouldResume, notice, preserveEpisodeUnlockTransition)
+            return
+        }
         rewardsApi.recordRewardedSkipped(anonymousInstallationId(), context, { snapshot -> runOnUiThread {
             applyRewardsSnapshot(snapshot)
             val policy = snapshot.interstitial
             if (policy.rewardedFallbackEnabled && (policy.rewardedSkipThreshold <= 0 || policy.rewardedSkipCount >= policy.rewardedSkipThreshold)) {
-                showRewardedFallbackInterstitial(shouldResume, notice)
+                showRewardedFallbackInterstitial(
+                    shouldResume = shouldResume,
+                    message = notice,
+                    preserveEpisodeUnlockTransition = preserveEpisodeUnlockTransition,
+                )
             } else {
-                resumeAfterFullscreenAd = shouldResume; resumeAfterFullscreenAdIfNeeded(); toast(t("rewarded_not_completed"))
+                // No fallback is going to settle this cancelled unlock attempt. Resume once
+                // under the existing guard, then release it for a later deliberate retry
+                // without reopening the just-cancelled request.
+                resumeAfterFullscreenAd = shouldResume
+                resumeAfterFullscreenAdIfNeeded()
+                if (preserveEpisodeUnlockTransition) episodeTransitionInProgress = false
+                toast(t("rewarded_not_completed"))
             }
-        } }, { _ -> runOnUiThread { showRewardedUnavailableNotice(shouldResume, notice) } })
+        } }, { _ -> runOnUiThread { showRewardedUnavailableNotice(shouldResume, notice, preserveEpisodeUnlockTransition) } })
 }
 
     /** Handles unavailable rewarded inventory when no fallback interstitial can be presented. */
-internal fun DramaAppActivity.showRewardedUnavailableNotice(shouldResume: Boolean, message: String) {
+internal fun DramaAppActivity.showRewardedUnavailableNotice(
+    shouldResume: Boolean,
+    message: String,
+    preserveEpisodeUnlockTransition: Boolean = false,
+) {
         fullscreenAdInProgress = false
         fullscreenAdRequestInFlight = false
-        episodeTransitionInProgress = false
+        if (!preserveEpisodeUnlockTransition) episodeTransitionInProgress = false
         resumeAfterFullscreenAd = shouldResume
         resumeAfterFullscreenAdIfNeeded()
+        // Resume under the transition guard so PSSDK's synchronous showAdIfNeed callback is
+        // absorbed. The current attempt is finished now, therefore a later user action may retry.
+        if (preserveEpisodeUnlockTransition) episodeTransitionInProgress = false
         showBrandedChoiceDialog(t("ad_unavailable_title"), "$message\n\n${t("ad_unavailable_message")}", t("done"))
     }
 
@@ -284,13 +311,28 @@ internal fun DramaAppActivity.showRewardedFallbackInterstitial(
         onOriginalSettled: ((RewardsApiClient.RewardAction) -> Unit)? = null,
         deferCashAnimation: Boolean = true,
         onUnavailable: ((String) -> Unit)? = null,
+        preserveEpisodeUnlockTransition: Boolean = false,
     ) {
         fullscreenAdInProgress = false
         fullscreenAdRequestInFlight = false
-        episodeTransitionInProgress = false
+        // An episode unlock stays pending until the fallback creative is recorded and its
+        // original unlock settlement has completed. PSSDK may synchronously call showAdIfNeed
+        // when playback resumes after the interstitial; clearing this guard here would restart
+        // the whole rewarded -> fallback -> resume loop and eventually overflow the stack.
+        val retainEpisodeUnlockTransition = originalPlacementId == "rv_episode_pass" || preserveEpisodeUnlockTransition
+        if (!retainEpisodeUnlockTransition) episodeTransitionInProgress = false
         if (rewardsSnapshot?.interstitial?.rewardedFallbackEnabled != true) {
-            if (onUnavailable != null) onUnavailable.invoke(message)
-            else { resumeAfterFullscreenAd = shouldResume; resumeAfterFullscreenAdIfNeeded(); toast(message) }
+            if (onUnavailable != null) {
+                // The caller will complete the server-authorized unavailable-ad unlock and
+                // release this guard on success/failure. Do not permit another PSSDK request
+                // between that authorization request and its callback.
+                onUnavailable.invoke(message)
+            } else {
+                resumeAfterFullscreenAd = shouldResume
+                resumeAfterFullscreenAdIfNeeded()
+                if (retainEpisodeUnlockTransition) episodeTransitionInProgress = false
+                toast(message)
+            }
             return
         }
         // 失败回退是一条独立的例外插屏。只有该插屏实际展示并记录成功后，
@@ -304,10 +346,21 @@ internal fun DramaAppActivity.showRewardedFallbackInterstitial(
             onShown = {},
             onUnavailable = { reason ->
                 logStatus("激励回退插屏未展示：$reason")
-                if (onUnavailable != null) onUnavailable.invoke(message) else toast(message)
+                if (onUnavailable != null) {
+                    // Keep the transition guard until the unavailable-ad authorization has
+                    // either unlocked the episode or reported its failure.
+                    onUnavailable.invoke(message)
+                } else {
+                    if (retainEpisodeUnlockTransition) episodeTransitionInProgress = false
+                    toast(message)
+                }
             },
             onRecorded = { interstitialEventId ->
                 if (originalPlacementId == null) {
+                    // A user-cancelled reward attempt does not grant the original reward.
+                    // The PSSDK resume callback has already been absorbed by the retained
+                    // guard, so it is now safe to allow a future deliberate retry.
+                    if (retainEpisodeUnlockTransition) episodeTransitionInProgress = false
                     toast(message)
                     return@showPlaybackActionInterstitial
                 }
@@ -321,6 +374,10 @@ internal fun DramaAppActivity.showRewardedFallbackInterstitial(
                         handleSettledRewardAction(action, onOriginalSettled, deferCashAnimation)
                     } },
                     onFailure = { reason -> runOnUiThread {
+                        // The fallback creative was shown but its server settlement did not
+                        // complete. Do not grant an unlock locally; release the guard so the
+                        // user can retry deliberately instead of leaving PSSDK permanently busy.
+                        if (retainEpisodeUnlockTransition) episodeTransitionInProgress = false
                         logStatus("回退插屏奖励结算失败：$reason")
                         toast(message)
                     } },
@@ -541,8 +598,8 @@ internal fun DramaAppActivity.showCashIncomeDetails() {
             })
         }
         detail.addView(TextView(this).apply {
-            text = t("done"); textSize = 15f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
-            background = roundedDrawable(COLOR_CORAL, 18); setPadding(0, dp(12), 0, dp(12)); isClickable = true
+            text = t("done"); textSize = 15f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_REWARD_ACTION_TEXT)
+            background = primaryActionDrawable(); setPadding(0, dp(12), 0, dp(12)); isClickable = true
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(8) })
         val dialog = AlertDialog.Builder(this).create()
         dialog.setView(detail)

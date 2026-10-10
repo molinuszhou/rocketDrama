@@ -141,10 +141,10 @@ internal fun DramaAppActivity.createAssetPill(icon: Int, label: String, value: S
         addView(image, LinearLayout.LayoutParams(dp(66), dp(66)))
         addView(LinearLayout(this@createAssetPill).apply {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(5), 0, 0, 0)
-            val valueView = TextView(this@createAssetPill).apply { text = value; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_FLOATING_GOLD); maxLines = 1; includeFontPadding = false; letterSpacing = -0.02f; setAutoSizeTextTypeUniformWithConfiguration(16, 27, 1, android.util.TypedValue.COMPLEX_UNIT_SP) }
+            val valueView = TextView(this@createAssetPill).apply { text = value; typeface = Typeface.DEFAULT_BOLD; setTextColor(if (isGem) COLOR_FLOATING_GOLD else Color.WHITE); maxLines = 1; includeFontPadding = false; letterSpacing = -0.02f; setAutoSizeTextTypeUniformWithConfiguration(16, 27, 1, android.util.TypedValue.COMPLEX_UNIT_SP) }
         if (isGem) gemBalanceLabel = valueView else cashBalanceLabel = valueView
             addView(valueView)
-            addView(TextView(this@createAssetPill).apply { text = label; textSize = 11f; setTextColor(COLOR_FLOATING_GOLD); maxLines = 1 })
+            addView(TextView(this@createAssetPill).apply { text = label; textSize = 11f; setTextColor(if (isGem) COLOR_FLOATING_GOLD else 0xCCFFFFFF.toInt()); maxLines = 1 })
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
     }
 
@@ -259,7 +259,7 @@ internal fun DramaAppActivity.animateClaimedCash(previous: String, current: Stri
             alpha = 0f; setPadding(dp(18), dp(8), dp(18), dp(8))
         }
         val halo = View(this).apply {
-            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0x22FFB34D); setStroke(dp(2), 0xFFFFB84D.toInt()) }; alpha = 0f
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0x224BEF9A); setStroke(dp(2), COLOR_REWARD_GAIN) }; alpha = 0f
         }
         val celebrationHeight = (root.height * 0.54f).toInt().coerceAtLeast(dp(260))
         root.addView(celebration, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, celebrationHeight, Gravity.CENTER))
@@ -318,7 +318,7 @@ internal fun DramaAppActivity.createPlayerAssetStrip(): View = FrameLayout(this)
         val walletIcon = ImageView(this@createPlayerAssetStrip).apply { setImageResource(R.drawable.wallet_money); scaleType = ImageView.ScaleType.CENTER_INSIDE; isClickable = true; contentDescription = t("wallet"); setOnClickListener { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) } }
         cashBalanceAnchor = walletIcon
         walletChip.addView(walletIcon, LinearLayout.LayoutParams(dp(38), dp(38)))
-        val cash = TextView(this@createPlayerAssetStrip).apply { text = wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_FLOATING_GOLD); setPadding(dp(5), 0, 0, 0); isClickable = true; setOnClickListener { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) } }
+        val cash = TextView(this@createPlayerAssetStrip).apply { text = wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(dp(5), 0, 0, 0); isClickable = true; setOnClickListener { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) } }
         cashBalanceLabel = cash
         walletChip.addView(cash)
         addView(walletChip, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(50), Gravity.START or Gravity.CENTER_VERTICAL).apply { marginStart = dp(56) })
@@ -382,11 +382,11 @@ internal fun DramaAppActivity.createBottomNavigation(): View = LinearLayout(this
                 }
                 val icon = ImageView(this@createBottomNavigation).apply {
                     setImageResource(tab.iconRes)
-                    imageTintList = ColorStateList.valueOf(if (active) COLOR_CORAL else COLOR_TEXT_MUTED)
+            imageTintList = ColorStateList.valueOf(if (active) COLOR_TAB_ACTIVE else COLOR_TEXT_MUTED)
                     scaleType = ImageView.ScaleType.CENTER_INSIDE
                 }
                 addView(icon, LinearLayout.LayoutParams(dp(26), dp(26)))
-                addView(TextView(this@createBottomNavigation).apply { text = t(tab.languageKey); textSize = 11f; gravity = Gravity.CENTER; typeface = if (active) Typeface.DEFAULT_BOLD else Typeface.DEFAULT; setTextColor(if (active) COLOR_CORAL else COLOR_TEXT_MUTED); setPadding(0, dp(2), 0, 0) })
+            addView(TextView(this@createBottomNavigation).apply { text = t(tab.languageKey); textSize = 11f; gravity = Gravity.CENTER; typeface = if (active) Typeface.DEFAULT_BOLD else Typeface.DEFAULT; setTextColor(if (active) COLOR_TAB_ACTIVE else COLOR_TEXT_MUTED); setPadding(0, dp(2), 0, 0) })
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         }
     }

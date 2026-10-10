@@ -140,7 +140,7 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
                 textSize = 14f
                 typeface = Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER
-                setTextColor(Color.WHITE)
+                setTextColor(COLOR_REWARD_ACTION_TEXT)
                 background = primaryActionDrawable()
                 contentDescription = t("earn_extra_cash")
             }
@@ -188,7 +188,7 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
                         gravity = Gravity.CENTER
                         setSingleLine(true)
                         includeFontPadding = false
-                        setTextColor(Color.WHITE)
+                        setTextColor(COLOR_REWARD_ACTION_TEXT)
                         background = primaryActionDrawable()
                         isClickable = true
                         setOnClickListener {
@@ -214,7 +214,7 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
                 textSize = 14f
                 typeface = Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER
-                setTextColor(Color.WHITE)
+                setTextColor(COLOR_REWARD_ACTION_TEXT)
                 background = primaryActionDrawable()
                 isClickable = true
                 setOnClickListener { activeTab = MainTab.HOME; renderActiveTab() }
@@ -355,7 +355,7 @@ private fun DramaAppActivity.showWithdrawalProgressDialog(
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER_HORIZONTAL
         setPadding(dp(24), dp(24), dp(24), dp(20))
-        background = gradientDrawable(intArrayOf(COLOR_CARD, 0xFF2A2116.toInt()), 28)
+        background = gradientDrawable(intArrayOf(COLOR_CARD, 0xFF192820.toInt()), 28)
         addView(TextView(this@showWithdrawalProgressDialog).apply {
             text = "✓"
             textSize = 25f
@@ -440,7 +440,7 @@ private fun DramaAppActivity.showWithdrawalProgressDialog(
             textSize = 15f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
+            setTextColor(COLOR_REWARD_ACTION_TEXT)
             background = primaryActionDrawable()
             isClickable = true
             setOnClickListener {

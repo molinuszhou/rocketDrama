@@ -136,7 +136,7 @@ class DramaAppActivity : FragmentActivity() {
     internal var shortDramaDiagnosticDialogShowing = false
     internal var shortDramaDiagnosticNotBeforeElapsedMillis = 0L
     internal var shortDramaDiagnosticDialog: AlertDialog? = null
-    internal var startupProgressBar: ProgressBar? = null
+    internal var startupProgressBar: View? = null
     internal var startupProgressLabel: TextView? = null
     internal var startupProgressPercentLabel: TextView? = null
     internal var resumePlaybackWhenForeground = false
@@ -792,11 +792,7 @@ class DramaAppActivity : FragmentActivity() {
         // move backwards when a late gate starts. Use a true indeterminate loader instead of a
         // misleading synthetic progress value.
         startupProgressPercentLabel = null
-        startupProgressBar = ProgressBar(this).apply {
-            isIndeterminate = true
-            indeterminateTintList = ColorStateList.valueOf(COLOR_CORAL)
-            contentDescription = t("startup_loading")
-        }
+        startupProgressBar = WhiteLoadingRingView(this).apply { contentDescription = t("startup_loading") }
         column.addView(startupProgressBar, LinearLayout.LayoutParams(dp(42), dp(42)).apply {
             gravity = Gravity.CENTER_HORIZONTAL
             topMargin = dp(18)
@@ -861,7 +857,9 @@ class DramaAppActivity : FragmentActivity() {
         playerShown = false
         root.removeAllViews()
         val column = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER }
-        column.addView(ProgressBar(this))
+        column.addView(WhiteLoadingRingView(this), LinearLayout.LayoutParams(dp(42), dp(42)).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+        })
         column.addView(TextView(this).apply {
             text = message
             textSize = 16f
@@ -1024,13 +1022,17 @@ class DramaAppActivity : FragmentActivity() {
         colors,
     ).apply { cornerRadius = dp(radiusDp).toFloat() }
 
-    /**
-     * The Crown Road “Accelerate” control is the product's single primary-action treatment.
-     * Page-level cash, claim, watch and withdrawal actions reuse it rather than drifting into
-     * separate flat coral/red button variants.
-     */
-    internal fun primaryActionDrawable(): GradientDrawable =
-        gradientDrawable(intArrayOf(COLOR_ACCENT, COLOR_PURPLE), 13)
+    /** All primary actions share the same clean, border-free neon-green to lime treatment. */
+    internal fun primaryActionDrawable(): GradientDrawable = rewardActionDrawable()
+
+    /** A single gradient face only: the reference uses no outline, inset frame, or button border. */
+    internal fun rewardActionDrawable(): GradientDrawable =
+        GradientDrawable(
+            GradientDrawable.Orientation.LEFT_RIGHT,
+            intArrayOf(COLOR_REWARD_ACTION_START, COLOR_REWARD_ACTION_END),
+        ).apply {
+            cornerRadius = dp(13).toFloat()
+        }
 
     internal fun roundedDrawable(color: Int, radiusDp: Int): GradientDrawable = GradientDrawable().apply {
         shape = GradientDrawable.RECTANGLE
@@ -1050,7 +1052,7 @@ class DramaAppActivity : FragmentActivity() {
 
     internal fun posterFallbackDrawable(): GradientDrawable = GradientDrawable(
         GradientDrawable.Orientation.TL_BR,
-        intArrayOf(COLOR_ACCENT, COLOR_PURPLE, COLOR_BACKGROUND)
+        intArrayOf(0xFF383A3E.toInt(), 0xFF26282C.toInt(), 0xFF151619.toInt())
     ).apply { cornerRadius = dp(10).toFloat() }
 
     internal fun showLanguageSettings() {

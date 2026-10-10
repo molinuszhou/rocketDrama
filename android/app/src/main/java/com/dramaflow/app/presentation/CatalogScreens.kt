@@ -108,9 +108,7 @@ internal fun DramaAppActivity.createHomePage(): View = scrollPage { content ->
 internal fun DramaAppActivity.createCatalogLoadMoreFooter(): View = LinearLayout(this).apply {
     gravity = Gravity.CENTER
     setPadding(dp(12), dp(10), dp(12), dp(10))
-    addView(ProgressBar(this@createCatalogLoadMoreFooter).apply {
-        indeterminateTintList = ColorStateList.valueOf(COLOR_CORAL)
-    }, LinearLayout.LayoutParams(dp(20), dp(20)))
+    addView(WhiteLoadingRingView(this@createCatalogLoadMoreFooter), LinearLayout.LayoutParams(dp(20), dp(20)))
     addView(TextView(this@createCatalogLoadMoreFooter).apply {
         text = t("catalog_loading")
         textSize = 12f
@@ -124,9 +122,7 @@ internal fun DramaAppActivity.createCatalogLoadingSkeleton(): View = LinearLayou
     orientation = LinearLayout.VERTICAL
     setPadding(dp(16), dp(20), dp(16), dp(22))
     background = roundedDrawable(COLOR_CARD, 20)
-    addView(ProgressBar(this@createCatalogLoadingSkeleton).apply {
-        indeterminateTintList = ColorStateList.valueOf(COLOR_CORAL)
-    }, LinearLayout.LayoutParams(dp(30), dp(30)).apply { gravity = Gravity.CENTER_HORIZONTAL })
+    addView(WhiteLoadingRingView(this@createCatalogLoadingSkeleton), LinearLayout.LayoutParams(dp(32), dp(32)).apply { gravity = Gravity.CENTER_HORIZONTAL })
     addView(TextView(this@createCatalogLoadingSkeleton).apply {
         text = t("catalog_loading")
         textSize = 17f
@@ -252,7 +248,7 @@ internal fun DramaAppActivity.createProfileSectionHeader(
         textSize = 13f
         typeface = Typeface.DEFAULT_BOLD
         gravity = Gravity.CENTER
-        setTextColor(COLOR_SUNSET)
+        setTextColor(Color.WHITE)
         setPadding(dp(10), dp(8), 0, dp(8))
         isClickable = true
         setOnClickListener { onShowAll() }
@@ -264,7 +260,7 @@ internal fun DramaAppActivity.createProfileViewAllRow(title: String, onClick: ()
     textSize = 14f
     typeface = Typeface.DEFAULT_BOLD
     gravity = Gravity.CENTER
-    setTextColor(COLOR_SUNSET)
+    setTextColor(Color.WHITE)
     background = roundedDrawable(COLOR_SURFACE, 15)
     isClickable = true
     setOnClickListener { onClick() }
@@ -400,9 +396,9 @@ internal fun DramaAppActivity.createCategoryTabs(): View = android.widget.Horizo
             val selected = if (tab.category == null) selectedCatalogCategoryId == null && selectedCatalogGenre == null else tab.category.id == selectedCatalogCategoryId || (selectedCatalogCategoryId == null && tab.fallbackGenre == selectedCatalogGenre)
             row.addView(TextView(this@createCategoryTabs).apply {
                 text = tab.label; textSize = 14f; gravity = Gravity.CENTER
-                setTextColor(if (selected) Color.WHITE else COLOR_TEXT_MUTED)
+                setTextColor(Color.WHITE)
                 setPadding(dp(16), dp(9), dp(16), dp(9))
-                background = roundedDrawable(if (selected) COLOR_CORAL else COLOR_SURFACE, 16)
+                background = roundedDrawable(if (selected) 0xFF212327.toInt() else 0xFF131416.toInt(), 16)
                 isClickable = true
                 setOnClickListener {
                     if (tab.category == null) selectSdkCatalogCategory(null)
@@ -420,25 +416,34 @@ internal fun DramaAppActivity.createCategoryTabs(): View = android.widget.Horizo
  * boundary while preserving the original category name/ID for filtering and analytics.
  */
 internal fun DramaAppActivity.providerCategoryLabel(rawName: String): String {
-    if (AppLanguage.tag(this).startsWith("zh")) return rawName
-    return when (rawName.trim().lowercase(Locale.ROOT).replace("短剧", "").replace("剧", "")) {
-        "甜宠", "甜蜜", "宠爱" -> t("category_sweet_romance")
-        "都市", "现代" -> t("category_urban")
-        "古装", "古风" -> t("category_costume")
-        "逆袭", "逆转" -> t("category_comeback")
-        "穿越", "重生" -> t("category_time_travel")
-        "复仇" -> t("category_revenge")
-        "豪门", "名门" -> t("category_tycoon")
-        "总裁" -> t("category_ceo_romance")
-        "战神" -> t("category_heroic")
-        "萌宝", "亲子" -> t("category_cute_kids")
-        "闪婚" -> t("category_quick_marriage")
-        "虐恋", "虐心" -> t("category_angst_romance")
-        "悬疑" -> t("category_mystery")
-        "家庭" -> t("category_family")
-        "校园" -> t("category_school")
-        "奇幻", "玄幻" -> t("category_fantasy")
-        "言情", "爱情" -> t("category_romance")
+    val name = rawName.trim().lowercase(Locale.ROOT)
+        .replace("短剧", "").replace("剧", "")
+        .replace("短劇", "").replace("劇", "")
+    fun has(vararg terms: String) = terms.any(name::contains)
+    return when {
+        has("男频", "男頻", "男生", "male-focused", "male focused", "male audience", "male-oriented", "male oriented") -> t("category_male_audience")
+        has("女频", "女頻", "女生", "female-focused", "female focused", "female audience", "female-oriented", "female oriented") -> t("category_female_audience")
+        has("甜宠", "甜寵", "甜蜜", "宠爱", "寵愛", "sweet romance", "sweet love", "romance doce", "romantis manis") -> t("category_sweet_romance")
+        has("古言", "古代言情", "historical romance", "ancient romance", "romance historique", "romansa klasik") -> t("category_ancient_romance")
+        has("古装", "古裝", "古风", "古風", "宫斗", "宮鬥", "宅斗", "宅鬥", "costume", "period", "histor", "época", "epoca", "koloseum") -> t("category_costume")
+        has("军事", "軍事", "军旅", "軍旅", "军事战争", "military", "warfare", "army", "militer") -> t("category_military")
+        has("穿越", "重生", "time travel", "reincarnation", "rebirth", "viagem no tempo", "viaje en el tiempo", "voyage dans", "lintas waktu") -> t("category_time_travel")
+        has("闪婚", "閃婚", "先婚", "quick marriage", "flash marriage", "casamento rápido", "matrimonio rápido", "mariage éclair", "nikah kilat") -> t("category_quick_marriage")
+        has("萌宝", "萌寶", "萌娃", "亲子", "親子", "cute kids", "kids", "children", "crianças", "niños", "enfants", "anak") -> t("category_cute_kids")
+        has("总裁", "總裁", "霸总", "霸總", "霸道", "ceo", "pdg", "diretor") -> t("category_ceo_romance")
+        has("豪门", "豪門", "名门", "名門", "tycoon", "elite", "billionaire", "konglomerat") -> t("category_tycoon")
+        has("战神", "戰神", "热血", "熱血", "heroic", "war god", "action", "herói", "heroico", "pahlawan") -> t("category_heroic")
+        has("逆袭", "逆襲", "逆转", "逆轉", "成长", "成長", "comeback", "turnaround", "virada", "remontada", "revanche", "bangkit") -> t("category_comeback")
+        has("复仇", "復仇", "revenge", "vengeance", "vingança", "venganza", "balas dendam") -> t("category_revenge")
+        has("虐恋", "虐戀", "虐心", "angst", "tragic", "dramático", "intenso", "tragique") -> t("category_angst_romance")
+        has("悬疑", "懸疑", "惊悚", "驚悚", "灵异", "靈異", "推理", "mystery", "suspense", "thriller", "crime", "mistério", "misterio", "mystère", "misteri") -> t("category_mystery")
+        has("家庭", "family", "família", "familia", "famille", "keluarga") -> t("category_family")
+        has("校园", "校園", "school", "campus", "escola", "escolar", "école", "sekolah") -> t("category_school")
+        has("奇幻", "玄幻", "仙侠", "仙俠", "fantasy", "fantasia", "fantasía", "fantastique", "fantasi") -> t("category_fantasy")
+        has("都市", "现代", "現代", "现实", "現實", "现言", "現言", "urban", "modern", "urbano", "urbain", "moderna") -> t("category_urban")
+        has("言情", "愛情", "爱情", "恋爱", "戀愛", "婚恋", "婚戀", "情感", "romantic", "romance", "romansa", "romantis", "love") -> t("category_romance")
+        // Unknown provider categories must remain distinct. A generic localised “Drama” label
+        // creates several indistinguishable tabs and is worse than retaining the provider label.
         else -> rawName
     }
 }
@@ -498,13 +503,13 @@ internal fun DramaAppActivity.createHeroBanner(drama: LocalDrama): View = FrameL
         addView(copy, FrameLayout.LayoutParams(dp(235), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.START).apply { leftMargin = dp(18); bottomMargin = dp(18) })
         val play = LinearLayout(this@createHeroBanner).apply {
             gravity = Gravity.CENTER_VERTICAL
-            background = gradientDrawable(intArrayOf(0xFFFFD66C.toInt(), COLOR_HOME_EPISODE_GOLD), 24)
+            background = gradientDrawable(intArrayOf(0xFF222428.toInt(), 0xFF15171A.toInt()), 24)
             setPadding(dp(4), dp(4), dp(12), dp(4))
             addView(ImageView(this@createHeroBanner).apply {
-                setImageResource(R.drawable.ic_play_coral)
+                setImageResource(R.drawable.ic_play_neutral)
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
             }, LinearLayout.LayoutParams(dp(42), dp(42)))
-            addView(TextView(this@createHeroBanner).apply { text = t("watch_now"); textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_INK); setPadding(dp(5), 0, 0, 0) })
+            addView(TextView(this@createHeroBanner).apply { text = t("watch_now"); textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(dp(5), 0, 0, 0) })
         }
         addView(play, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(50), Gravity.BOTTOM or Gravity.END).apply { rightMargin = dp(14); bottomMargin = dp(14) })
     }
@@ -759,7 +764,7 @@ internal fun DramaAppActivity.createHistoryRow(drama: LocalDrama): View = Linear
         setOnClickListener { showPlayer(drama, resumeEpisode, resumeSecond) }
         addView(ImageView(this@createHistoryRow).apply { scaleType = ImageView.ScaleType.CENTER_CROP; background = posterFallbackDrawable(); load(drama.coverImage) { placeholder(posterFallbackDrawable()); error(posterFallbackDrawable()) } }, LinearLayout.LayoutParams(dp(48), dp(64)))
         addView(TextView(this@createHistoryRow).apply { text = "${drama.title}\n${t("watch_progress", resumeEpisode + 1, formatPlaybackTime(resumeSecond))}"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY); maxLines = 2; setPadding(dp(12), 0, dp(8), 0) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        addView(TextView(this@createHistoryRow).apply { text = "${t("continue_label")} ›"; textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_SUNSET) })
+        addView(TextView(this@createHistoryRow).apply { text = "${t("continue_label")} ›"; textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE) })
     }
 
 internal fun DramaAppActivity.createSettingsRow(title: String, subtitle: String, trailing: String, action: () -> Unit): View = LinearLayout(this).apply {

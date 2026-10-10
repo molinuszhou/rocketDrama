@@ -486,6 +486,13 @@ internal fun DramaAppActivity.requestSdkEpisodeUnlock(
         listener?.onShortPlayUnlocked()
         return
     }
+    // PSSDK synchronously asks again when startPlay() follows an ad close. Keep the original
+    // unlock transaction authoritative until it settles, otherwise an unavailable rewarded ad
+    // can recurse through fallback interstitial -> resume -> showAdIfNeed indefinitely.
+    if (episodeTransitionInProgress) {
+        logStatus("PSSDK 分集解锁已在处理中：${safeIndex + 1}")
+        return
+    }
     val episode = selectedDrama?.episodes?.getOrNull(safeIndex) ?: return
     if (fullscreenAdInProgress || fullscreenAdRequestInFlight) {
         toast(t("ad_loading"))

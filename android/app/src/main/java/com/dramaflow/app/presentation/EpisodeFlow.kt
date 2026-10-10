@@ -252,8 +252,11 @@ internal fun DramaAppActivity.allowEpisodeUnlockAfterAdUnavailable(index: Int, o
             settleEpisodeUnlockAfterAd(index, unlockMethod = "AD_UNAVAILABLE", unlockCount = 1, onUnlocked = onUnlocked)
         } },
         onFailure = { reason -> runOnUiThread {
-            episodeTransitionInProgress = false
-            showRewardedUnavailableNotice(wasPlaybackActiveForAd(), reason)
+            showRewardedUnavailableNotice(
+                shouldResume = wasPlaybackActiveForAd(),
+                message = reason,
+                preserveEpisodeUnlockTransition = true,
+            )
         } },
     )
 }

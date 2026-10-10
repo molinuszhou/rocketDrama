@@ -299,7 +299,7 @@ internal fun DramaAppActivity.showWelcomeRewardDialog(snapshot: RewardsApiClient
             setPadding(dp(30), dp(18), dp(30), dp(18))
         }
         val rewardIcon = ImageView(this@showWelcomeRewardDialog).apply {
-            setImageResource(R.drawable.ic_cash_reward)
+            setImageResource(R.drawable.reward_cash_stack_3d)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
         }
         content.addView(rewardIcon, LinearLayout.LayoutParams(dp(112), dp(112)))
@@ -333,7 +333,7 @@ internal fun DramaAppActivity.showWelcomeRewardDialog(snapshot: RewardsApiClient
             textSize = 17f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
+            setTextColor(COLOR_REWARD_ACTION_TEXT)
             background = primaryActionDrawable()
             setPadding(dp(18), dp(15), dp(18), dp(15))
             isClickable = true
@@ -378,7 +378,7 @@ internal fun DramaAppActivity.formatWelcomeRewardCashValue(snapshot: RewardsApiC
     }
 
 internal fun DramaAppActivity.addWelcomeConfetti(host: FrameLayout) {
-        val colors = intArrayOf(COLOR_CORAL, COLOR_SUNSET, COLOR_AQUA, COLOR_PURPLE, 0xFFFFDB6A.toInt())
+        val colors = intArrayOf(COLOR_CORAL, COLOR_SUNSET, COLOR_AQUA, COLOR_PURPLE, COLOR_REWARD_GAIN)
         repeat(28) { index ->
             val dot = View(this).apply { background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(colors[index % colors.size]) }; alpha = 0f }
             val size = dp(8 + index % 5 * 2)
@@ -454,7 +454,7 @@ internal fun DramaAppActivity.showCheckinRewardDialog(snapshot: RewardsApiClient
             textSize = 16f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
+            setTextColor(COLOR_REWARD_ACTION_TEXT)
             background = primaryActionDrawable()
             setPadding(dp(14), dp(13), dp(14), dp(13))
             setOnClickListener {
@@ -509,7 +509,7 @@ internal fun DramaAppActivity.createCheckinTierStrip(snapshot: RewardsApiClient.
                 setPadding(dp(4), dp(8), dp(4), dp(8))
                 background = roundedDrawable(
                     when {
-                        isToday -> COLOR_CORAL
+                        isToday -> COLOR_CHECKIN_TODAY_SURFACE
                         isDone -> 0xFF2E473F.toInt()
                         else -> COLOR_SURFACE
                     },
@@ -526,7 +526,7 @@ internal fun DramaAppActivity.createCheckinTierStrip(snapshot: RewardsApiClient.
                     gravity = Gravity.CENTER
                     maxLines = 1
                     ellipsize = android.text.TextUtils.TruncateAt.END
-                    setTextColor(if (isToday || isDone) Color.WHITE else COLOR_TEXT_MUTED)
+                    setTextColor(if (isToday) COLOR_REWARD_ACTION_TEXT else if (isDone) Color.WHITE else COLOR_TEXT_MUTED)
                 })
                 addView(TextView(this@createCheckinTierStrip).apply {
                     text = if (snapshot == null) t("syncing") else formatRewardUnitsAsCash(snapshot, tiers[index].toLong())
@@ -535,7 +535,7 @@ internal fun DramaAppActivity.createCheckinTierStrip(snapshot: RewardsApiClient.
                     gravity = Gravity.CENTER
                     maxLines = 1
                     ellipsize = android.text.TextUtils.TruncateAt.END
-                    setTextColor(if (isToday) Color.WHITE else if (isDone) COLOR_SUNSET else COLOR_TEXT_PRIMARY)
+                    setTextColor(if (isToday) COLOR_REWARD_ACTION_TEXT else if (isDone) COLOR_SUNSET else COLOR_TEXT_PRIMARY)
                     setPadding(0, dp(4), 0, 0)
                 })
             }, LinearLayout.LayoutParams(dp(102), dp(82)).apply { if (index > 0) marginStart = dp(8) })

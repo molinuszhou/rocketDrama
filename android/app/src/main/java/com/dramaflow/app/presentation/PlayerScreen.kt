@@ -205,7 +205,6 @@ internal fun DramaAppActivity.createPlayerChrome(): View {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(0x99000000.toInt())
-                setStroke(dp(2), 0xCCFFDB6A.toInt())
             }
             visibility = View.GONE
             contentDescription = t("resume_playback")

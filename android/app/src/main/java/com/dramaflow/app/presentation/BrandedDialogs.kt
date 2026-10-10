@@ -91,8 +91,8 @@ internal fun DramaAppActivity.showBrandedOptionsDialog(
             text = item
             textSize = 15f
             gravity = Gravity.CENTER_VERTICAL
-            setTextColor(if (index == selectedIndex) Color.WHITE else COLOR_TEXT_PRIMARY)
-            background = roundedDrawable(if (index == selectedIndex) COLOR_CORAL else COLOR_SURFACE, 16)
+            setTextColor(if (index == selectedIndex) COLOR_REWARD_ACTION_TEXT else COLOR_TEXT_PRIMARY)
+            background = if (index == selectedIndex) primaryActionDrawable() else roundedDrawable(COLOR_SURFACE, 16)
             setPadding(dp(15), dp(12), dp(15), dp(12))
             isClickable = true
             setOnClickListener {
@@ -153,8 +153,8 @@ private fun DramaAppActivity.brandedDialogButton(label: String, emphasized: Bool
     textSize = 14f
     typeface = Typeface.DEFAULT_BOLD
     gravity = Gravity.CENTER
-    setTextColor(if (emphasized) Color.WHITE else COLOR_TEXT_PRIMARY)
-    background = roundedDrawable(if (emphasized) COLOR_CORAL else COLOR_SURFACE, 16)
+    setTextColor(if (emphasized) COLOR_REWARD_ACTION_TEXT else COLOR_TEXT_PRIMARY)
+    background = if (emphasized) primaryActionDrawable() else roundedDrawable(COLOR_SURFACE, 16)
     isClickable = true
     setOnClickListener { onClick() }
 }
