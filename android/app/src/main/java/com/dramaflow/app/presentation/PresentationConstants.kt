@@ -28,6 +28,8 @@ internal const val COLOR_INK = 0xFF0D0D0F.toInt()
 internal const val COLOR_PLUM = 0xFF231A2C.toInt()
 internal const val COLOR_CORAL = 0xFFFF704D.toInt()
 internal const val COLOR_SUNSET = 0xFFFFA94D.toInt()
+// Positive cash received/available amounts use green rather than a loss-like red or coral.
+internal const val COLOR_REWARD_GAIN = 0xFF54D884.toInt()
 // Shared with the floating cash wheel so wallet and bonus-cash labels read as one asset family.
 internal const val COLOR_FLOATING_GOLD = 0xFFFFD35C.toInt()
 // Home drama metadata is deliberately warmer and more yellow than the coral category selector.

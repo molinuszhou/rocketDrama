@@ -342,11 +342,20 @@ internal fun DramaAppActivity.createCrownLevelRow(level: RewardsApiClient.CrownP
     addView(middle, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(6) })
     val reward = LinearLayout(this@createCrownLevelRow).apply {
         orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL
-        addView(ImageView(this@createCrownLevelRow).apply { setImageResource(R.drawable.ic_cash_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(30), dp(30)))
-        addView(TextView(this@createCrownLevelRow).apply { text = level.cash; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_SUNSET); maxLines = 1; includeFontPadding = false })
+        addView(ImageView(this@createCrownLevelRow).apply { setImageResource(R.drawable.ic_coin_reward); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(28), dp(28)))
+        addView(TextView(this@createCrownLevelRow).apply {
+            text = t("crown_completion_reward_label")
+            textSize = 9f; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_MUTED); maxLines = 1; includeFontPadding = false
+        })
+        addView(TextView(this@createCrownLevelRow).apply {
+            val wallet = rewardsSnapshot?.wallet
+            text = wallet?.let { formatCurrencyAmount(it, level.cash, null, includeUsdReference = false) } ?: level.cash
+            typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_REWARD_GAIN); maxLines = 1; includeFontPadding = false
+            setAutoSizeTextTypeUniformWithConfiguration(10, 15, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(22)))
         if (level.earned) addView(TextView(this@createCrownLevelRow).apply { text = "✓"; textSize = 12f; gravity = Gravity.CENTER; setTextColor(COLOR_ACCENT) })
     }
-    addView(reward, LinearLayout.LayoutParams(dp(58), ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(4) })
+    addView(reward, LinearLayout.LayoutParams(dp(76), ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(4) })
 }
 
 internal fun DramaAppActivity.crownIconRes(code: String): Int = when (code) {

@@ -69,7 +69,9 @@ import kotlin.random.Random
 internal fun DramaAppActivity.createFloatingRewardWheel(compact: Boolean = false): View {
         val gemSize = if (compact) dp(52) else dp(58)
         val gem = ImageView(this).apply {
-            setImageResource(R.drawable.ic_cash_reward)
+            // The former stacked green-notes vector looked like a generated placeholder on the
+            // loading screen. A gold reward coin reads as a clear, compact collection entry.
+            setImageResource(R.drawable.ic_coin_reward)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             alpha = 0.74f
             contentDescription = t("claim_all")
@@ -401,7 +403,7 @@ internal fun DramaAppActivity.createWelcomeRewardCard(snapshot: RewardsApiClient
         addView(TextView(this@createWelcomeRewardCard).apply { text = t("newcomer_reward"); textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
         addView(TextView(this@createWelcomeRewardCard).apply {
             text = formatWelcomeRewardCashValue(snapshot) ?: "—"
-            textSize = 28f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_SUNSET); setPadding(0, dp(6), 0, dp(13))
+            textSize = 28f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_REWARD_GAIN); setPadding(0, dp(6), 0, dp(13))
         })
         addView(TextView(this@createWelcomeRewardCard).apply {
             text = t("watch_ad_claim")

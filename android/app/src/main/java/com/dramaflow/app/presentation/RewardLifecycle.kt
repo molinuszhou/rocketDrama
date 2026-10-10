@@ -315,7 +315,7 @@ internal fun DramaAppActivity.showWelcomeRewardDialog(snapshot: RewardsApiClient
             text = formatWelcomeRewardCashValue(snapshot) ?: "—"
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            setTextColor(COLOR_SUNSET)
+            setTextColor(COLOR_REWARD_GAIN)
             includeFontPadding = false
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
