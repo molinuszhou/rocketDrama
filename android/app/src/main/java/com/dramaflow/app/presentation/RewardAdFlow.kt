@@ -79,7 +79,7 @@ internal fun DramaAppActivity.requestRewardedAction(
         fallbackToInterstitialWhenUnavailable: Boolean = true,
         deferCashAnimation: Boolean = true,
     ) {
-        if (fullscreenAdInProgress || fullscreenAdRequestInFlight) { toast(t("ad_loading")); return }
+        if (fullscreenAdInProgress || fullscreenAdRequestInFlight || rewardSettlementInFlight) { toast(t("ad_loading")); return }
         when (consentStore.read()) {
             AdConsent.DECLINED -> { toast(t("enable_ads_to_continue")); return }
             AdConsent.UNKNOWN -> consentStore.save(AdConsent.GRANTED)
@@ -115,11 +115,9 @@ internal fun DramaAppActivity.requestRewardedAction(
                 rewardedWasPresented = true
                 fullscreenAdRequestInFlight = false
                 fullscreenAdInProgress = true
-                // A clickable creative can hand off to Google Play/Chrome before the normal
-                // close callback. Persist synchronously while the live player still exists.
-                saveExternalAdReturnCheckpoint()
                 runOnUiThread { hideFullscreenAdLoadingOverlay() }
             },
+            onAdClicked = ::markExternalAdReturnCheckpoint,
         ) { result -> runOnUiThread {
             fullscreenAdRequestInFlight = false
             hideFullscreenAdLoadingOverlay()
@@ -127,11 +125,13 @@ internal fun DramaAppActivity.requestRewardedAction(
                 TopOnAdsManager.RewardedResult.RewardEarned -> {
                     fullscreenAdInProgress = false
                     if (rewardedWasPresented && wasPlayingBeforeRewarded) { resumeAfterFullscreenAd = true; resumeAfterFullscreenAdIfNeeded() }
+                    rewardSettlementInFlight = true
                     rewardsApi.completeRewarded(
                         userId = anonymousInstallationId(), placementId = placementId, targetId = targetId,
                         episodeIndex = episodeIndex, proof = "",
                         onSuccess = { action -> runOnUiThread {
                             fullscreenAdInProgress = false
+                            rewardSettlementInFlight = false
                             playbackInterstitialShownAtElapsedMillis.clear()
                             playbackInterstitialShownAtElapsedMillis.add(SystemClock.elapsedRealtime())
                             handleSettledRewardAction(action, onSettled, deferCashAnimation)
@@ -139,6 +139,7 @@ internal fun DramaAppActivity.requestRewardedAction(
                         onFailure = { message -> runOnUiThread {
                             if (deferCashAnimation) deferNextCashFlight = false
                             fullscreenAdInProgress = false
+                            rewardSettlementInFlight = false
                             if (onSettlementUnavailable != null) onSettlementUnavailable.invoke(message) else {
                                 episodeTransitionInProgress = false; resumeAfterFullscreenAdIfNeeded()
                                 toast(t("reward_settlement_pending")); logStatus("广告奖励同步失败：$message")
@@ -197,18 +198,21 @@ internal fun DramaAppActivity.requestOrganicInterstitialIncentive(
             if (onSettlementUnavailable != null) onSettlementUnavailable.invoke(reason)
             else showRewardedUnavailableNotice(shouldResume, reason)
         },
-        onRecorded = { interstitialEventId ->
-            rewardsApi.settleInterstitialIncentive(
+            onRecorded = { interstitialEventId ->
+                rewardSettlementInFlight = true
+                rewardsApi.settleInterstitialIncentive(
                 userId = anonymousInstallationId(),
                 interstitialEventId = interstitialEventId,
                 originalPlacementId = placementId,
                 targetId = targetId,
                 episodeIndex = episodeIndex,
-                onSuccess = { action -> runOnUiThread {
-                    handleSettledRewardAction(action, onSettled, deferCashAnimation)
-                } },
-                onFailure = { reason -> runOnUiThread {
-                    if (deferCashAnimation) deferNextCashFlight = false
+                    onSuccess = { action -> runOnUiThread {
+                        rewardSettlementInFlight = false
+                        handleSettledRewardAction(action, onSettled, deferCashAnimation)
+                    } },
+                    onFailure = { reason -> runOnUiThread {
+                        rewardSettlementInFlight = false
+                        if (deferCashAnimation) deferNextCashFlight = false
                     logStatus("A 面插屏奖励结算失败：$reason")
                     if (onSettlementUnavailable != null) onSettlementUnavailable.invoke(reason)
                     else showRewardedUnavailableNotice(shouldResume, reason)
@@ -364,6 +368,7 @@ internal fun DramaAppActivity.showRewardedFallbackInterstitial(
                     toast(message)
                     return@showPlaybackActionInterstitial
                 }
+                rewardSettlementInFlight = true
                 rewardsApi.settleRewardedFallback(
                     userId = anonymousInstallationId(),
                     interstitialEventId = interstitialEventId,
@@ -371,9 +376,11 @@ internal fun DramaAppActivity.showRewardedFallbackInterstitial(
                     targetId = targetId,
                     episodeIndex = episodeIndex,
                     onSuccess = { action -> runOnUiThread {
+                        rewardSettlementInFlight = false
                         handleSettledRewardAction(action, onOriginalSettled, deferCashAnimation)
                     } },
                     onFailure = { reason -> runOnUiThread {
+                        rewardSettlementInFlight = false
                         // The fallback creative was shown but its server settlement did not
                         // complete. Do not grant an unlock locally; release the guard so the
                         // user can retry deliberately instead of leaving PSSDK permanently busy.
@@ -523,16 +530,15 @@ internal fun DramaAppActivity.showPlaybackActionInterstitial(
         showFullscreenAdLoadingOverlay()
         topOnAds.showInterstitialForPlaybackAction(
             activity = this,
+            logicalPlacement = placementId,
             bypassGlobalFrequencyCap = bypassSharedFrequencyCaps,
             onWillShow = {
                 fullscreenAdRequestInFlight = false
                 fullscreenAdInProgress = true
                 resumeAfterFullscreenAd = shouldResume
-                // Store-redirection creatives can terminate the task/process without a normal
-                // mediation callback, so retain the active PSSDK title before the handoff.
-                saveExternalAdReturnCheckpoint()
                 runOnUiThread { hideFullscreenAdLoadingOverlay() }
             },
+            onAdClicked = ::markExternalAdReturnCheckpoint,
         ) { result -> runOnUiThread {
             fullscreenAdRequestInFlight = false
             fullscreenAdInProgress = false

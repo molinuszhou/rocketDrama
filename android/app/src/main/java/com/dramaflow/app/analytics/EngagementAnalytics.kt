@@ -5,8 +5,10 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import com.appsflyer.AFAdRevenueData
 import com.appsflyer.AppsFlyerConversionListener
 import com.appsflyer.AppsFlyerLib
+import com.appsflyer.MediationNetwork
 import com.appsflyer.attribution.AppsFlyerRequestListener
 import com.dramaflow.app.BuildConfig
 import com.dramaflow.app.ads.AdNetworkIdentity
@@ -79,17 +81,31 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
             reportingAudit.recordProvider(APPSFLYER, "sdk_initialization", ReportingStatus.STARTED)
             appsFlyer.setDebugLog(BuildConfig.ANALYTICS_DEBUG)
             appsFlyer.init(BuildConfig.APPSFLYER_DEV_KEY, attributionConversionListener(), appContext)
-            appsFlyer.start(appContext)
-            reportingAudit.recordProvider(
-                APPSFLYER,
-                "sdk_initialization",
-                ReportingStatus.SUCCESS,
-                detail = "start_requested; ${attributionExperience.diagnosticSummary()}",
-            )
+            appsFlyer.start(appContext, BuildConfig.APPSFLYER_DEV_KEY, object : AppsFlyerRequestListener {
+                override fun onSuccess() {
+                    reportingAudit.recordProvider(
+                        APPSFLYER,
+                        "sdk_initialization",
+                        ReportingStatus.SUCCESS,
+                        detail = "launch_http_200; ${attributionExperience.diagnosticSummary()}",
+                    )
+                }
+
+                override fun onError(errorCode: Int, errorDescription: String) {
+                    reportingAudit.recordProvider(
+                        APPSFLYER,
+                        "sdk_initialization",
+                        ReportingStatus.FAILED,
+                        errorCode = errorCode.toString(),
+                        detail = errorDescription,
+                    )
+                    Log.w(TAG, "AppsFlyer launch failed: code=$errorCode, message=$errorDescription")
+                }
+            })
         }
         reportingAudit.recordProvider(FIREBASE, "sdk_initialization", ReportingStatus.SUCCESS, detail = "firebase_lazy_init")
         reportingAudit.recordProvider(XUANYU, "sdk_initialization", ReportingStatus.SUCCESS, detail = "http_client_ready")
-        Log.i(TAG, "AppsFlyer initialization requested; uid=${appsFlyerUid().orEmpty()}")
+        Log.i(TAG, "AppsFlyer initialization requested")
     }
 
     fun appsFlyerUid(): String? = if (!BuildConfig.EXTERNAL_REPORTING_ENABLED) null else runCatching { appsFlyer.getAppsFlyerUID(appContext) }
@@ -156,8 +172,9 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
     /**
      * TopOn paid impression / onAdRevenuePaid 回调。
      *
-     * TopOn 此处提供的是 eCPM，因此需要除以 1,000 后才是本次展示真实 USD 收入。仅 USD、
-     * 正数、有限值参与 AppsFlyer 单次和累计收入事件；每次 paid impression 只发一次单次事件。
+     * TopOn 在 paid-impression 回调提供 publisherRevenue（单次真实收入）与 eCPM。所有有效
+     * ISO 货币的 publisherRevenue 都会通过 AppsFlyer 官方 IAA API 和 Firebase ad_impression
+     * 发送；既有合作方自定义累计事件仍仅以 USD 口径参与。
      */
     @Synchronized
     fun reportTopOnRevenue(logicalPlacement: String, adUnitId: String, adInfo: ATAdInfo) {
@@ -168,17 +185,25 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
         }
         val payload = payloadFor(logicalPlacement, adUnitId, adInfo)
         val revenueAudit = payload.revenueAuditValues()
-        val revenueUsd = AppsFlyerRevenueContract.usdRevenueFromEcpm(payload.currency, payload.ecpm)
-        if (revenueUsd == null) {
-            reportingAudit.recordProvider(APPSFLYER, "ad_revenue", ReportingStatus.SKIPPED_NOT_CONFIGURED, logicalPlacement, adUnitId, revenue = revenueAudit, detail = "non_usd_or_invalid_ecpm")
-            reportingAudit.recordProvider(FIREBASE, "ad_impression", ReportingStatus.SKIPPED_NOT_CONFIGURED, logicalPlacement, adUnitId, revenue = revenueAudit, detail = "non_usd_or_invalid_ecpm")
-            debug("广告收入不满足 AppsFlyer USD paid-impression 条件，跳过：$payload")
+        val impressionRevenue = payload.publisherRevenue.takeIf { it.isFinite() && it > 0.0 }
+        if (impressionRevenue == null || payload.currency.length != 3) {
+            reportingAudit.recordProvider(APPSFLYER, "ad_revenue", ReportingStatus.SKIPPED_NOT_CONFIGURED, logicalPlacement, adUnitId, revenue = revenueAudit, detail = "invalid_publisher_revenue_or_currency")
+            reportingAudit.recordProvider(FIREBASE, "ad_impression", ReportingStatus.SKIPPED_NOT_CONFIGURED, logicalPlacement, adUnitId, revenue = revenueAudit, detail = "invalid_publisher_revenue_or_currency")
+            debug("广告收入缺少有效 publisherRevenue 或 ISO 货币，跳过：$payload")
             return
         }
 
         // Firebase 标准 ad_impression 以真实 paid-impression 收入为准，而不是 onShow 估算。
-        logFirebaseImpression(payload, revenueUsd, revenueAudit)
+        logFirebaseImpression(payload, impressionRevenue, revenueAudit)
+        logAppsFlyerAdRevenue(payload, impressionRevenue, revenueAudit)
 
+        val revenueUsd = AppsFlyerRevenueContract.usdRevenueFromImpression(payload.currency, impressionRevenue)
+        if (revenueUsd == null) {
+            // The legacy partner custom events use a USD-only aggregation contract. Do not invent
+            // a conversion rate; the official AppsFlyer IAA event above keeps source currency.
+            reportingAudit.recordProvider(APPSFLYER, BuildConfig.APPSFLYER_SINGLE_REVENUE_EVENT_NAME, ReportingStatus.SKIPPED_NOT_CONFIGURED, logicalPlacement, adUnitId, revenue = revenueAudit, detail = "custom_event_usd_only")
+            return
+        }
         if (BuildConfig.APPSFLYER_DEV_KEY.isBlank()) return
         val singleValues = appsFlyerRevenueValues(payload, revenueUsd)
         logAppsFlyerRevenueEvent(BuildConfig.APPSFLYER_SINGLE_REVENUE_EVENT_NAME, singleValues, revenueAudit)
@@ -205,7 +230,7 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
             return
         }
         val payload = adInfo?.let { payloadFor(logicalPlacement, adUnitId, it) }
-            ?: AdPayload(logicalPlacement, adUnitId, "rewarded", "TopOn", "", 0.0, USD)
+            ?: AdPayload(logicalPlacement, adUnitId, "rewarded", "TopOn", "", 0.0, 0.0, USD)
         val revenueAudit = payload.revenueAuditValues()
         val analytics = firebase ?: run {
             reportingAudit.recordProvider(FIREBASE, BuildConfig.FIREBASE_REWARDED_EVENT_NAME, ReportingStatus.FAILED, logicalPlacement, adUnitId, revenue = revenueAudit, detail = "firebase_unavailable")
@@ -233,6 +258,7 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
             adNetwork = identity.networkName,
             adSourceId = identity.sourceId,
             ecpm = adInfo.ecpm,
+            publisherRevenue = adInfo.publisherRevenue,
             currency = adInfo.currency.orEmpty().ifBlank { USD },
         )
     }
@@ -246,6 +272,32 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
             adPlacement = payload.logicalPlacement,
             adType = payload.adType,
         )
+
+    /** SDK 6.15+ requires logAdRevenue for AppsFlyer's impression-level revenue pipeline. */
+    private fun logAppsFlyerAdRevenue(payload: AdPayload, revenue: Double, revenueAudit: AdRevenueAuditValues) {
+        if (BuildConfig.APPSFLYER_DEV_KEY.isBlank()) {
+            reportingAudit.recordProvider(APPSFLYER, "ad_revenue", ReportingStatus.SKIPPED_NOT_CONFIGURED, payload.logicalPlacement, payload.adUnitId, revenue = revenueAudit, detail = "dev_key_blank")
+            return
+        }
+        val additionalParameters = hashMapOf<String, Any>(
+            "ad_source_id" to payload.adSourceId,
+            "ad_unit_id" to payload.adUnitId,
+            "ad_placement" to payload.logicalPlacement,
+            "ad_type" to payload.adType,
+        )
+        reportingAudit.recordProvider(APPSFLYER, "ad_revenue", ReportingStatus.QUEUED, payload.logicalPlacement, payload.adUnitId, revenue = revenueAudit, detail = "sdk_log_ad_revenue")
+        runCatching {
+            appsFlyer.logAdRevenue(
+                AFAdRevenueData(payload.adNetwork, MediationNetwork.TOPON, payload.currency, revenue),
+                additionalParameters,
+            )
+        }.onSuccess {
+            reportingAudit.recordProvider(APPSFLYER, "ad_revenue", ReportingStatus.SUCCESS, payload.logicalPlacement, payload.adUnitId, revenue = revenueAudit, detail = "sdk_accepted_log_ad_revenue")
+        }.onFailure { error ->
+            reportingAudit.recordProvider(APPSFLYER, "ad_revenue", ReportingStatus.FAILED, payload.logicalPlacement, payload.adUnitId, revenue = revenueAudit, detail = error.message.orEmpty())
+            Log.w(TAG, "AppsFlyer ad-revenue submission failed", error)
+        }
+    }
 
     /** Request callbacks distinguish a locally queued logEvent call from a successful SDK submission. */
     private fun logAppsFlyerRevenueEvent(
@@ -277,7 +329,7 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
         })
     }
 
-    private fun logFirebaseImpression(payload: AdPayload, revenueUsd: BigDecimal, revenueAudit: AdRevenueAuditValues) {
+    private fun logFirebaseImpression(payload: AdPayload, revenue: Double, revenueAudit: AdRevenueAuditValues) {
         val analytics = firebase ?: run {
             reportingAudit.recordProvider(FIREBASE, "ad_impression", ReportingStatus.FAILED, payload.logicalPlacement, payload.adUnitId, revenue = revenueAudit, detail = "firebase_unavailable")
             debug("Firebase Analytics unavailable; paid-impression event is skipped")
@@ -290,12 +342,12 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
             putString("ad_source_id", payload.adSourceId)
             putString(FirebaseAnalytics.Param.AD_FORMAT, payload.adType)
             putString(FirebaseAnalytics.Param.AD_UNIT_NAME, payload.adUnitId)
-            putString(FirebaseAnalytics.Param.CURRENCY, USD)
-            putDouble(FirebaseAnalytics.Param.VALUE, revenueUsd.toDouble())
+            putString(FirebaseAnalytics.Param.CURRENCY, payload.currency)
+            putDouble(FirebaseAnalytics.Param.VALUE, revenue)
             putString("ad_placement", payload.logicalPlacement)
         })
         reportingAudit.recordProvider(FIREBASE, "ad_impression", ReportingStatus.SUCCESS, payload.logicalPlacement, payload.adUnitId, revenue = revenueAudit, detail = "sdk_accepted_event; standard_paid_impression")
-        debug("Firebase ad_impression: placement=${payload.logicalPlacement}, value=${revenueUsd.toPlainString()}")
+        debug("Firebase ad_impression: placement=${payload.logicalPlacement}, value=$revenue")
     }
 
     private fun logFirebaseCumulativeRevenue(revenueUsd: BigDecimal, revenueAudit: AdRevenueAuditValues) {
@@ -321,11 +373,16 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
             reportingAudit.recordProvider(XUANYU, "w_ad_show", ReportingStatus.SKIPPED_DISABLED, payload.logicalPlacement, payload.adUnitId, revenue = revenueAudit)
             return
         }
-        val baseUrl = BuildConfig.XUANYU_EVENT_BASE_URL.trim().removeSuffix("/")
+        val baseUrl = BuildConfig.XUANYU_EVENT_BASE_URL.trim().removeSuffix("/").toHttpUrlOrNull()
         val uid = appsFlyerUid()
-        if (baseUrl.isBlank()) {
-            reportingAudit.recordProvider(XUANYU, "w_ad_show", ReportingStatus.SKIPPED_NOT_CONFIGURED, payload.logicalPlacement, payload.adUnitId, revenue = revenueAudit, detail = "base_url_blank")
-            debug("炫羽广告展示上报跳过：baseUrl 未配置")
+        if (baseUrl == null || baseUrl.host != XUANYU_HOST || baseUrl.scheme != "http") {
+            reportingAudit.recordProvider(XUANYU, "w_ad_show", ReportingStatus.SKIPPED_NOT_CONFIGURED, payload.logicalPlacement, payload.adUnitId, revenue = revenueAudit, detail = "base_url_not_allowlisted")
+            debug("炫羽广告展示上报跳过：地址未通过生产白名单")
+            return
+        }
+        if (!payload.ecpm.isFinite() || payload.ecpm < 0.0) {
+            reportingAudit.recordProvider(XUANYU, "w_ad_show", ReportingStatus.SKIPPED_NOT_CONFIGURED, payload.logicalPlacement, payload.adUnitId, revenue = revenueAudit, detail = "invalid_ecpm")
+            debug("炫羽广告展示上报跳过：eCPM 无效")
             return
         }
         if (uid.isNullOrBlank()) {
@@ -337,20 +394,16 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
             }
             return
         }
-        val url = ("$baseUrl/event/w_ad_show").toHttpUrlOrNull()?.newBuilder()
-            ?.addQueryParameter("uid", uid)
-            ?.addQueryParameter("app_ver", BuildConfig.VERSION_NAME)
-            ?.addQueryParameter("pkg_name", appContext.packageName)
-            ?.addQueryParameter("ad_type", payload.adType)
-            ?.addQueryParameter("ad_network", payload.adNetwork)
-            ?.addQueryParameter("ad_source_id", payload.adSourceId)
-            ?.addQueryParameter("ecpm", formatDecimal(payload.ecpm.coerceAtLeast(0.0)))
-            ?.build()
-        if (url == null) {
-            reportingAudit.recordProvider(XUANYU, "w_ad_show", ReportingStatus.FAILED, payload.logicalPlacement, payload.adUnitId, revenue = revenueAudit, detail = "invalid_url")
-            Log.w(TAG, "炫羽广告展示上报地址无效")
-            return
-        }
+        val url = baseUrl.newBuilder()
+            .addPathSegments("event/w_ad_show")
+            .addQueryParameter("uid", uid)
+            .addQueryParameter("app_ver", BuildConfig.VERSION_NAME)
+            .addQueryParameter("pkg_name", appContext.packageName)
+            .addQueryParameter("ad_type", payload.adType)
+            .addQueryParameter("ad_network", payload.adNetwork)
+            .addQueryParameter("ad_source_id", payload.adSourceId)
+            .addQueryParameter("ecpm", formatDecimal(payload.ecpm.coerceAtLeast(0.0)))
+            .build()
         reportingAudit.recordProvider(XUANYU, "w_ad_show", ReportingStatus.STARTED, payload.logicalPlacement, payload.adUnitId, revenue = revenueAudit, detail = "http_request_ecpm")
         httpClient.newCall(Request.Builder().url(url).get().build()).enqueue(object : Callback {
             override fun onFailure(call: Call, error: IOException) {
@@ -373,7 +426,7 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
                     if (it.isSuccessful) {
                         reportingAudit.recordProvider(XUANYU, "w_ad_show", ReportingStatus.SUCCESS, payload.logicalPlacement, payload.adUnitId, revenue = revenueAudit, detail = "http_${it.code}; sent_ecpm; derived_value")
                         debug("炫羽广告展示上报成功：${payload.logicalPlacement}")
-                    } else if (networkAttempt < XUANYU_NETWORK_RETRY_COUNT) {
+                    } else if (it.code >= 500 && networkAttempt < XUANYU_NETWORK_RETRY_COUNT) {
                         val nextAttempt = networkAttempt + 1
                         reportingAudit.recordProvider(XUANYU, "w_ad_show", ReportingStatus.RETRYING, payload.logicalPlacement, payload.adUnitId, errorCode = it.code.toString(), revenue = revenueAudit, detail = "attempt=$nextAttempt")
                         Log.w(TAG, "炫羽广告展示上报失败：HTTP ${it.code}，将重试")
@@ -393,7 +446,7 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
     private fun formatDecimal(value: Double): String = String.format(Locale.US, "%.6f", value)
 
     private fun AdPayload.revenueAuditValues(): AdRevenueAuditValues =
-        AdRevenueAuditValues.fromPaidImpression(currency, ecpm)
+        AdRevenueAuditValues.fromPaidImpression(currency, ecpm, publisherRevenue)
 
     private fun debug(message: String) {
         if (BuildConfig.DEBUG || BuildConfig.ANALYTICS_DEBUG) Log.d(TAG, message)
@@ -421,6 +474,7 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
         val adNetwork: String,
         val adSourceId: String,
         val ecpm: Double,
+        val publisherRevenue: Double,
         val currency: String,
     )
 
@@ -431,6 +485,7 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
         private const val XUANYU_UID_RETRY_DELAY_MS = 750L
         private const val XUANYU_NETWORK_RETRY_COUNT = 2
         private const val XUANYU_NETWORK_RETRY_DELAY_MS = 1_500L
+        private const val XUANYU_HOST = "api.eventtrack.top"
         @Volatile
         private var instance: EngagementAnalytics? = null
 

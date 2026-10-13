@@ -409,11 +409,16 @@ internal fun DramaAppActivity.createWelcomeRewardCard(snapshot: RewardsApiClient
             text = t("watch_ad_claim")
             textSize = 14f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_REWARD_ACTION_TEXT)
             background = rewardActionDrawable(); setPadding(dp(14), dp(10), dp(14), dp(10)); isClickable = true
-            setOnClickListener { claimWelcomeBonus() }
+            // The user is already in Reward Center. A successful claim refreshes this page in
+            // place, so do not schedule the redundant "go to Reward Center" guide dialog.
+            setOnClickListener { claimWelcomeBonus(showRewardCenterGuide = false) }
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)))
     }
 
-internal fun DramaAppActivity.claimWelcomeBonus(onCompleted: (() -> Unit)? = null) {
+internal fun DramaAppActivity.claimWelcomeBonus(
+    showRewardCenterGuide: Boolean = true,
+    onCompleted: (() -> Unit)? = null,
+) {
         requestRewardedAction("rv_welcome_bonus", onSettled = { action ->
             resumeAfterFullscreenAdIfNeeded()
             if (action.idempotent) {
@@ -421,20 +426,22 @@ internal fun DramaAppActivity.claimWelcomeBonus(onCompleted: (() -> Unit)? = nul
                 onCompleted?.invoke()
             } else {
                 onCompleted?.invoke()
-                // Let the wallet celebration settle before guiding a new user toward Reward Center.
-                root.postDelayed({
-                    if (isFinishing || isDestroyed) return@postDelayed
-                    showBrandedChoiceDialog(
-                        t("welcome_rewards_guide_title"),
-                        t("welcome_rewards_guide_message"),
-                        t("welcome_rewards_guide_action"),
-                        {
-                            activeTab = MainTab.TASKS
-                            if (playerShown) showCatalog() else if (catalogItems.isNotEmpty()) renderActiveTab()
-                        },
-                        cancelable = false,
-                    )
-                }, 3_000L)
+                if (showRewardCenterGuide) {
+                    // Let the wallet celebration settle before guiding a new user toward Reward Center.
+                    root.postDelayed({
+                        if (isFinishing || isDestroyed) return@postDelayed
+                        showBrandedChoiceDialog(
+                            t("welcome_rewards_guide_title"),
+                            t("welcome_rewards_guide_message"),
+                            t("welcome_rewards_guide_action"),
+                            {
+                                activeTab = MainTab.TASKS
+                                if (playerShown) showCatalog() else if (catalogItems.isNotEmpty()) renderActiveTab()
+                            },
+                            cancelable = false,
+                        )
+                    }, 3_000L)
+                }
             }
         })
     }

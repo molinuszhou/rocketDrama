@@ -36,7 +36,44 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
     startIndex: Int,
     resumePositionSeconds: Int = 0,
     previewOnly: Boolean = false,
+    playbackServiceVerified: Boolean = false,
 ) {
+    // Directory data can remain browsable during a provider playback outage, but creating the
+    // provider Fragment without SUPPORT leaves users in a dead player surface. Re-check at every
+    // new player entry because support may change with network/region while the app stays alive.
+    if (!playbackServiceVerified) {
+        shortDramaSdk.checkPlaybackService { status -> runOnUiThread {
+            if (status.supported) {
+                showSdkDramaPlayer(
+                    catalogDrama = catalogDrama,
+                    card = card,
+                    startIndex = startIndex,
+                    resumePositionSeconds = resumePositionSeconds,
+                    previewOnly = previewOnly,
+                    playbackServiceVerified = true,
+                )
+            } else if (!isFinishing && !isDestroyed) {
+                logStatus("PSSDK 播放服务不可用：${status.reason}")
+                showBrandedChoiceDialog(
+                    title = t("sdk_playback_unavailable_title"),
+                    message = t("sdk_playback_unavailable_message", status.reason),
+                    primaryLabel = t("retry"),
+                    onPrimary = {
+                        showSdkDramaPlayer(
+                            catalogDrama = catalogDrama,
+                            card = card,
+                            startIndex = startIndex,
+                            resumePositionSeconds = resumePositionSeconds,
+                            previewOnly = previewOnly,
+                        )
+                    },
+                    secondaryLabel = t("back"),
+                    onSecondary = ::showCatalog,
+                )
+            }
+        } }
+        return
+    }
     releasePlayer()
     if (previewOnly) configureCatalogWindow() else configurePlayerWindow()
     supportFragmentManager.findFragmentByTag(SDK_PLAYER_FRAGMENT_TAG)?.let { fragment ->
@@ -53,6 +90,8 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
     playerDurationSeconds = 0
     playerIsSeeking = false
     playerIsPaused = false
+    playerControlsVisible = false
+    playerControlsPinnedByUser = false
     playerSpeed = 1.0f
     resetMidrollInterstitialSession()
     // This is a real JoyeDrama playback surface even though PSSDK owns the media engine.
@@ -140,24 +179,29 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
         val topBar = createPlayerTopBar()
         playerTopChrome = topBar
         val controlDock = createSdkPlayerControlDock()
+        controlDock.visibility = View.GONE
         playerControlsPanel = controlDock
-        val controlsReveal = transparentPlayerTextButton(t("show_controls"), t("show_controls")) { setPlayerControlsVisible(true) }
-        controlsReveal.visibility = View.GONE
+        val controlsReveal = transparentPlayerTextButton(t("show_controls"), t("show_controls")) {
+            showPlayerControlsFromUser()
+        }
+        controlsReveal.visibility = View.VISIBLE
         playerControlsRevealButton = controlsReveal
         val rewardWheel = createFloatingRewardWheel(compact = true)
         root.addView(topBar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(132), Gravity.TOP))
         root.addView(controlDock, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(106), Gravity.BOTTOM).apply {
             marginStart = dp(12)
             marginEnd = dp(12)
-            bottomMargin = dp(6)
-        })
-        root.addView(rewardWheel, FrameLayout.LayoutParams(dp(112), dp(96), Gravity.END or Gravity.BOTTOM).apply {
-            marginEnd = 0
-            bottomMargin = dp(166)
+            // GONE while playing. When paused it overlays the media instead of reserving a
+            // permanent bottom band beneath the provider's full-height video fragment.
+            bottomMargin = 0
         })
         root.addView(controlsReveal, FrameLayout.LayoutParams(dp(86), dp(38), Gravity.END or Gravity.BOTTOM).apply {
             marginEnd = dp(14)
             bottomMargin = dp(16)
+        })
+        root.addView(rewardWheel, FrameLayout.LayoutParams(dp(112), dp(96), Gravity.END or Gravity.BOTTOM).apply {
+            marginEnd = 0
+            bottomMargin = dp(166)
         })
         root.post {
             topBar.bringToFront()
@@ -381,8 +425,15 @@ private fun DramaAppActivity.createSdkPlayerControlDock(): View = LinearLayout(t
 
 private fun DramaAppActivity.onSdkEpisodeStarted(episodeIndex: Int, episode: EpisodeData?) {
     sdkPlaybackActive = true
-    currentEpisodeIndex = episodeIndex.coerceIn(0, selectedDrama?.episodes?.lastIndex ?: 0)
-    playerProgressSeconds = 0
+    val safeEpisodeIndex = episodeIndex.coerceIn(0, selectedDrama?.episodes?.lastIndex ?: 0)
+    val restoringExternalPosition = pendingExternalAdRestoreEpisodeIndex == safeEpisodeIndex &&
+        (pendingExternalAdRestorePositionSeconds ?: 0) > 0
+    currentEpisodeIndex = safeEpisodeIndex
+    playerProgressSeconds = if (restoringExternalPosition) {
+        maxOf(playerProgressSeconds, pendingExternalAdRestorePositionSeconds ?: 0)
+    } else {
+        0
+    }
     playerDurationSeconds = 0
     lastPersistedPlaybackSecond = -1
     // Episode transition restarts the watch clock but retains the session-level unavailable
@@ -394,9 +445,17 @@ private fun DramaAppActivity.onSdkEpisodeStarted(episodeIndex: Int, episode: Epi
     playerIsPaused = false
     updatePauseOverlayVisibility(false)
     updateEpisodeStatus()
-    updatePlayerProgress(0, 0)
+    updatePlayerProgress(playerProgressSeconds, 0)
     if (sdkDiscoverPreviewActive) discoverPreviewProgressBar?.progress = 0
-    persistPlaybackProgress(0)
+    if (!restoringExternalPosition) persistPlaybackProgress(0)
+    if (pendingExternalAdRestoreEpisodeIndex == currentEpisodeIndex &&
+        (pendingExternalAdRestorePositionSeconds ?: 0) == 0
+    ) {
+        pendingExternalAdRestoreEpisodeIndex = null
+        pendingExternalAdRestorePositionSeconds = null
+        clearExternalAdReturnCheckpoint()
+        logStatus("广告外跳恢复分集已确认：第 ${currentEpisodeIndex + 1} 集")
+    }
     episode?.let { logStatus("PSSDK 开始播放分集：${episodeIndex + 1}") }
 }
 
@@ -421,10 +480,18 @@ private fun DramaAppActivity.onSdkPlaybackProgress(episodeIndex: Int, rawProgres
     playerIsPaused = false
     updatePauseOverlayVisibility(false)
     updatePlayerProgress(progress, duration)
+    val expectedEpisode = pendingExternalAdRestoreEpisodeIndex
+    val expectedPosition = pendingExternalAdRestorePositionSeconds
+    if (expectedEpisode == currentEpisodeIndex && expectedPosition != null && progress >= expectedPosition) {
+        pendingExternalAdRestoreEpisodeIndex = null
+        pendingExternalAdRestorePositionSeconds = null
+        clearExternalAdReturnCheckpoint()
+        logStatus("广告外跳恢复进度已确认：第 ${currentEpisodeIndex + 1} 集 @${progress}s")
+    }
     if (sdkDiscoverPreviewActive && duration > 0) {
         discoverPreviewProgressBar?.progress = (progress * 1_000 / duration).coerceIn(0, 1_000)
     }
-    persistPlaybackProgressIfNeeded(progress)
+    if (pendingExternalAdRestoreEpisodeIndex == null) persistPlaybackProgressIfNeeded(progress)
     requestMidEpisodeInterstitialIfEligible(progress)
 }
 
@@ -545,7 +612,12 @@ private fun DramaAppActivity.onSdkPlaybackFailure(message: String): Boolean {
             title = t("sdk_playback_unavailable_title"),
             message = t("sdk_playback_unavailable_message", message),
             primaryLabel = t("retry"),
-            onPrimary = { currentSdkPlayerFragment()?.startPlayIndex(currentEpisodeIndex) },
+            onPrimary = {
+                shortDramaSdk.checkPlaybackService { status -> runOnUiThread {
+                    if (status.supported) currentSdkPlayerFragment()?.startPlayIndex(currentEpisodeIndex)
+                    else logStatus("PSSDK 重试前服务检查未通过：${status.reason}")
+                } }
+            },
             secondaryLabel = t("back"),
             onSecondary = ::showCatalog,
         )

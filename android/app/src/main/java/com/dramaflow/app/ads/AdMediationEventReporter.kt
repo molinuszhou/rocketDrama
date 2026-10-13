@@ -65,6 +65,9 @@ class AdMediationEventReporter(
         val revenue = AdRevenueAuditValues.fromPaidImpression(adInfo.currency, adInfo.ecpm)
         val event = JSONObject()
             .put("client_event_id", "mediation-${UUID.randomUUID()}")
+            // Kept out of the operations ledger model, but present in transit so the same signed
+            // Rewards session middleware can authenticate this queue when strict mode is enabled.
+            .put("user_id", installationIdProvider())
             .put("install_id_hash", sha256(installationIdProvider()))
             .put("event_type", eventType)
             .put("logical_placement", logicalPlacement)
@@ -99,6 +102,10 @@ class AdMediationEventReporter(
             synchronized(lock) { sending = false }
             return
         }
+        // Queues written by earlier releases do not contain user_id. Add it only to the replay
+        // payload (the operations endpoint discards it) so a newly enabled strict session policy
+        // can accept retained non-financial events instead of leaving them retrying forever.
+        event.put("user_id", installationIdProvider())
         val baseUrl = normalisedBaseUrl()
         if (baseUrl == null) {
             recordRetry(event, "rewards_service_not_configured")

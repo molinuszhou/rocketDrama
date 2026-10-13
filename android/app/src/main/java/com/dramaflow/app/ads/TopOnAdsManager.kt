@@ -24,6 +24,7 @@ import com.secmtp.sdk.core.api.ATNetworkConfirmInfo
 import com.secmtp.sdk.core.api.ATNetworkConfig
 import com.secmtp.sdk.core.api.ATSDK
 import com.secmtp.sdk.core.api.ATSDKInitListener
+import com.secmtp.sdk.core.api.ATShowConfig
 import com.secmtp.sdk.core.api.AdError
 import com.secmtp.sdk.interstitial.api.ATInterstitial
 import com.secmtp.sdk.interstitial.api.ATInterstitialExListener
@@ -189,6 +190,7 @@ class TopOnAdsManager(
         activity: Activity,
         logicalPlacement: String = "rewarded",
         onWillShow: () -> Unit = {},
+        onAdClicked: () -> Unit = {},
         onResult: (RewardedResult) -> Unit,
     ) {
         adNetworkAudit.recordConfiguration(settings)
@@ -229,7 +231,7 @@ class TopOnAdsManager(
 
         initialize { init ->
             when (init) {
-                Initialization.Ready -> loadAndShowRewarded(activity, logicalPlacement, onWillShow, ::deliver)
+                Initialization.Ready -> loadAndShowRewarded(activity, logicalPlacement, onWillShow, onAdClicked, ::deliver)
                 Initialization.NotConfigured -> deliver(RewardedResult.Unavailable("尚未配置 TopOn 广告参数"))
                 is Initialization.Failed -> deliver(RewardedResult.Failed(init.code, init.message))
             }
@@ -252,10 +254,20 @@ class TopOnAdsManager(
     /** 适用于剧中、拖拽和倍速等明确操作；服务端仍负责 v8 最终频控。 */
     fun showInterstitialForPlaybackAction(
         activity: Activity,
+        logicalPlacement: String = "int_playback_action",
         bypassGlobalFrequencyCap: Boolean = false,
         onWillShow: () -> Unit = {},
+        onAdClicked: () -> Unit = {},
         onResult: (FullscreenResult) -> Unit,
-    ) = showInterstitial(activity, playbackActionPolicy, "int_playback_action", bypassGlobalFrequencyCap, onWillShow, onResult)
+    ) = showInterstitial(
+        activity = activity,
+        policy = playbackActionPolicy,
+        logicalPlacement = logicalPlacement,
+        bypassGlobalFrequencyCap = bypassGlobalFrequencyCap,
+        onWillShow = onWillShow,
+        onAdClicked = onAdClicked,
+        onResult = onResult,
+    )
 
     fun showAppOpenIfEligible(activity: Activity, onResult: (FullscreenResult) -> Unit) {
         adNetworkAudit.recordConfiguration(settings)
@@ -298,8 +310,33 @@ class TopOnAdsManager(
         initialize { init ->
             when (init) {
                 Initialization.Ready -> {
+                    recordSplashScenarioArrival()
+                    auditEvent("SCENARIO_REACHED", "splash", settings.splashPlacementId, "splash", result = "ENTERED", detail = DEFAULT_SCENARIO_DETAIL)
                     var splash: ATSplashAd? = null
                     var host: FrameLayout? = null
+                    fun showSplashIfReady(source: String): Boolean {
+                        val currentSplash = splash
+                        val ready = currentSplash?.isAdReady == true
+                        auditEvent(
+                            "READY_CHECK",
+                            "splash",
+                            settings.splashPlacementId,
+                            "splash",
+                            result = if (ready) "READY" else "NOT_READY",
+                            detail = "$DEFAULT_SCENARIO_DETAIL; source=$source",
+                        )
+                        if (splashRequestExpired || delivered) return true
+                        if (!ready || currentSplash == null) return false
+                        host = splashHost(activity)
+                        if (host == null) {
+                            Log.w(TAG, "Splash cannot show: host=false, ad=true, ready=true")
+                            deliver(FullscreenResult.Skipped("TopOn 未返回可展示的开屏广告"), host)
+                            return true
+                        }
+                        prepareSafeWindowForAd(activity)
+                        currentSplash.show(activity, requireNotNull(host), null, defaultScenarioShowConfig())
+                        return true
+                    }
                     splash = ATSplashAd(activity, settings.splashPlacementId, object : ATSplashExListener {
                         override fun onAdLoaded(isTimeout: Boolean) {
                             val ready = splash?.isAdReady == true
@@ -309,14 +346,10 @@ class TopOnAdsManager(
                                 Log.i(TAG, "Splash loaded after startup timeout; discarded to keep startup dialogs ordered")
                                 return
                             }
-                            host = splashHost(activity)
-                            if (host == null || splash == null || !ready) {
-                                Log.w(TAG, "Splash cannot show: host=${host != null}, ad=${splash != null}, ready=$ready")
+                            if (!showSplashIfReady("loaded_callback")) {
+                                Log.w(TAG, "Splash loaded callback was not ready for display")
                                 deliver(FullscreenResult.Skipped("TopOn 未返回可展示的开屏广告"), host)
-                                return
                             }
-                            prepareSafeWindowForAd(activity)
-                            splash!!.show(activity, host)
                         }
 
                         override fun onAdLoadTimeout() {
@@ -353,7 +386,10 @@ class TopOnAdsManager(
                         override fun onDownloadConfirm(context: Context, adInfo: ATAdInfo, networkConfirmInfo: ATNetworkConfirmInfo) = Unit
                     }, SPLASH_TIMEOUT_MS)
                     splash!!.setAdRevenueListener(TopOnRevenueListener("splash", settings.splashPlacementId, "splash", analytics, adNetworkAudit, adMediationReporter))
-                    splash!!.loadAd()
+                    // Required sequence: entryAdScenario(Default) -> isAdReady -> show; load only
+                    // when this initial Ready check is false. New SDK instances are commonly empty,
+                    // but the check remains explicit for a uniform, auditable integration path.
+                    if (!showSplashIfReady("before_load")) splash!!.loadAd()
                 }
                 Initialization.NotConfigured -> deliver(FullscreenResult.Skipped("尚未配置 TopOn 广告参数"))
                 is Initialization.Failed -> deliver(FullscreenResult.Failed(init.code, init.message))
@@ -367,6 +403,7 @@ class TopOnAdsManager(
         logicalPlacement: String,
         bypassGlobalFrequencyCap: Boolean = false,
         onWillShow: () -> Unit,
+        onAdClicked: () -> Unit = {},
         onResult: (FullscreenResult) -> Unit,
     ) {
         adNetworkAudit.recordConfiguration(settings)
@@ -442,8 +479,28 @@ class TopOnAdsManager(
             if (requestExpired || delivered) return@initialize
             when (init) {
                 Initialization.Ready -> {
+                    recordInterstitialScenarioArrival()
+                    auditEvent("SCENARIO_REACHED", logicalPlacement, settings.interstitialPlacementId, "interstitial", result = "ENTERED", detail = DEFAULT_SCENARIO_DETAIL)
                     val ad = ATInterstitial(applicationContext, settings.interstitialPlacementId)
                     ad.setAdRevenueListener(TopOnRevenueListener(logicalPlacement, settings.interstitialPlacementId, "interstitial", analytics, adNetworkAudit, adMediationReporter))
+                    fun showInterstitialIfReady(source: String): Boolean {
+                        if (requestExpired || delivered) return true
+                        val ready = ad.isAdReady
+                        auditEvent(
+                            "READY_CHECK",
+                            logicalPlacement,
+                            settings.interstitialPlacementId,
+                            "interstitial",
+                            result = if (ready) "READY" else "NOT_READY",
+                            detail = "$DEFAULT_SCENARIO_DETAIL; source=$source",
+                        )
+                        if (!ready) return false
+                        mainHandler.removeCallbacks(requestTimeout)
+                        showOnActiveActivity(activity, { deliver(FullscreenResult.Skipped(it)) }, onWillShow) {
+                            ad.show(activity, defaultScenarioShowConfig())
+                        }
+                        return true
+                    }
                     ad.setAdListener(object : ATInterstitialExListener {
                         override fun onInterstitialAdLoaded() {
                             if (requestExpired || delivered) {
@@ -453,12 +510,8 @@ class TopOnAdsManager(
                             mainHandler.removeCallbacks(requestTimeout)
                             Log.i(TAG, "Interstitial loaded: logical=$logicalPlacement, ready=${ad.isAdReady}")
                             auditEvent("LOADED", logicalPlacement, settings.interstitialPlacementId, "interstitial", result = if (ad.isAdReady) "READY" else "NOT_READY")
-                            if (!ad.isAdReady) {
+                            if (!showInterstitialIfReady("loaded_callback")) {
                                 deliver(FullscreenResult.Failed(INTERSTITIAL_NOT_READY_CODE, "interstitial_not_ready"))
-                                return
-                            }
-                            showOnActiveActivity(activity, { deliver(FullscreenResult.Skipped(it)) }, onWillShow) {
-                                ad.show(activity)
                             }
                         }
 
@@ -470,7 +523,9 @@ class TopOnAdsManager(
                             deliver(FullscreenResult.Failed(errorCode(adError), adError.fullErrorInfo.orEmpty()))
                         }
 
-                        override fun onInterstitialAdClicked(entity: ATAdInfo) = Unit
+                        override fun onInterstitialAdClicked(entity: ATAdInfo) {
+                            onAdClicked()
+                        }
 
                         override fun onInterstitialAdShow(entity: ATAdInfo) {
                             if (delivered) return
@@ -497,7 +552,9 @@ class TopOnAdsManager(
                         override fun onDeeplinkCallback(adInfo: ATAdInfo, isSuccess: Boolean) = Unit
                         override fun onDownloadConfirm(context: Context, adInfo: ATAdInfo, networkConfirmInfo: ATNetworkConfirmInfo) = Unit
                     })
-                    ad.load()
+                    // Required sequence: entryAdScenario(Default) -> isAdReady -> show; only
+                    // request a new creative after an explicit initial NOT_READY result.
+                    if (!showInterstitialIfReady("before_load")) ad.load()
                 }
                 Initialization.NotConfigured -> deliver(FullscreenResult.Skipped("尚未配置 TopOn 广告参数"))
                 is Initialization.Failed -> deliver(FullscreenResult.Failed(init.code, init.message))
@@ -505,35 +562,52 @@ class TopOnAdsManager(
         }
     }
 
+    /**
+     * TopOn's required rewarded path: enter Default scenario, inspect Ready, then load only when
+     * necessary. The application attempts its guarded interstitial fallback only after TopOn load
+     * fails, times out, or returns a non-ready loaded object.
+     */
     private fun loadAndShowRewarded(
         activity: Activity,
         logicalPlacement: String,
         onWillShow: () -> Unit,
+        onAdClicked: () -> Unit,
         deliver: (RewardedResult) -> Unit,
     ) {
+        recordRewardedScenarioArrival()
+        auditEvent("SCENARIO_REACHED", logicalPlacement, settings.rewardedPlacementId, "rewarded", result = "ENTERED", detail = DEFAULT_SCENARIO_DETAIL)
         val ad = ATRewardVideoAd(applicationContext, settings.rewardedPlacementId)
         var rewardState = RewardState.NOT_REWARDED
         var latestInfo: ATAdInfo? = null
-        var timedOut = false
-        val rewardedTimeout = Runnable {
-            if (timedOut) return@Runnable
-            timedOut = true
-            auditEvent(
-                "LOAD_FAILED",
-                "rewarded",
-                settings.rewardedPlacementId,
-                "rewarded",
-                result = "TIMEOUT",
-                errorCode = REWARDED_LOAD_TIMEOUT_CODE,
-                detail = "client_timeout_ms=${settings.rewardedLoadTimeoutMillis}",
-            )
-            Log.w(TAG, "Rewarded load timed out after ${settings.rewardedLoadTimeoutMillis}ms; using fallback path")
-            // TopOn 6.5.40 exposes neither destroy() nor cancelLoad() for ATRewardVideoAd.
-            // The instance uses applicationContext and all late callbacks are ignored below, so it
-            // cannot retain the Activity or re-enter the reward path after this timeout.
-            deliver(RewardedResult.Failed(REWARDED_LOAD_TIMEOUT_CODE, "rewarded_load_timeout"))
+        var requestExpired = false
+        var showRequested = false
+        var loadTimeout: Runnable? = null
+
+        fun clearLoadTimeout() {
+            loadTimeout?.let(mainHandler::removeCallbacks)
+            loadTimeout = null
         }
-        mainHandler.postDelayed(rewardedTimeout, settings.rewardedLoadTimeoutMillis)
+
+        fun showIfReady() {
+            if (showRequested) return
+            val ready = ad.isAdReady
+            auditEvent("READY_CHECK", logicalPlacement, settings.rewardedPlacementId, "rewarded", result = if (ready) "READY" else "NOT_READY", detail = DEFAULT_SCENARIO_DETAIL)
+            if (!ready) {
+                clearLoadTimeout()
+                requestExpired = true
+                deliver(RewardedResult.Failed(REWARDED_NOT_READY_CODE, "rewarded_not_ready"))
+                return
+            }
+            showRequested = true
+            showOnActiveActivity(activity, { reason ->
+                clearLoadTimeout()
+                requestExpired = true
+                deliver(RewardedResult.Unavailable(reason))
+            }, onWillShow) {
+                ad.show(activity, defaultScenarioShowConfig())
+            }
+        }
+
         ad.setAdRevenueListener(TopOnRevenueListener(logicalPlacement, settings.rewardedPlacementId, "rewarded", analytics, adNetworkAudit, adMediationReporter))
         ad.setAdListener(object : ATRewardVideoExListener {
             override fun onRewardedVideoAdAgainPlayStart(entity: ATAdInfo) = Unit
@@ -544,22 +618,21 @@ class TopOnAdsManager(
             override fun onAgainRewardFailed(entity: ATAdInfo) = Unit
 
             override fun onRewardedVideoAdLoaded() {
-                if (timedOut) {
-                    auditEvent("LOADED_LATE", "rewarded", settings.rewardedPlacementId, "rewarded", result = "IGNORED", detail = "client_timeout_already_delivered")
+                if (requestExpired) {
+                    auditEvent("LOADED_LATE", logicalPlacement, settings.rewardedPlacementId, "rewarded", result = "IGNORED", detail = "client_timeout_already_delivered")
                     return
                 }
-                mainHandler.removeCallbacks(rewardedTimeout)
-                auditEvent("LOADED", "rewarded", settings.rewardedPlacementId, "rewarded", result = "READY")
-                showOnActiveActivity(activity, { deliver(RewardedResult.Unavailable(it)) }, onWillShow) {
-                    ad.show(activity)
-                }
+                clearLoadTimeout()
+                auditEvent("LOADED", logicalPlacement, settings.rewardedPlacementId, "rewarded", result = if (ad.isAdReady) "READY" else "NOT_READY")
+                showIfReady()
             }
 
             override fun onRewardedVideoAdFailed(adError: AdError) {
-                if (timedOut) return
-                mainHandler.removeCallbacks(rewardedTimeout)
+                if (requestExpired) return
+                clearLoadTimeout()
+                requestExpired = true
                 Log.w(TAG, "Rewarded no-ad error: ${adError.fullErrorInfo}")
-                auditEvent("LOAD_FAILED", "rewarded", settings.rewardedPlacementId, "rewarded", result = "NO_AD", errorCode = errorCode(adError), detail = "topon_no_ad")
+                auditEvent("LOAD_FAILED", logicalPlacement, settings.rewardedPlacementId, "rewarded", result = "NO_AD", errorCode = errorCode(adError), detail = "topon_no_ad")
                 deliver(RewardedResult.Failed(errorCode(adError), adError.fullErrorInfo.orEmpty()))
             }
 
@@ -590,7 +663,9 @@ class TopOnAdsManager(
                 if (rewardState == RewardState.REWARDED) deliver(RewardedResult.RewardEarned) else deliver(RewardedResult.Cancelled)
             }
 
-            override fun onRewardedVideoAdPlayClicked(entity: ATAdInfo) = Unit
+            override fun onRewardedVideoAdPlayClicked(entity: ATAdInfo) {
+                onAdClicked()
+            }
 
             override fun onReward(entity: ATAdInfo) {
                 rewardState = RewardState.REWARDED
@@ -609,7 +684,21 @@ class TopOnAdsManager(
             override fun onDeeplinkCallback(adInfo: ATAdInfo, isSuccess: Boolean) = Unit
             override fun onDownloadConfirm(context: Context, adInfo: ATAdInfo, networkConfirmInfo: ATNetworkConfirmInfo) = Unit
         })
-        ad.load()
+
+        // Required sequence: entryAdScenario(Default) -> isAdReady -> show, otherwise load first.
+        if (ad.isAdReady) {
+            showIfReady()
+        } else {
+            auditEvent("READY_CHECK", logicalPlacement, settings.rewardedPlacementId, "rewarded", result = "NOT_READY", detail = DEFAULT_SCENARIO_DETAIL)
+            loadTimeout = Runnable {
+                if (showRequested || requestExpired) return@Runnable
+                requestExpired = true
+                auditEvent("LOAD_FAILED", logicalPlacement, settings.rewardedPlacementId, "rewarded", result = "TIMEOUT", errorCode = REWARDED_LOAD_TIMEOUT_CODE, detail = "client_timeout_ms=${settings.rewardedLoadTimeoutMillis}")
+                deliver(RewardedResult.Failed(REWARDED_LOAD_TIMEOUT_CODE, "rewarded_load_timeout"))
+            }
+            mainHandler.postDelayed(requireNotNull(loadTimeout), settings.rewardedLoadTimeoutMillis)
+            ad.load()
+        }
     }
 
     private fun splashHost(activity: Activity): FrameLayout? {
@@ -741,6 +830,23 @@ class TopOnAdsManager(
 
     private fun errorCode(error: AdError): Int = error.code.toIntOrNull() ?: -1
 
+    /** Cooperation policy: every TopOn call is recorded and shown in the Default scenario. */
+    private fun defaultScenarioShowConfig(): ATShowConfig = ATShowConfig.Builder()
+        .scenarioId(null)
+        .build()
+
+    private fun recordRewardedScenarioArrival() {
+        ATRewardVideoAd.entryAdScenario(settings.rewardedPlacementId, null)
+    }
+
+    private fun recordInterstitialScenarioArrival() {
+        ATInterstitial.entryAdScenario(settings.interstitialPlacementId, null)
+    }
+
+    private fun recordSplashScenarioArrival() {
+        ATSplashAd.entryAdScenario(settings.splashPlacementId, null)
+    }
+
     private class TopOnRevenueListener(
         private val logicalPlacement: String,
         private val adUnitId: String,
@@ -755,7 +861,7 @@ class TopOnAdsManager(
             if (!paidReported.compareAndSet(false, true)) return
             adNetworkAudit.recordPaidRevenue(logicalPlacement, adUnitId, adFormat, adInfo)
             analytics.reportTopOnRevenue(logicalPlacement, adUnitId, adInfo)
-            val impressionValue = if (adInfo.ecpm.isFinite() && adInfo.ecpm >= 0.0) adInfo.ecpm / 1_000.0 else -1.0
+            val impressionValue = adInfo.publisherRevenue
             PssdkRevenueReporter.reportAdImpression(
                 adnName = AdNetworkIdentity.from(adInfo).networkName,
                 currency = adInfo.currency,
@@ -768,14 +874,18 @@ class TopOnAdsManager(
 
     private companion object {
         const val TAG = "TopOnAdsManager"
-        const val SPLASH_TIMEOUT_MS = 5_000
+        // TopOn documents 6–10 seconds as the effective splash-load timeout window; use the
+        // minimum recommended value to preserve JoyeDrama's fast-start requirement.
+        const val SPLASH_TIMEOUT_MS = 6_000
         const val INTERSTITIAL_LOAD_TIMEOUT_MS = 8_000L
         const val INTERSTITIAL_LOAD_TIMEOUT_CODE = -408
         const val INTERSTITIAL_NOT_READY_CODE = -409
         const val INTERSTITIAL_CLOSE_TIMEOUT_MS = 120_000L
         const val INTERSTITIAL_CLOSE_TIMEOUT_CODE = -410
         const val REWARDED_LOAD_TIMEOUT_CODE = -408
+        const val REWARDED_NOT_READY_CODE = -409
         const val GLOBAL_FULLSCREEN_MIN_INTERVAL_MS = 5_000L
+        const val DEFAULT_SCENARIO_DETAIL = "scenario=default_null"
     }
 }
 

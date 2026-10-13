@@ -4,6 +4,7 @@
 *.apk
 *.aab
 local.properties
+**/local.properties.*
 app/google-services.json
 *.jks
 *.keystore
@@ -17,6 +18,11 @@ __pycache__/
 *.egg-info/
 dist/
 .env
+**/.env
+**/.env.*
+!**/.env.*.example
+!**/.env.example
+**/local.properties.release
 *.db
 *.sqlite*
 

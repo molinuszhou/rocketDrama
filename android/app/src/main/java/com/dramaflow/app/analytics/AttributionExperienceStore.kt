@@ -32,7 +32,16 @@ class AttributionExperienceStore private constructor(context: Context) {
 
     /** Updates the surface only from the documented AppsFlyer `af_status` conversion field. */
     fun applyConversionData(conversionData: Map<String, Any>?): MonetizationExperience {
-        val record = recordFor(conversionData)
+        val received = recordFor(conversionData)
+        val previous = currentRecord()
+        // Install attribution is immutable. A later partial, blank or Organic callback must never
+        // turn a previously confirmed non-organic install from B back into A.
+        val record = when {
+            received.afStatus.isBlank() && previous != null -> previous
+            previous?.experience == MonetizationExperience.ATTRIBUTED_B &&
+                received.experience != MonetizationExperience.ATTRIBUTED_B -> previous
+            else -> received
+        }
         preferences.edit()
             .putString(EXPERIENCE_KEY, record.experience.wireValue)
             .putString(LAST_AF_STATUS_KEY, record.afStatus)

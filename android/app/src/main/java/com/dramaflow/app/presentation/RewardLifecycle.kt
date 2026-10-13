@@ -72,6 +72,7 @@ import kotlin.random.Random
 internal fun DramaAppActivity.refreshRewardsSnapshot() {
         if (!rewardsApi.isConfigured || rewardsLoading) return
         rewardsLoading = true
+        val requestGeneration = ++rewardsSnapshotGeneration
         val endpoint = rewardsBaseUrl()
         logStatus("正在同步奖励服务：$endpoint")
         rewardsApi.bootstrap(
@@ -81,6 +82,10 @@ internal fun DramaAppActivity.refreshRewardsSnapshot() {
             onSuccess = { snapshot ->
             runOnUiThread {
                 rewardsLoading = false
+                if (requestGeneration != rewardsSnapshotGeneration) {
+                    logStatus("忽略已过期的奖励快照：generation=$requestGeneration")
+                    return@runOnUiThread
+                }
                 if (!startupContentInitializationStarted) {
                     startupRewardsFinished = true
                     updateStartupProgress(computeStartupProgress(), t("startup_content_ready"))
@@ -92,6 +97,7 @@ internal fun DramaAppActivity.refreshRewardsSnapshot() {
         }, onFailure = { error ->
             runOnUiThread {
                 rewardsLoading = false
+                if (requestGeneration != rewardsSnapshotGeneration) return@runOnUiThread
                 logStatus("奖励服务同步失败（$endpoint）：$error")
                 if (!startupContentInitializationStarted) {
                     startupRewardsFinished = true
@@ -106,9 +112,17 @@ internal fun DramaAppActivity.refreshRewardsSnapshot() {
     }
 
 internal fun DramaAppActivity.applyRewardsSnapshot(snapshot: RewardsApiClient.Snapshot) {
+        // A server-confirmed action response is newer than any bootstrap request issued before it.
+        rewardsSnapshotGeneration += 1
         val previousGems = rewardsSnapshot?.wallet?.coins ?: lastConfirmedGemBalance
         val previousCash = rewardsSnapshot?.wallet?.cashWallet ?: lastConfirmedCashBalance
         val previousCrowns = rewardsSnapshot?.crownProgress.orEmpty()
+        // A welcome claim removes its dedicated Reward Center card. That structural change needs
+        // a full Tasks-page refresh; ordinary claims can keep the reader at Crown Road.
+        val rewardCenterWelcomeStateChanged = rewardsSnapshot?.welcome?.available != snapshot.welcome.available
+        // The task card contains the completed-episode and pending-reward counts, so refresh it
+        // whenever server-confirmed task progress or claim state changes.
+        val rewardCenterTasksChanged = rewardsSnapshot?.tasks != snapshot.tasks
         rewardsSnapshot = snapshot
         val elapsedNow = android.os.SystemClock.elapsedRealtime()
         val crownCooldown = snapshot.crownProgress.maxOfOrNull { it.chargeCooldownRemainingSeconds } ?: 0
@@ -127,7 +141,9 @@ internal fun DramaAppActivity.applyRewardsSnapshot(snapshot: RewardsApiClient.Sn
         // Reward Center hero is intentionally not rebuilt, so update that live amount directly
         // before refreshing only the Crown panel. The receipt animation below can still replace
         // this text with the old value briefly, then settle it on the confirmed new value.
-        cashBalanceLabel?.text = formatWalletTotal(snapshot.wallet, includeUsdReference = false)
+        val formattedWalletTotal = formatWalletTotal(snapshot.wallet, includeUsdReference = false)
+        cashBalanceLabel?.text = formattedWalletTotal
+        rewardHeroCashBalanceLabel?.text = formattedWalletTotal
         refreshFloatingRewardWheels()
         // PSSDK is still an active JoyeDrama player surface. Re-rendering a tab after its
         // reward callback removes the provider Fragment and incorrectly sends the user to a
@@ -135,6 +151,10 @@ internal fun DramaAppActivity.applyRewardsSnapshot(snapshot: RewardsApiClient.Sn
         if (startupContentInitializationStarted && !playerShown && !sdkPlayerShown) {
             if (withdrawalPageShown) {
                 showWithdrawalPage(snapshot.wallet)
+            } else if (activeTab == MainTab.TASKS && (rewardCenterWelcomeStateChanged || rewardCenterTasksChanged)) {
+                // Rebuild so the claimed welcome card disappears and the task counts / action
+                // reflect the confirmed snapshot. renderActiveTab restores the saved scroll offset.
+                renderActiveTab()
             } else if (activeTab == MainTab.TASKS && refreshCrownRoadPanelInPlace()) {
                 // Preserve the reader's location at Crown Road while its reward/cooldown state updates.
             } else if (catalogItems.isNotEmpty()) {
@@ -221,17 +241,19 @@ internal fun DramaAppActivity.maybeShowCrownLevelReached(
 /** The first task is introductory; prompt from the second completed task unless the user opts out. */
 internal fun DramaAppActivity.maybeShowEpisodeTaskClaimPrompt(snapshot: RewardsApiClient.Snapshot) {
     if (taskRewardPromptPreferences.getBoolean("disabled", false)) return
+    val claimableTasks = snapshot.tasks.filter { it.status == "CLAIMABLE" }
     val candidate = snapshot.tasks.withIndex().firstOrNull { (index, task) ->
         index >= 1 && task.status == "CLAIMABLE"
     } ?: return
-    val target = candidate.value.target
+    val target = claimableTasks.maxOfOrNull { it.target } ?: candidate.value.target
     if (target <= taskRewardPromptPreferences.getInt("last_target", 0)) return
     taskRewardPromptPreferences.edit().putInt("last_target", target).apply()
+    val completedEpisodes = maxOf(snapshot.wallet.watchedEpisodes, snapshot.tasks.maxOfOrNull { it.progress } ?: target)
     showBrandedChoiceDialog(
         title = t("task_reward_ready_title"),
-        message = t("task_reward_ready_message", candidate.index + 1, target),
+        message = t("task_reward_ready_message", completedEpisodes, claimableTasks.size),
         primaryLabel = t("task_claim"),
-        onPrimary = { claimEpisodeTaskCash(target) },
+        onPrimary = { claimEpisodeTaskCash(claimableTasks.first().target) },
         secondaryLabel = t("task_reward_dont_remind"),
         onSecondary = { taskRewardPromptPreferences.edit().putBoolean("disabled", true).apply() },
     )

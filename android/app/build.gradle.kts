@@ -73,7 +73,10 @@ fun isProductionRewardsApiBaseUrl(value: String): Boolean {
 }
 val commercialReleaseRequested = gradle.startParameter.taskNames.any { task ->
     val normalized = task.lowercase()
-    normalized.contains("release")
+    // `:app:assemble` / `:app:bundle` expand to Release variants too. Treat these aggregate
+    // entry points as commercial builds so empty production credentials cannot bypass checks.
+    normalized.contains("release") ||
+        normalized.substringAfterLast(':') in setOf("assemble", "bundle", "build")
 }
 if (commercialReleaseRequested) {
     check(!topOnDemoMode) { "TOPON_DEMO_MODE=true is permitted only for Debug builds, never for a commercial Release build." }
@@ -142,8 +145,8 @@ android {
         minSdk = 26
         targetSdk = 36
         // Android 客户端每次代码改动递增补丁版本；服务端/文档单独改动不变更此版本。
-        versionCode = 87
-        versionName = "1.7.2.0"
+        versionCode = 88
+        versionName = "1.7.2.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }

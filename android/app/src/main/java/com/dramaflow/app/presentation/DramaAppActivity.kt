@@ -98,6 +98,10 @@ class DramaAppActivity : FragmentActivity() {
     internal var profileCollectionPageShown = false
     internal var rewardsSnapshot: RewardsApiClient.Snapshot? = null
     internal var rewardsLoading = false
+    /** Invalidates an older bootstrap response after a newer server-confirmed reward action. */
+    internal var rewardsSnapshotGeneration = 0L
+    /** Keeps reward settlement single-flight after an ad closes but before the server replies. */
+    internal var rewardSettlementInFlight = false
     internal var exoPlayer: ExoPlayer? = null
     internal var playerView: PlayerView? = null
     internal val progressHandler = Handler(Looper.getMainLooper())
@@ -149,6 +153,9 @@ class DramaAppActivity : FragmentActivity() {
     internal var restoredDramaId: String? = null
     internal var restoredEpisodeIndex = 0
     internal var restoredPositionSeconds = 0
+    /** Remains set until the recreated PSSDK player reports progress at the requested seek point. */
+    internal var pendingExternalAdRestoreEpisodeIndex: Int? = null
+    internal var pendingExternalAdRestorePositionSeconds: Int? = null
     internal var startupCheckinPromptRequested = false
     internal var startupCheckinPromptShown = false
     /** A deliberate Reward Center check-in must never be followed by the delayed onboarding dialog. */
@@ -163,11 +170,14 @@ class DramaAppActivity : FragmentActivity() {
     internal var speedButton: TextView? = null
     internal var favoriteButton: TextView? = null
     internal var playerControlsPanel: View? = null
+    /** Optional manual reveal control for the host-owned playback dock. */
     internal var playerControlsRevealButton: View? = null
     internal var playerDescriptionView: TextView? = null
     internal var playerDescriptionContainer: View? = null
     internal var playerDescriptionExpanded = false
     internal var playerControlsVisible = true
+    /** A user-requested dock remains visible through PLAY callbacks until explicitly hidden. */
+    internal var playerControlsPinnedByUser = false
     /** Retained so ad recovery can ask the active local/PSSDK top bar to reapply its real insets. */
     internal var playerTopChrome: View? = null
     internal var playerProgressSeconds = 0
@@ -252,6 +262,8 @@ class DramaAppActivity : FragmentActivity() {
     internal var gemBalanceLabel: TextView? = null
     internal var cashBalanceAnchor: View? = null
     internal var cashBalanceLabel: TextView? = null
+    /** Reward Center hero remains visible while its later-created sticky header is still hidden. */
+    internal var rewardHeroCashBalanceLabel: TextView? = null
     internal var lastConfirmedGemBalance: Long? = null
     internal var lastConfirmedCashBalance: String? = null
     internal var gemFlightInProgress = false
@@ -291,7 +303,12 @@ class DramaAppActivity : FragmentActivity() {
         RewardsApiClient(
             baseUrlProvider = { rewardsBaseUrl() },
             sessionTokenProvider = { getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getString(SESSION_TOKEN_KEY, null) },
-            onSessionTokenReceived = { token -> getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit().putString(SESSION_TOKEN_KEY, token).apply() },
+            onSessionTokenReceived = { token ->
+                getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit().putString(SESSION_TOKEN_KEY, token).apply()
+                // Early startup can flush the non-financial operations queue before bootstrap
+                // issues a session token. Replay it once the signed token is safely available.
+                adMediationReporter.flushPending()
+            },
         )
     }
     internal val shortDramaSdk by lazy { ShortDramaSdkManager.get(applicationContext) }
@@ -305,15 +322,20 @@ class DramaAppActivity : FragmentActivity() {
         restoredDramaId = savedInstanceState?.getString(STATE_DRAMA_ID)
         restoredEpisodeIndex = savedInstanceState?.getInt(STATE_EPISODE_INDEX, 0) ?: 0
         restoredPositionSeconds = savedInstanceState?.getInt(STATE_POSITION_SECONDS, 0) ?: 0
+        val externalAdReturnPending = hasFreshExternalAdReturnSession()
         readExternalAdReturnCheckpoint()?.let { checkpoint ->
             restoringExternalAdReturn = true
-            if (!restorePlayerAfterCatalog) {
-                restorePlayerAfterCatalog = true
-                restoredDramaId = checkpoint.dramaId
-                restoredEpisodeIndex = checkpoint.episodeIndex
-                restoredPositionSeconds = checkpoint.positionSeconds
-                logStatus("恢复广告外跳前的播放检查点：${checkpoint.dramaId} #${checkpoint.episodeIndex + 1}")
-            }
+            // A synchronous checkpoint is newer and more reliable than Android's saved Bundle:
+            // external click-outs often destroy the process after the Bundle was last written.
+            restorePlayerAfterCatalog = true
+            restoredDramaId = checkpoint.dramaId
+            restoredEpisodeIndex = checkpoint.episodeIndex
+            restoredPositionSeconds = checkpoint.positionSeconds
+            logStatus("恢复广告外跳前的播放检查点：${checkpoint.dramaId} #${checkpoint.episodeIndex + 1}")
+        }
+        if (externalAdReturnPending && !restorePlayerAfterCatalog) {
+            restoringExternalAdReturn = true
+            logStatus("检测到非播放器广告外跳返回")
         }
         root = FrameLayout(this).apply { background = pageCanvasDrawable() }
         setContentView(root)
@@ -337,7 +359,11 @@ class DramaAppActivity : FragmentActivity() {
         }
         onBackPressedDispatcher.addCallback(this, requireNotNull(navigationBackCallback))
         adMediationReporter.flushPending()
-        beginStartupExperience()
+        if (restoringExternalAdReturn) {
+            resumeFromExternalAdReturn()
+        } else {
+            beginStartupExperience()
+        }
     }
 
     /**
@@ -448,7 +474,6 @@ class DramaAppActivity : FragmentActivity() {
     override fun onStop() {
         // 后台不播放声音，但保留播放器实例、剧集和进度；回到前台后自动从原位置继续。
         persistPlaybackProgress()
-        if (fullscreenAdInProgress || fullscreenAdRequestInFlight) saveExternalAdReturnCheckpoint()
         resumePlaybackWhenForeground = playerShown && exoPlayer?.isPlaying == true && !fullscreenAdInProgress
         if (resumePlaybackWhenForeground) exoPlayer?.pause()
         // pauseForFullscreenAd already records whether PSSDK must resume when the ad closes.
@@ -680,6 +705,7 @@ class DramaAppActivity : FragmentActivity() {
         gemBalanceLabel = null
         cashBalanceAnchor = null
         cashBalanceLabel = null
+        rewardHeroCashBalanceLabel = null
         val page = when (activeTab) {
             MainTab.HOME -> createHomePage()
             MainTab.DISCOVER -> createDiscoverPage()
@@ -810,6 +836,7 @@ class DramaAppActivity : FragmentActivity() {
 
     /** One window policy for all catalogue surfaces; prevents a player/ad window state leaking into pages. */
     internal fun configureCatalogWindow() {
+        WindowCompat.setDecorFitsSystemWindows(window, true)
         topOnAds.setHostEdgeToEdge(this, false)
         window.statusBarColor = COLOR_BACKGROUND
         window.navigationBarColor = COLOR_BACKGROUND
@@ -822,6 +849,9 @@ class DramaAppActivity : FragmentActivity() {
 
     /** Player controls are laid out inside the same transparent edge-to-edge canvas before and after ads. */
     internal fun configurePlayerWindow() {
+        // Do not let the system navigation inset shrink the PSSDK fragment. Its media container
+        // must receive the complete Activity canvas while controls are hidden during playback.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         topOnAds.setHostEdgeToEdge(this, true)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             window.attributes = window.attributes.apply {
@@ -830,6 +860,9 @@ class DramaAppActivity : FragmentActivity() {
         }
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isNavigationBarContrastEnforced = false
+        }
         WindowInsetsControllerCompat(window, window.decorView).apply {
             isAppearanceLightStatusBars = false
             isAppearanceLightNavigationBars = false
@@ -940,20 +973,26 @@ class DramaAppActivity : FragmentActivity() {
     }
 
     /**
-     * Persist synchronously before an ad opens an external store/browser. Android may reclaim the
-     * process while the user is outside the app, so Bundle-only state is insufficient here.
+     * Persist synchronously only after TopOn reports an actual creative click. A shown-but-closed
+     * creative must not turn a later ordinary launcher start into a false external-ad recovery.
      */
-    internal fun saveExternalAdReturnCheckpoint() {
-        val drama = selectedDrama ?: return
-        if ((!playerShown && !sdkPlayerShown) || currentEpisodeIndex !in drama.episodes.indices) return
+    internal fun markExternalAdReturnCheckpoint() {
+        val savedAtMillis = System.currentTimeMillis()
+        val editor = playbackHistory.edit().putLong(AD_RETURN_EXTERNAL_SAVED_AT_MILLIS, savedAtMillis)
+        val drama = selectedDrama
+        if (drama == null || (!playerShown && !sdkPlayerShown) || currentEpisodeIndex !in drama.episodes.indices) {
+            editor.commit()
+            logStatus("已保存非播放器广告外跳会话")
+            return
+        }
         val positionSeconds = (exoPlayer?.currentPosition?.div(1_000L)?.toInt() ?: playerProgressSeconds)
             .coerceAtLeast(playerProgressSeconds)
             .coerceAtLeast(0)
-        playbackHistory.edit()
+        editor
             .putString(AD_RETURN_DRAMA_ID, drama.id)
             .putInt(AD_RETURN_EPISODE_INDEX, currentEpisodeIndex)
             .putInt(AD_RETURN_POSITION_SECONDS, positionSeconds)
-            .putLong(AD_RETURN_SAVED_AT_MILLIS, System.currentTimeMillis())
+            .putLong(AD_RETURN_SAVED_AT_MILLIS, savedAtMillis)
             .commit()
         logStatus("已保存广告外跳播放检查点：${drama.id} #${currentEpisodeIndex + 1} @${positionSeconds}s")
     }
@@ -970,12 +1009,22 @@ class DramaAppActivity : FragmentActivity() {
         }
     }
 
+    internal fun hasFreshExternalAdReturnSession(): Boolean {
+        val savedAtMillis = playbackHistory.getLong(AD_RETURN_EXTERNAL_SAVED_AT_MILLIS, 0L)
+        val nowMillis = System.currentTimeMillis()
+        val fresh = savedAtMillis > 0L && nowMillis >= savedAtMillis &&
+            nowMillis - savedAtMillis <= AD_RETURN_CHECKPOINT_MAX_AGE_MILLIS
+        if (!fresh) playbackHistory.edit().remove(AD_RETURN_EXTERNAL_SAVED_AT_MILLIS).apply()
+        return fresh
+    }
+
     internal fun clearExternalAdReturnCheckpoint() {
         playbackHistory.edit()
             .remove(AD_RETURN_DRAMA_ID)
             .remove(AD_RETURN_EPISODE_INDEX)
             .remove(AD_RETURN_POSITION_SECONDS)
             .remove(AD_RETURN_SAVED_AT_MILLIS)
+            .remove(AD_RETURN_EXTERNAL_SAVED_AT_MILLIS)
             .apply()
     }
 

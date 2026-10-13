@@ -9,6 +9,8 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.math.BigDecimal
+import java.math.RoundingMode
 import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.TimeUnit
@@ -588,8 +590,16 @@ class RewardsApiClient(
         val currency = Currency(
             marketCode = currencyJson.optString("market_code", user.optString("market_code", "DEFAULT")),
             code = currencyJson.optString("code", "USD"),
-            symbol = currencyJson.optString("symbol", "$"),
+            symbol = currencyJson.optString("symbol", "$") ,
             fractionDigits = currencyJson.optInt("fraction_digits", 2).coerceIn(0, 6),
+        )
+        // 服务端账本和提现资格始终保留真实金额；这仅是客户端展示兜底。当累计奖励已经
+        // 达到本市场的提现上限时，余额停在“上限减最小显示单位”，避免前端显示超出目标。
+        val serverCashWallet = walletJson.optString("cash_wallet", "0.00")
+        val displayCashWallet = clientDisplayWalletBalance(
+            serverBalance = serverCashWallet,
+            cumulativeRewardCap = withdrawal.optString("threshold", "0.00"),
+            fractionDigits = currency.fractionDigits,
         )
         val tiers = parseTiers(checkin.optJSONArray("tiers"))
         val signedToday = checkin.optBoolean("signed_today")
@@ -602,8 +612,8 @@ class RewardsApiClient(
         return Snapshot(
             businessDate = json.optString("business_date"),
             wallet = Wallet(
-                coins = walletJson.optLong("gems_balance"), cashWallet = walletJson.optString("cash_wallet", "0.00"),
-                lockedBalance = walletJson.optString("wallet_locked", walletJson.optString("cash_wallet", "0.00")),
+                coins = walletJson.optLong("gems_balance"), cashWallet = displayCashWallet,
+                lockedBalance = walletJson.optString("wallet_locked", serverCashWallet),
                 availableBalance = walletJson.optString("available_balance", "0.00"),
                 cashWalletUsdReference = walletJson.optString("cash_wallet_usd_reference", walletJson.optString("cash_wallet", "0.00")),
                 availableBalanceUsdReference = walletJson.optString("available_balance_usd_reference", walletJson.optString("available_balance", "0.00")),
@@ -734,7 +744,7 @@ class RewardsApiClient(
             val progress = item.optInt("progress", 0).coerceIn(0, target)
             val status = when (state) { "PENDING" -> "CLAIMABLE"; "CLAIMED" -> "CLAIMED"; else -> "LOCKED" }
             add(RewardTask(
-                "episode-task-$target", "追剧任务 · $target 集", "完成 $target 集后观看广告领取随机现金红包",
+                "episode-task-$target", "追剧任务 · $target 集", "完成 $target 集后观看广告领取随机追剧奖励",
                 progress, target, item.optLong("reward_gems").coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
                 item.optString("reward_cash", "0.00"), item.optString("reward_min_cash", "0.00"), item.optString("reward_max_cash", "0.00"),
                 item.optBoolean("random_redpacket", false), false, status, target,
@@ -771,6 +781,27 @@ class RewardsApiClient(
     }
 
     private fun nullableString(json: JSONObject, key: String): String? = json.optString(key).takeIf { it.isNotBlank() && it != "null" }
+
+    /**
+     * Presentation-only wallet ceiling. The Rewards service remains the sole ledger authority:
+     * this function never alters requests, withdrawals, settlement, server snapshots or
+     * `withdrawal.eligible`. For a 300 USD cap it displays 299.99; currencies without decimal
+     * places display one whole unit below the market-specific threshold.
+     */
+    private fun clientDisplayWalletBalance(
+        serverBalance: String,
+        cumulativeRewardCap: String,
+        fractionDigits: Int,
+    ): String {
+        val balance = serverBalance.toBigDecimalOrNull() ?: return serverBalance
+        val cap = cumulativeRewardCap.toBigDecimalOrNull() ?: return serverBalance
+        if (cap.signum() <= 0 || balance < cap) return serverBalance
+        val displayUnit = BigDecimal.ONE.movePointLeft(fractionDigits.coerceIn(0, 6))
+        val displayMaximum = cap.subtract(displayUnit).max(BigDecimal.ZERO)
+        return displayMaximum
+            .setScale(fractionDigits.coerceIn(0, 6), RoundingMode.DOWN)
+            .toPlainString()
+    }
 
     private companion object { val JSON = "application/json; charset=utf-8".toMediaType() }
 }

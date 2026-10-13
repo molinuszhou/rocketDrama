@@ -158,6 +158,7 @@ internal fun DramaAppActivity.createRewardsHeroHeader(snapshot: RewardsApiClient
                     t("wallet_balance"),
                     wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—",
                     isGem = false,
+                    isRewardsHeroBalance = true,
                 ) { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) },
                 FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(96)),
             )
@@ -173,7 +174,13 @@ internal fun DramaAppActivity.createRewardsHeroHeader(snapshot: RewardsApiClient
     ViewCompat.requestApplyInsets(this)
 }
 
-internal fun DramaAppActivity.createRewardBalance(label: String, value: String, isGem: Boolean, onClick: () -> Unit): View = LinearLayout(this).apply {
+internal fun DramaAppActivity.createRewardBalance(
+    label: String,
+    value: String,
+    isGem: Boolean,
+    isRewardsHeroBalance: Boolean = false,
+    onClick: () -> Unit,
+): View = LinearLayout(this).apply {
     gravity = Gravity.CENTER_VERTICAL
     setPadding(dp(16), dp(8), dp(16), dp(8))
     isClickable = true
@@ -205,7 +212,12 @@ internal fun DramaAppActivity.createRewardBalance(label: String, value: String, 
             letterSpacing = -0.02f
             setAutoSizeTextTypeUniformWithConfiguration(22, 40, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
         }
-        if (isGem) gemBalanceLabel = valueView else cashBalanceLabel = valueView
+        if (isGem) {
+            gemBalanceLabel = valueView
+        } else {
+            cashBalanceLabel = valueView
+            if (isRewardsHeroBalance) rewardHeroCashBalanceLabel = valueView
+        }
         addView(valueView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)))
     }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
 }
@@ -226,8 +238,13 @@ internal fun DramaAppActivity.createEpisodeTaskLine(snapshot: RewardsApiClient.S
         textSize = 12f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(4), 0, dp(13))
     })
     val tasks = snapshot.tasks
-    val current = tasks.firstOrNull { it.status != "CLAIMED" } ?: tasks.lastOrNull()
-    val currentIndex = tasks.indexOf(current).coerceAtLeast(0)
+    val claimableTasks = tasks.filter { it.status == "CLAIMABLE" }
+    val nextLockedTask = tasks.firstOrNull { it.status == "LOCKED" }
+    // Progress is cumulative across the milestone ladder, so the largest task progress is the
+    // completed-episode count presented to the viewer.
+    val completedEpisodes = maxOf(snapshot.wallet.watchedEpisodes, tasks.maxOfOrNull { it.progress } ?: 0)
+    val focusedTask = claimableTasks.firstOrNull() ?: nextLockedTask ?: tasks.lastOrNull()
+    val focusedTaskIndex = tasks.indexOf(focusedTask).coerceAtLeast(0)
     val track = LinearLayout(this@createEpisodeTaskLine).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(dp(4), 0, dp(12), 0) }
     tasks.forEachIndexed { index, task ->
         val reached = task.status == "CLAIMED" || task.status == "CLAIMABLE"
@@ -244,25 +261,39 @@ internal fun DramaAppActivity.createEpisodeTaskLine(snapshot: RewardsApiClient.S
         addView(track, ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34)))
     }
     addView(scroller, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(38)))
-    scroller.post { scroller.scrollTo((currentIndex * dp(53) - dp(86)).coerceAtLeast(0), 0) }
-    if (current != null) {
+    scroller.post { scroller.scrollTo((focusedTaskIndex * dp(53) - dp(86)).coerceAtLeast(0), 0) }
+    if (focusedTask != null) {
+        val hasClaimableRewards = claimableTasks.isNotEmpty()
+        val taskStatusText = when {
+            hasClaimableRewards -> t("watch_task_claimable_summary", completedEpisodes, claimableTasks.size)
+            nextLockedTask != null -> t(
+                "watch_task_progress_summary",
+                (nextLockedTask.target - completedEpisodes).coerceAtLeast(0),
+            )
+            else -> t("watch_task_all_claimed")
+        }
         val actionRow = LinearLayout(this@createEpisodeTaskLine).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(13), 0, 0) }
         actionRow.addView(LinearLayout(this@createEpisodeTaskLine).apply {
             orientation = LinearLayout.VERTICAL
-            addView(TextView(this@createEpisodeTaskLine).apply { text = t("watch_task_progress", current.progress, current.target); textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
-            addView(TextView(this@createEpisodeTaskLine).apply { text = t("watch_task_random_redpacket", current.target); textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_CORAL); setPadding(0, dp(4), 0, 0) })
+            addView(TextView(this@createEpisodeTaskLine).apply {
+                text = taskStatusText
+                textSize = 15f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(if (hasClaimableRewards) COLOR_REWARD_GAIN else COLOR_TEXT_PRIMARY)
+                maxLines = 2
+                setPadding(0, dp(2), dp(8), dp(2))
+            })
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         actionRow.addView(TextView(this@createEpisodeTaskLine).apply {
-            text = when (current.status) { "CLAIMABLE" -> t("task_claim"); "CLAIMED" -> t("task_claimed"); else -> t("task_go_watch") }
+            text = if (hasClaimableRewards) t("task_claim") else t("task_go_watch")
             textSize = 13f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
-            setTextColor(if (current.status == "LOCKED") COLOR_TEXT_PRIMARY else COLOR_REWARD_ACTION_TEXT)
-            background = if (current.status == "LOCKED") roundedDrawable(COLOR_SURFACE, 13) else rewardActionDrawable()
-            setPadding(dp(14), dp(10), dp(14), dp(10)); isClickable = current.status != "CLAIMED"
+            setTextColor(if (hasClaimableRewards) COLOR_REWARD_ACTION_TEXT else COLOR_TEXT_PRIMARY)
+            background = if (hasClaimableRewards) rewardActionDrawable() else roundedDrawable(COLOR_SURFACE, 13)
+            setPadding(dp(14), dp(10), dp(14), dp(10)); isClickable = true
             setOnClickListener {
-                when (current.status) {
-                    "CLAIMABLE" -> claimEpisodeTaskCash(current.target)
-                    "LOCKED" -> { activeTab = MainTab.HOME; renderActiveTab() }
-                }
+                val claimTarget = claimableTasks.firstOrNull()?.target
+                if (claimTarget != null) claimEpisodeTaskCash(claimTarget)
+                else { activeTab = MainTab.HOME; renderActiveTab() }
             }
         })
         addView(actionRow)

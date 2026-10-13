@@ -7,8 +7,8 @@ import java.util.Locale
 /**
  * Pure, testable contract for the partner-defined AppsFlyer advertising-revenue events.
  *
- * TopOn supplies USD eCPM in its paid-impression callback. This contract converts it to
- * one-impression revenue and creates the standard AppsFlyer revenue parameter payload.
+ * TopOn supplies a publisherRevenue value in its paid-impression callback. This contract validates
+ * a single-impression amount and creates the partner's existing AppsFlyer event payload.
  * No state is persisted: process restarts intentionally discard any sub-threshold remainder.
  */
 internal object AppsFlyerRevenueContract {
@@ -18,6 +18,11 @@ internal object AppsFlyerRevenueContract {
     fun usdRevenueFromEcpm(currency: String, ecpm: Double): BigDecimal? {
         if (currency.trim().uppercase(Locale.ROOT) != USD || !ecpm.isFinite() || ecpm <= 0.0) return null
         return BigDecimal.valueOf(ecpm).movePointLeft(3).takeIf { it.signum() > 0 }
+    }
+
+    fun usdRevenueFromImpression(currency: String, revenue: Double): BigDecimal? {
+        if (currency.trim().uppercase(Locale.ROOT) != USD || !revenue.isFinite() || revenue <= 0.0) return null
+        return BigDecimal.valueOf(revenue).takeIf { it.signum() > 0 }
     }
 
     fun eventValues(

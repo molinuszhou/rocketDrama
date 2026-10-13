@@ -5,8 +5,9 @@ import java.math.RoundingMode
 import java.util.Locale
 
 /**
- * Exact revenue values retained in the local audit CSVs. TopOn supplies eCPM,
- * so one-impression value is always eCPM / 1,000 in the same ISO currency.
+ * Exact revenue values retained in local audit records. TopOn's paid callback exposes both eCPM
+ * and publisherRevenue; publisherRevenue is the canonical per-impression value. eCPM / 1,000 is
+ * retained only as a backward-compatible fallback for non-paid display diagnostics.
  */
 data class AdRevenueAuditValues(
     val currency: String = "",
@@ -14,14 +15,18 @@ data class AdRevenueAuditValues(
     val value: String = "",
 ) {
     companion object {
-        fun fromPaidImpression(currency: String?, ecpm: Double): AdRevenueAuditValues {
+        fun fromPaidImpression(currency: String?, ecpm: Double, publisherRevenue: Double? = null): AdRevenueAuditValues {
             val normalizedCurrency = currency.orEmpty().trim().uppercase(Locale.ROOT)
             if (normalizedCurrency.isBlank() || !ecpm.isFinite() || ecpm < 0.0) return AdRevenueAuditValues()
             val rawEcpm = BigDecimal.valueOf(ecpm)
+            val rawValue = publisherRevenue
+                ?.takeIf { it.isFinite() && it >= 0.0 }
+                ?.let(BigDecimal::valueOf)
+                ?: rawEcpm.movePointLeft(3)
             return AdRevenueAuditValues(
                 currency = normalizedCurrency,
                 ecpm = format(rawEcpm),
-                value = format(rawEcpm.movePointLeft(3)),
+                value = format(rawValue),
             )
         }
 

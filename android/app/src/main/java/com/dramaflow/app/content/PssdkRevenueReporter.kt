@@ -2,6 +2,7 @@ package com.dramaflow.app.content
 
 import android.util.Log
 import com.bytedance.sdk.shortplay.api.PSSDK
+import com.dramaflow.app.BuildConfig
 import java.util.Locale
 
 /**
@@ -24,6 +25,10 @@ object PssdkRevenueReporter {
         adFormat: String,
         aboutUnlock: Boolean,
     ) {
+        if (!BuildConfig.SHORT_DRAMA_SDK_ENABLED || !PSSDK.hasInitialized()) {
+            Log.i(TAG, "Skip PSSDK IAA report: short-drama SDK is not ready")
+            return
+        }
         if (!revenue.isFinite() || revenue < 0.0) {
             Log.w(TAG, "Skip PSSDK IAA report: invalid revenue=$revenue")
             return

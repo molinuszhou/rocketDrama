@@ -95,7 +95,8 @@ private fun DramaAppActivity.renderLegacyPlayer(drama: LocalDrama, startIndex: I
         playerMuted = false
         playerSpeed = 1.0f
         playerDescriptionExpanded = false
-        playerControlsVisible = true
+        playerControlsVisible = false
+        playerControlsPinnedByUser = false
         resetMidrollInterstitialSession()
         playerShown = true
         root.removeAllViews()
@@ -220,6 +221,7 @@ internal fun DramaAppActivity.createPlayerChrome(): View {
             background = topRoundedDrawable(0x9E0D0B12.toInt(), 22)
             isClickable = true
         }
+        controls.visibility = View.GONE
         playerControlsPanel = controls
         val titleRow = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
         titleRow.addView(TextView(this).apply {
@@ -268,7 +270,9 @@ internal fun DramaAppActivity.createPlayerChrome(): View {
         }
         ViewCompat.requestApplyInsets(chrome)
 
-        playerControlsRevealButton = transparentPlayerTextButton(t("show_controls"), t("show_controls")) { setPlayerControlsVisible(true) }.also { it.visibility = View.GONE }
+        playerControlsRevealButton = transparentPlayerTextButton(t("show_controls"), t("show_controls")) {
+            showPlayerControlsFromUser()
+        }
         chrome.addView(playerControlsRevealButton, FrameLayout.LayoutParams(dp(74), dp(38), Gravity.BOTTOM or Gravity.END).apply {
             bottomMargin = dp(14)
             marginEnd = dp(14)
@@ -434,6 +438,7 @@ internal fun DramaAppActivity.completeSeekAndResume(targetSeconds: Int) {
                 playerProgressSeconds = targetSeconds.coerceAtLeast(0)
                 playerIsSeeking = false
                 playerIsPaused = false
+                updatePauseOverlayVisibility(false)
                 window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 return
             }
@@ -449,6 +454,7 @@ internal fun DramaAppActivity.completeSeekAndResume(targetSeconds: Int) {
         playerIsSeeking = false
         player.play()
         playerIsPaused = false
+        updatePauseOverlayVisibility(false)
     }
 
 internal fun DramaAppActivity.createPlayerProgressControls(): View = LinearLayout(this).apply {
@@ -496,7 +502,7 @@ internal fun DramaAppActivity.createPlayerActionRow(): View = LinearLayout(this)
             Triple(t("resolution_short"), t("resolution")) { showSdkResolutionPicker() },
             Triple(t("more"), t("more")) { showPlaybackMoreControls() },
             Triple(if (isFavorite()) "♥" else "♡", t("favorite")) { toggleFavorite() },
-            Triple(t("hide"), t("hide")) { setPlayerControlsVisible(false) },
+            Triple(t("hide"), t("hide")) { hidePlayerControlsFromUser() },
         )
         actions.forEachIndexed { index, action ->
             val button = if (action.second == t("episodes") || action.second == t("more") || action.second == t("hide") || action.second == t("resolution")) {
@@ -529,17 +535,30 @@ internal fun DramaAppActivity.transparentPlayerTextButton(label: String, descrip
     }
 
 internal fun DramaAppActivity.setPlayerControlsVisible(visible: Boolean) {
-        playerControlsVisible = visible
-        playerControlsPanel?.visibility = if (visible) View.VISIBLE else View.GONE
-        playerControlsRevealButton?.visibility = if (visible) View.GONE else View.VISIBLE
+        // A normal pause exposes controls temporarily. A user tap on “show controls” pins them
+        // until the matching explicit “hide” action, so PSSDK's next PLAY callback cannot flash
+        // the dock and immediately remove it again.
+        val shouldShow = visible || playerControlsPinnedByUser
+        playerControlsVisible = shouldShow
+        playerControlsPanel?.visibility = if (shouldShow) View.VISIBLE else View.GONE
+        playerControlsRevealButton?.visibility = if (shouldShow) View.GONE else View.VISIBLE
+    }
+
+internal fun DramaAppActivity.showPlayerControlsFromUser() {
+        playerControlsPinnedByUser = true
+        setPlayerControlsVisible(true)
+    }
+
+internal fun DramaAppActivity.hidePlayerControlsFromUser() {
+        playerControlsPinnedByUser = false
+        setPlayerControlsVisible(false)
     }
 
     /** 视频区域单击是唯一的播放/暂停操作；Media3 会同步停止画面、音频和播放时钟。 */
 internal fun DramaAppActivity.updatePauseOverlayVisibility(visible: Boolean) {
         playerPauseOverlay?.visibility = if (visible) View.VISIBLE else View.GONE
-        // Keep the player controls discoverable at a real pause point, then clear the video
-        // surface again as soon as playback resumes. Full-screen ads are excluded so host
-        // controls never appear underneath a mediation creative.
+        // A pause always exposes controls. A user-pinned dock remains visible after playback
+        // resumes; full-screen ads remain excluded so host controls never sit under a creative.
         if (!fullscreenAdInProgress && !fullscreenAdRequestInFlight && (playerShown || sdkPlayerShown)) {
             setPlayerControlsVisible(visible)
         }

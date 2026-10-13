@@ -105,6 +105,57 @@ internal fun DramaAppActivity.beginStartupExperience() {
         // 等待 onPostResume 后再发起开屏请求，确保窗口已就绪；目录和开屏并行预热。
     }
 
+/**
+ * A store/browser click can kill the process while a TopOn full-screen creative is active. When
+ * the launcher route recreates the Activity, restore only the provider catalogue and the saved
+ * player checkpoint; do not replay app-open, reward onboarding, cover preloading, or the normal
+ * startup screen sequence.
+ */
+internal fun DramaAppActivity.resumeFromExternalAdReturn() {
+    if (!restoringExternalAdReturn) {
+        beginStartupExperience()
+        return
+    }
+    startupContentInitializationStarted = true
+    startupCheckinPromptRequested = false
+    startupCheckinPromptShown = true
+    startupAdFinished = true
+    startupCatalogFinished = false
+    startupPosterPreloadFinished = true
+    startupContentHandoffFinished = true
+    renderLoading(t("external_ad_return_restoring"))
+    // Wallet sync is safe in parallel, but it must never open onboarding dialogs during recovery.
+    if (rewardsApi.isConfigured) refreshRewardsSnapshot()
+    preloadCatalog()
+}
+
+/** Restores the exact local catalogue model only after the current PSSDK feed is available. */
+internal fun DramaAppActivity.restoreExternalAdReturnPlayerIfPossible(): Boolean {
+    if (!restoringExternalAdReturn || !restorePlayerAfterCatalog) return false
+    val restoredId = restoredDramaId ?: return false
+    val drama = catalogItems.firstOrNull { it.id == restoredId } ?: return false
+    restorePlayerAfterCatalog = false
+    restoringExternalAdReturn = false
+    // Keep the durable checkpoint until PSSDK reports progress at the requested seek position.
+    // Some provider versions invoke the episode-start callback at 0 before their initial seek.
+    pendingExternalAdRestoreEpisodeIndex = restoredEpisodeIndex
+    pendingExternalAdRestorePositionSeconds = restoredPositionSeconds
+    logStatus("广告外跳返回：直接恢复播放器 $restoredId #${restoredEpisodeIndex + 1}")
+    showPlayer(drama, restoredEpisodeIndex, restoredPositionSeconds)
+    return true
+}
+
+/** Consume an unrecoverable checkpoint once; never let catalog retries hijack a later session. */
+internal fun DramaAppActivity.abandonExternalAdReturn(reason: String) {
+    if (!restoringExternalAdReturn && !restorePlayerAfterCatalog) return
+    logStatus("广告外跳恢复已降级：$reason")
+    restoringExternalAdReturn = false
+    restorePlayerAfterCatalog = false
+    pendingExternalAdRestoreEpisodeIndex = null
+    pendingExternalAdRestorePositionSeconds = null
+    clearExternalAdReturnCheckpoint()
+}
+
 internal fun DramaAppActivity.maybeShowAppOpenAd() {
         if (appOpenAttempted) return
         appOpenAttempted = true
@@ -151,6 +202,9 @@ private fun DramaAppActivity.preloadShortDramaSdkCatalog() {
                 ShortDramaSdkManager.Initialization.Disabled -> "Short-drama SDK is disabled in this build"
                 ShortDramaSdkManager.Initialization.Ready -> error("unreachable")
             }
+            if (restoringExternalAdReturn || restorePlayerAfterCatalog) {
+                abandonExternalAdReturn("PSSDK 初始化未就绪")
+            }
             if (startupContentInitializationStarted) renderActiveTab() else completeStartupWhenReady()
             queueShortDramaCatalogDiagnostic(startupCatalogFailure.orEmpty())
             if (retryAllowed) scheduleShortDramaCatalogRetry(startupCatalogFailure.orEmpty())
@@ -166,6 +220,9 @@ private fun DramaAppActivity.preloadShortDramaSdkCatalog() {
                 if (cards.isEmpty()) {
                     startupCatalogFailure = t("catalog_empty")
                     startupPosterPreloadFinished = true
+                    if (restoringExternalAdReturn || restorePlayerAfterCatalog) {
+                        abandonExternalAdReturn("恢复剧集未出现在当前目录")
+                    }
                     if (startupContentInitializationStarted) renderActiveTab() else completeStartupWhenReady()
                     queueShortDramaCatalogDiagnostic(startupCatalogFailure.orEmpty())
                     scheduleShortDramaCatalogRetry(startupCatalogFailure.orEmpty())
@@ -182,6 +239,13 @@ private fun DramaAppActivity.preloadShortDramaSdkCatalog() {
                 catalogPageLoadInFlight = false
                 refreshSdkCategories()
                 updateStartupProgress(30, t("startup_content_ready"))
+                if (restoreExternalAdReturnPlayerIfPossible()) return@runOnUiThread
+                if (restoringExternalAdReturn) {
+                    // Non-player ad click-out: return to a neutral catalog surface without
+                    // replaying app-open, welcome or check-in onboarding on this session.
+                    restoringExternalAdReturn = false
+                    clearExternalAdReturnCheckpoint()
+                }
                 if (startupContentInitializationStarted) renderActiveTab()
                 preloadCatalogCovers(
                     items = catalogItems,
@@ -206,6 +270,9 @@ private fun DramaAppActivity.preloadShortDramaSdkCatalog() {
                 startupContentHandoffFinished = true
                 startupPosterPreloadFinished = true
                 startupCatalogFailure = t("catalog_load_failed", message)
+                if (restoringExternalAdReturn || restorePlayerAfterCatalog) {
+                    abandonExternalAdReturn("恢复目录请求失败")
+                }
                 if (startupContentInitializationStarted) renderActiveTab() else completeStartupWhenReady()
                 queueShortDramaCatalogDiagnostic(message)
                 scheduleShortDramaCatalogRetry(message)
@@ -352,7 +419,7 @@ internal fun DramaAppActivity.completeStartupWhenReady() {
         startupContentInitializationStarted = true
         updateStartupProgress(100, t("startup_ready"))
         if (restorePlayerAfterCatalog) {
-            val drama = catalogItems.firstOrNull { it.id == restoredDramaId } ?: catalogItems.firstOrNull()
+            val drama = catalogItems.firstOrNull { it.id == restoredDramaId }
             if (drama != null) {
                 restorePlayerAfterCatalog = false
                 clearExternalAdReturnCheckpoint()
@@ -360,6 +427,7 @@ internal fun DramaAppActivity.completeStartupWhenReady() {
                 showPlayer(drama, restoredEpisodeIndex, restoredPositionSeconds)
                 return
             }
+            restorePlayerAfterCatalog = false
         }
         renderActiveTab()
         showStartupCheckinWhenReady()

@@ -250,10 +250,12 @@ class AdMediationEventRequest(BaseModel):
     """A non-financial client mirror of an observed TopOn mediation callback.
 
     ``install_id_hash`` is SHA-256 calculated on device; raw installation and user
-    identifiers are intentionally not accepted by the operations ledger.
+    identifiers are intentionally not persisted by the operations ledger. ``user_id`` exists only
+    so middleware can validate a server-signed session before the value is discarded.
     """
 
     client_event_id: str = Field(min_length=8, max_length=160)
+    user_id: str | None = Field(default=None, min_length=1, max_length=128)
     install_id_hash: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
     event_type: Literal["SHOWN", "PAID_REVENUE"]
     logical_placement: str = Field(min_length=1, max_length=80)

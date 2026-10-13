@@ -20,6 +20,7 @@ internal const val AD_RETURN_DRAMA_ID = "ad_return_drama_id"
 internal const val AD_RETURN_EPISODE_INDEX = "ad_return_episode_index"
 internal const val AD_RETURN_POSITION_SECONDS = "ad_return_position_seconds"
 internal const val AD_RETURN_SAVED_AT_MILLIS = "ad_return_saved_at_millis"
+internal const val AD_RETURN_EXTERNAL_SAVED_AT_MILLIS = "ad_return_external_saved_at_millis"
 internal const val AD_RETURN_CHECKPOINT_MAX_AGE_MILLIS = 10 * 60 * 1_000L
 internal const val TAG = "JoyeDramaPlayer"
 internal const val COLOR_BACKGROUND = 0xFF000000.toInt()
