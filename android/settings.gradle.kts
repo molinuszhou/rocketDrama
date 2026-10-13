@@ -16,6 +16,8 @@ dependencyResolutionManagement {
         maven(url = "https://artifact.byteplus.com/repository/public/")
         maven(url = "https://jfrog.anythinktech.com/artifactory/overseas_sdk")
         maven(url = "https://dl-maven-android.mintegral.com/repository/mbridge_android_sdk_oversea")
+        // TaurusX Android SDK source for the native dependency paired with its TopOn adapter.
+        maven(url = "https://bitbucket.org/sdkcenter/sdkcenter/raw/release")
     }
 }
 

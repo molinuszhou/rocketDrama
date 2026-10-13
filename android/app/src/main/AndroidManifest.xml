@@ -19,7 +19,7 @@
         android:networkSecurityConfig="@xml/network_security_config"
         android:usesCleartextTraffic="@bool/uses_cleartext_traffic"
         android:theme="@style/Theme.DramaFlow.Starting"
-        tools:replace="android:allowBackup,android:dataExtractionRules,android:fullBackupContent">
+        tools:replace="android:allowBackup,android:dataExtractionRules,android:fullBackupContent,android:usesCleartextTraffic">
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
             android:value="${ADMOB_APP_ID}" />

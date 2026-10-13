@@ -2,7 +2,7 @@
 
 **审计日期：** 2026-10-12
 **适用客户端：** JoyeDrama Android `com.feather.joyelledrama`
-**代码基线：** `release/formal-production`，版本 `1.7.2.5 (92)`
+**代码基线：** `release/formal-production`，版本 `1.7.2.6 (93)`
 **本次不包含：** APK/AAB 编译、签名或服务器部署。
 
 ## 已完成的代码整改
@@ -91,6 +91,8 @@ AppsFlyer 已完成以下整改：
 **2026-10-13 完整广告矩阵恢复：**客户端 `1.7.2.5 (versionCode 92)` 已重新加入 `io.github.alex-only:max_adapter_tpn:1.3.1`，恢复 TopOn→MAX Custom Network 广告源；并已移除仅用于 v91 测试的 TopOn ADX `network_firm_id=66` 客户端过滤。正式包再次允许 TopOn 在后台策略中调度 AdMob、Unity Ads、Pangle、TaurusX、Kwai、Liftoff/Vungle、Mintegral、TopOn ADX 和 MAX。
 
 **2026-10-13 后台状态恢复：**v92 在 `onStop` 同步持久化当前顶层页签、奖励页滚动位置，以及可恢复播放的剧集、分集和进度；进程因内存压力被系统回收后，目录就绪即恢复这些轻量状态，并跳过开屏广告和启动签到弹窗。Manifest 为任务根 Activity 启用 `alwaysRetainTaskState`，避免系统按长期后台任务重置导航栈。该设计恢复状态而不使用前台常驻服务或非合规保活手段。
+
+**2026-10-13 原生广告 SDK 完整接入：**客户端 `1.7.2.6 (versionCode 93)` 将 TaurusX `com.taurusx.tax:ads:1.18.4` 与 Kwai `io.github.kwainetwork:adApi/adImpl:1.2.26` 作为正式依赖，与当前 TopOn adapter `adapter-tpn-taurusx:1.18.4.1.0` 和 `adapter-tpn-kwai:1.2.26.1.0` 精确配对。此前临时 Debug 直连广告源诊断已确认：TaurusX、Kwai 不再产生类缺失，分别可返回 NoBid/无库存；Pangle 在测试地区返回 `20001`（地区不支持），Vungle 可返回无填充。Kwai 原生 SDK 对 `usesCleartextTraffic` 的默认声明由应用自身 `@bool/uses_cleartext_traffic` 通过 Manifest merger 覆盖，维持项目既有网络安全策略。诊断用的 ADX/MAX 过滤和错误弹窗均未保留在正式代码中。
 
 ### 隐私同意与数据收集
 

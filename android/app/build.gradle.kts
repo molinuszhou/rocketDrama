@@ -145,8 +145,8 @@ android {
         minSdk = 26
         targetSdk = 36
         // Android 客户端每次代码改动递增补丁版本；服务端/文档单独改动不变更此版本。
-        versionCode = 92
-        versionName = "1.7.2.5"
+        versionCode = 93
+        versionName = "1.7.2.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -249,6 +249,15 @@ dependencies {
     implementation("com.anythink.sdk:adapter-tpn-kwai:1.2.26.1.0")
     implementation("com.anythink.sdk:adapter-tpn-vungle:7.7.7.1.0")
     implementation("com.anythink.sdk:adapter-tpn-mintegral:17.1.71.1.0")
+    // TopOn adapters do not declare these native network SDKs transitively. Keep the versions
+    // exactly aligned with the adapter versions verified by the direct-source diagnostic build.
+    implementation("com.taurusx.tax:ads:1.18.4")
+    implementation("io.github.kwainetwork:adApi:1.2.26")
+    implementation("io.github.kwainetwork:adImpl:1.2.26")
+    implementation("com.google.android.material:material:1.2.1")
+    implementation("androidx.annotation:annotation:1.2.0")
+    implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.4.10")
+    implementation("com.google.android.gms:play-services-ads-identifier:18.0.1")
 
     // Full production matrix: MAX is a TopOn Custom Network ad source and retains its bridge.
     // MAX's network SDKs/adapters below are also shared by TopOn's direct source adapters.
