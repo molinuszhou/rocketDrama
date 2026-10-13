@@ -131,6 +131,8 @@ class DramaAppActivity : FragmentActivity() {
     internal var startupContentHandoffFinished = false
     internal var startupPosterPreloadPercent = 0
     internal var startupCatalogFailure: String? = null
+    /** Suppresses cold-start interstitial UI while restoring a recently backgrounded task. */
+    internal var restoringBackgroundReturn = false
     /** PSSDK can fail its first remote bootstrap on a cold network; retries never block navigation. */
     internal var shortDramaRetryAttempt = 0
     internal var shortDramaRetryScheduled = false
@@ -318,24 +320,32 @@ class DramaAppActivity : FragmentActivity() {
         if (BuildConfig.SCREENSHOT_PROTECTION_ENABLED) {
             window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
         }
-        restorePlayerAfterCatalog = savedInstanceState?.getBoolean(STATE_PLAYER_VISIBLE, false) == true
-        restoredDramaId = savedInstanceState?.getString(STATE_DRAMA_ID)
-        restoredEpisodeIndex = savedInstanceState?.getInt(STATE_EPISODE_INDEX, 0) ?: 0
-        restoredPositionSeconds = savedInstanceState?.getInt(STATE_POSITION_SECONDS, 0) ?: 0
         val externalAdReturnPending = hasFreshExternalAdReturnSession()
-        readExternalAdReturnCheckpoint()?.let { checkpoint ->
-            restoringExternalAdReturn = true
-            // A synchronous checkpoint is newer and more reliable than Android's saved Bundle:
-            // external click-outs often destroy the process after the Bundle was last written.
-            restorePlayerAfterCatalog = true
-            restoredDramaId = checkpoint.dramaId
-            restoredEpisodeIndex = checkpoint.episodeIndex
-            restoredPositionSeconds = checkpoint.positionSeconds
-            logStatus("恢复广告外跳前的播放检查点：${checkpoint.dramaId} #${checkpoint.episodeIndex + 1}")
-        }
-        if (externalAdReturnPending && !restorePlayerAfterCatalog) {
-            restoringExternalAdReturn = true
-            logStatus("检测到非播放器广告外跳返回")
+        if (externalAdReturnPending) {
+            restoreExternalAdReturnSurface()
+            readExternalAdReturnCheckpoint()?.let { checkpoint ->
+                restoringExternalAdReturn = true
+                // A synchronous checkpoint is newer and more reliable than Android's saved Bundle:
+                // external click-outs often destroy the process after the Bundle was last written.
+                restorePlayerAfterCatalog = true
+                restoredDramaId = checkpoint.dramaId
+                restoredEpisodeIndex = checkpoint.episodeIndex
+                restoredPositionSeconds = checkpoint.positionSeconds
+                logStatus("恢复广告外跳前的播放检查点：${checkpoint.dramaId} #${checkpoint.episodeIndex + 1}")
+            }
+            if (!restorePlayerAfterCatalog) {
+                restoringExternalAdReturn = true
+                logStatus("检测到非播放器广告外跳返回")
+            }
+        } else {
+            val savedStateCheckpoint = savedInstanceState?.let(::checkpointFromSavedInstanceState)
+            val checkpoint = savedStateCheckpoint?.takeIf { it.isFresh(System.currentTimeMillis()) }
+                ?: readBackgroundReturnCheckpoint()
+            checkpoint?.let {
+                restoreBackgroundReturnSurface(it)
+                restoringBackgroundReturn = true
+                logStatus("恢复后台回收前页面：${activeTab.name}")
+            }
         }
         root = FrameLayout(this).apply { background = pageCanvasDrawable() }
         setContentView(root)
@@ -474,6 +484,7 @@ class DramaAppActivity : FragmentActivity() {
     override fun onStop() {
         // 后台不播放声音，但保留播放器实例、剧集和进度；回到前台后自动从原位置继续。
         persistPlaybackProgress()
+        persistBackgroundReturnCheckpoint()
         resumePlaybackWhenForeground = playerShown && exoPlayer?.isPlaying == true && !fullscreenAdInProgress
         if (resumePlaybackWhenForeground) exoPlayer?.pause()
         // pauseForFullscreenAd already records whether PSSDK must resume when the ad closes.
@@ -487,10 +498,15 @@ class DramaAppActivity : FragmentActivity() {
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
-        outState.putBoolean(STATE_PLAYER_VISIBLE, playerShown || sdkPlayerShown)
+        outState.putBoolean(STATE_PLAYER_VISIBLE, (playerShown || sdkPlayerShown) && !sdkDiscoverPreviewActive)
         outState.putString(STATE_DRAMA_ID, selectedDrama?.id)
         outState.putInt(STATE_EPISODE_INDEX, currentEpisodeIndex)
         outState.putInt(STATE_POSITION_SECONDS, exoPlayer?.currentPosition?.div(1_000L)?.toInt() ?: playerProgressSeconds)
+        outState.putString(STATE_ACTIVE_TAB_NAME, activeTab.name)
+        outState.putString(STATE_PLAYER_RETURN_TAB_NAME, playerReturnTab.name)
+        outState.putInt(STATE_TASKS_SCROLL_Y, rewardsTasksScrollY.coerceAtLeast(0))
+        outState.putLong(STATE_SAVED_AT_MILLIS, System.currentTimeMillis())
+        persistBackgroundReturnCheckpoint()
         super.onSaveInstanceState(outState)
     }
 
@@ -978,7 +994,10 @@ class DramaAppActivity : FragmentActivity() {
      */
     internal fun markExternalAdReturnCheckpoint() {
         val savedAtMillis = System.currentTimeMillis()
-        val editor = playbackHistory.edit().putLong(AD_RETURN_EXTERNAL_SAVED_AT_MILLIS, savedAtMillis)
+        val editor = playbackHistory.edit()
+            .putLong(AD_RETURN_EXTERNAL_SAVED_AT_MILLIS, savedAtMillis)
+            .putString(AD_RETURN_TAB_NAME, activeTab.name)
+            .putInt(AD_RETURN_TASKS_SCROLL_Y, rewardsTasksScrollY.coerceAtLeast(0))
         val drama = selectedDrama
         if (drama == null || (!playerShown && !sdkPlayerShown) || currentEpisodeIndex !in drama.episodes.indices) {
             editor.commit()
@@ -1018,6 +1037,14 @@ class DramaAppActivity : FragmentActivity() {
         return fresh
     }
 
+    /** Restores the non-player surface exactly as it was when the external creative was clicked. */
+    internal fun restoreExternalAdReturnSurface() {
+        val savedTab = playbackHistory.getString(AD_RETURN_TAB_NAME, null)
+        activeTab = MainTab.entries.firstOrNull { it.name == savedTab } ?: activeTab
+        rewardsTasksScrollY = playbackHistory.getInt(AD_RETURN_TASKS_SCROLL_Y, 0).coerceAtLeast(0)
+        logStatus("恢复广告外跳前页面：${activeTab.name}")
+    }
+
     internal fun clearExternalAdReturnCheckpoint() {
         playbackHistory.edit()
             .remove(AD_RETURN_DRAMA_ID)
@@ -1025,6 +1052,138 @@ class DramaAppActivity : FragmentActivity() {
             .remove(AD_RETURN_POSITION_SECONDS)
             .remove(AD_RETURN_SAVED_AT_MILLIS)
             .remove(AD_RETURN_EXTERNAL_SAVED_AT_MILLIS)
+            .remove(AD_RETURN_TAB_NAME)
+            .remove(AD_RETURN_TASKS_SCROLL_Y)
+            .apply()
+    }
+
+    private fun checkpointFromSavedInstanceState(state: Bundle): AppReturnCheckpoint = AppReturnCheckpoint(
+        activeTabName = state.getString(STATE_ACTIVE_TAB_NAME).orEmpty(),
+        playerReturnTabName = state.getString(STATE_PLAYER_RETURN_TAB_NAME).orEmpty(),
+        playerVisible = state.getBoolean(STATE_PLAYER_VISIBLE, false),
+        dramaId = state.getString(STATE_DRAMA_ID),
+        episodeIndex = state.getInt(STATE_EPISODE_INDEX, -1),
+        positionSeconds = state.getInt(STATE_POSITION_SECONDS, -1),
+        tasksScrollY = state.getInt(STATE_TASKS_SCROLL_Y, 0).coerceAtLeast(0),
+        savedAtMillis = state.getLong(STATE_SAVED_AT_MILLIS, 0L),
+    )
+
+    internal fun persistBackgroundReturnCheckpoint() {
+        val playerCanResume = (playerShown || sdkPlayerShown) && !sdkDiscoverPreviewActive &&
+            selectedDrama != null && currentEpisodeIndex >= 0
+        val positionSeconds = (exoPlayer?.currentPosition?.div(1_000L)?.toInt() ?: playerProgressSeconds)
+            .coerceAtLeast(playerProgressSeconds)
+            .coerceAtLeast(0)
+        val editor = playbackHistory.edit()
+            .putString(APP_RETURN_ACTIVE_TAB_NAME, activeTab.name)
+            .putString(APP_RETURN_PLAYER_RETURN_TAB_NAME, playerReturnTab.name)
+            .putBoolean(APP_RETURN_PLAYER_VISIBLE, playerCanResume)
+            .putInt(APP_RETURN_TASKS_SCROLL_Y, rewardsTasksScrollY.coerceAtLeast(0))
+            .putLong(APP_RETURN_SAVED_AT_MILLIS, System.currentTimeMillis())
+        if (playerCanResume) {
+            editor
+                .putString(APP_RETURN_DRAMA_ID, selectedDrama?.id)
+                .putInt(APP_RETURN_EPISODE_INDEX, currentEpisodeIndex)
+                .putInt(APP_RETURN_POSITION_SECONDS, positionSeconds)
+        } else {
+            editor
+                .remove(APP_RETURN_DRAMA_ID)
+                .remove(APP_RETURN_EPISODE_INDEX)
+                .remove(APP_RETURN_POSITION_SECONDS)
+        }
+        editor.commit()
+    }
+
+    private fun readBackgroundReturnCheckpoint(): AppReturnCheckpoint? {
+        val checkpoint = AppReturnCheckpoint(
+            activeTabName = playbackHistory.getString(APP_RETURN_ACTIVE_TAB_NAME, null).orEmpty(),
+            playerReturnTabName = playbackHistory.getString(APP_RETURN_PLAYER_RETURN_TAB_NAME, null).orEmpty(),
+            playerVisible = playbackHistory.getBoolean(APP_RETURN_PLAYER_VISIBLE, false),
+            dramaId = playbackHistory.getString(APP_RETURN_DRAMA_ID, null),
+            episodeIndex = playbackHistory.getInt(APP_RETURN_EPISODE_INDEX, -1),
+            positionSeconds = playbackHistory.getInt(APP_RETURN_POSITION_SECONDS, -1),
+            tasksScrollY = playbackHistory.getInt(APP_RETURN_TASKS_SCROLL_Y, 0).coerceAtLeast(0),
+            savedAtMillis = playbackHistory.getLong(APP_RETURN_SAVED_AT_MILLIS, 0L),
+        )
+        return checkpoint.takeIf { it.isFresh(System.currentTimeMillis()) }.also {
+            if (it == null) clearBackgroundReturnCheckpoint()
+        }
+    }
+
+    private fun restoreBackgroundReturnSurface(checkpoint: AppReturnCheckpoint) {
+        activeTab = MainTab.entries.firstOrNull { it.name == checkpoint.activeTabName } ?: MainTab.HOME
+        playerReturnTab = MainTab.entries.firstOrNull { it.name == checkpoint.playerReturnTabName } ?: activeTab
+        rewardsTasksScrollY = checkpoint.tasksScrollY
+        if (checkpoint.playerVisible) {
+            restorePlayerAfterCatalog = true
+            restoredDramaId = checkpoint.dramaId
+            restoredEpisodeIndex = checkpoint.episodeIndex
+            restoredPositionSeconds = checkpoint.positionSeconds
+        }
+    }
+
+    private fun clearBackgroundReturnCheckpoint() {
+        playbackHistory.edit()
+            .remove(APP_RETURN_ACTIVE_TAB_NAME)
+            .remove(APP_RETURN_PLAYER_RETURN_TAB_NAME)
+            .remove(APP_RETURN_PLAYER_VISIBLE)
+            .remove(APP_RETURN_DRAMA_ID)
+            .remove(APP_RETURN_EPISODE_INDEX)
+            .remove(APP_RETURN_POSITION_SECONDS)
+            .remove(APP_RETURN_TASKS_SCROLL_Y)
+            .remove(APP_RETURN_SAVED_AT_MILLIS)
+            .apply()
+    }
+
+    /** Writes the only durable record needed to retry an already-completed rewarded action. */
+    internal fun createPendingRewardedSettlement(
+        placementId: String,
+        targetId: String?,
+        episodeIndex: Int?,
+    ): PendingRewardedSettlement {
+        val checkpoint = PendingRewardedSettlement(
+            eventId = "topon-${UUID.randomUUID()}",
+            userId = anonymousInstallationId(),
+            placementId = placementId,
+            targetId = targetId?.takeIf(String::isNotBlank),
+            episodeIndex = episodeIndex,
+            savedAtMillis = System.currentTimeMillis(),
+        )
+        playbackHistory.edit()
+            .putString(PENDING_REWARDED_EVENT_ID, checkpoint.eventId)
+            .putString(PENDING_REWARDED_USER_ID, checkpoint.userId)
+            .putString(PENDING_REWARDED_PLACEMENT_ID, checkpoint.placementId)
+            .putString(PENDING_REWARDED_TARGET_ID, checkpoint.targetId)
+            .putInt(PENDING_REWARDED_EPISODE_INDEX, checkpoint.episodeIndex ?: -1)
+            .putLong(PENDING_REWARDED_SAVED_AT_MILLIS, checkpoint.savedAtMillis)
+            .commit()
+        return checkpoint
+    }
+
+    internal fun readPendingRewardedSettlement(): PendingRewardedSettlement? {
+        val storedEpisodeIndex = playbackHistory.getInt(PENDING_REWARDED_EPISODE_INDEX, -1)
+        val checkpoint = PendingRewardedSettlement(
+            eventId = playbackHistory.getString(PENDING_REWARDED_EVENT_ID, null).orEmpty(),
+            userId = playbackHistory.getString(PENDING_REWARDED_USER_ID, null).orEmpty(),
+            placementId = playbackHistory.getString(PENDING_REWARDED_PLACEMENT_ID, null).orEmpty(),
+            targetId = playbackHistory.getString(PENDING_REWARDED_TARGET_ID, null)?.takeIf(String::isNotBlank),
+            episodeIndex = storedEpisodeIndex.takeIf { it > 0 },
+            savedAtMillis = playbackHistory.getLong(PENDING_REWARDED_SAVED_AT_MILLIS, 0L),
+        )
+        return checkpoint.takeIf { it.isFresh(System.currentTimeMillis()) }.also {
+            if (it == null) clearPendingRewardedSettlement()
+        }
+    }
+
+    internal fun clearPendingRewardedSettlement(eventId: String? = null) {
+        if (eventId != null && playbackHistory.getString(PENDING_REWARDED_EVENT_ID, null) != eventId) return
+        playbackHistory.edit()
+            .remove(PENDING_REWARDED_EVENT_ID)
+            .remove(PENDING_REWARDED_USER_ID)
+            .remove(PENDING_REWARDED_PLACEMENT_ID)
+            .remove(PENDING_REWARDED_TARGET_ID)
+            .remove(PENDING_REWARDED_EPISODE_INDEX)
+            .remove(PENDING_REWARDED_SAVED_AT_MILLIS)
             .apply()
     }
 

@@ -191,6 +191,7 @@ class TopOnAdsManager(
         logicalPlacement: String = "rewarded",
         onWillShow: () -> Unit = {},
         onAdClicked: () -> Unit = {},
+        onRewardVerified: () -> Unit = {},
         onResult: (RewardedResult) -> Unit,
     ) {
         adNetworkAudit.recordConfiguration(settings)
@@ -231,7 +232,7 @@ class TopOnAdsManager(
 
         initialize { init ->
             when (init) {
-                Initialization.Ready -> loadAndShowRewarded(activity, logicalPlacement, onWillShow, onAdClicked, ::deliver)
+                Initialization.Ready -> loadAndShowRewarded(activity, logicalPlacement, onWillShow, onAdClicked, onRewardVerified, ::deliver)
                 Initialization.NotConfigured -> deliver(RewardedResult.Unavailable("尚未配置 TopOn 广告参数"))
                 is Initialization.Failed -> deliver(RewardedResult.Failed(init.code, init.message))
             }
@@ -370,7 +371,8 @@ class TopOnAdsManager(
                             auditAdInfo("SHOWN", "splash", settings.splashPlacementId, "splash", entity, "DISPLAYED")
                             splashPolicy.recordShown()
                             globalFullscreenPolicy.recordShown()
-                            analytics.reportTopOnImpression("splash", settings.splashPlacementId, entity)
+                            // Splash is intentionally excluded from all external reporting.
+                            // Keep only the local audit record above for on-device troubleshooting.
                         }
 
                         override fun onAdClick(entity: ATAdInfo) = Unit
@@ -385,7 +387,8 @@ class TopOnAdsManager(
 
                         override fun onDownloadConfirm(context: Context, adInfo: ATAdInfo, networkConfirmInfo: ATNetworkConfirmInfo) = Unit
                     }, SPLASH_TIMEOUT_MS)
-                    splash!!.setAdRevenueListener(TopOnRevenueListener("splash", settings.splashPlacementId, "splash", analytics, adNetworkAudit, adMediationReporter))
+                    // Do not attach TopOnRevenueListener for Splash: it would send paid-impression
+                    // revenue to AppsFlyer, Firebase, PSSDK and the operations reconciliation flow.
                     // Required sequence: entryAdScenario(Default) -> isAdReady -> show; load only
                     // when this initial Ready check is false. New SDK instances are commonly empty,
                     // but the check remains explicit for a uniform, auditable integration path.
@@ -572,6 +575,7 @@ class TopOnAdsManager(
         logicalPlacement: String,
         onWillShow: () -> Unit,
         onAdClicked: () -> Unit,
+        onRewardVerified: () -> Unit,
         deliver: (RewardedResult) -> Unit,
     ) {
         recordRewardedScenarioArrival()
@@ -668,11 +672,16 @@ class TopOnAdsManager(
             }
 
             override fun onReward(entity: ATAdInfo) {
+                if (rewardState == RewardState.REWARDED) return
                 rewardState = RewardState.REWARDED
                 latestInfo = entity
                 Log.i(TAG, "Rewarded completed: ${entity.adNetworkType}/${entity.adsourceId}")
                 auditAdInfo("REWARD_COMPLETED", logicalPlacement, settings.rewardedPlacementId, "rewarded", entity, "COMPLETED")
                 analytics.reportRewardedCompleted(logicalPlacement, settings.rewardedPlacementId, latestInfo)
+                // A creative can immediately send the user to Google Play and skip its normal
+                // close callback. This is the authoritative TopOn completion signal, so notify
+                // the app to persist and begin the idempotent server settlement now.
+                onRewardVerified()
             }
 
             override fun onRewardFailed(entity: ATAdInfo) {
@@ -797,7 +806,9 @@ class TopOnAdsManager(
             revenue = if (event == "SHOWN") AdRevenueAuditValues.fromPaidImpression(adInfo.currency, adInfo.ecpm) else AdRevenueAuditValues(),
             detail = sourceDetail,
         )
-        if (event == "SHOWN") {
+        if (event == "SHOWN" && adFormat != "splash") {
+            // Splash display events remain in the local audit only; they must not enter the
+            // Rewards operations reconciliation queue or any external analytics pipeline.
             adMediationReporter?.recordShown(logicalPlacement, topOnPlacementId, adFormat, adInfo)
         }
     }

@@ -28,11 +28,13 @@
             android:name=".presentation.DramaAppActivity"
             android:exported="false"
             android:launchMode="singleTask"
+            android:alwaysRetainTaskState="true"
             android:theme="@style/Theme.DramaFlow"
             android:configChanges="orientation|screenSize|keyboardHidden" />
         <activity
             android:name=".launcher.LauncherActivity"
             android:exported="true"
+            android:alwaysRetainTaskState="true"
             android:screenOrientation="portrait">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

@@ -91,6 +91,7 @@ internal fun DramaAppActivity.refreshRewardsSnapshot() {
                     updateStartupProgress(computeStartupProgress(), t("startup_content_ready"))
                 }
                 applyRewardsSnapshot(snapshot)
+                retryPendingRewardedSettlement()
                 if (!startupContentInitializationStarted) completeStartupWhenReady()
                 else showStartupCheckinWhenReady()
             }

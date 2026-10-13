@@ -68,8 +68,8 @@ import kotlin.random.Random
 
 internal fun DramaAppActivity.beginStartupExperience() {
         if (startupContentInitializationStarted) return
-        startupCheckinPromptRequested = true
-        startupCheckinPromptShown = false
+        startupCheckinPromptRequested = !restoringBackgroundReturn
+        startupCheckinPromptShown = restoringBackgroundReturn
         startupAdFinished = false
         startupCatalogFinished = false
         startupCatalogFailure = null
@@ -107,9 +107,9 @@ internal fun DramaAppActivity.beginStartupExperience() {
 
 /**
  * A store/browser click can kill the process while a TopOn full-screen creative is active. When
- * the launcher route recreates the Activity, restore only the provider catalogue and the saved
- * player checkpoint; do not replay app-open, reward onboarding, cover preloading, or the normal
- * startup screen sequence.
+ * the launcher route recreates the Activity, restore the provider catalogue plus the captured
+ * player or tab surface; do not replay app-open, reward onboarding, cover preloading, or the
+ * normal startup screen sequence.
  */
 internal fun DramaAppActivity.resumeFromExternalAdReturn() {
     if (!restoringExternalAdReturn) {
@@ -161,6 +161,10 @@ internal fun DramaAppActivity.maybeShowAppOpenAd() {
         appOpenAttempted = true
         if (restoringExternalAdReturn) {
             finishStartupAfterAppOpen("external_ad_return")
+            return
+        }
+        if (restoringBackgroundReturn) {
+            finishStartupAfterAppOpen("background_state_return")
             return
         }
         if (consentStore.read() != AdConsent.GRANTED) {
@@ -241,8 +245,9 @@ private fun DramaAppActivity.preloadShortDramaSdkCatalog() {
                 updateStartupProgress(30, t("startup_content_ready"))
                 if (restoreExternalAdReturnPlayerIfPossible()) return@runOnUiThread
                 if (restoringExternalAdReturn) {
-                    // Non-player ad click-out: return to a neutral catalog surface without
-                    // replaying app-open, welcome or check-in onboarding on this session.
+                    // Non-player ad click-out: activeTab and Rewards scroll position were
+                    // captured with the click, so return to that exact surface without replaying
+                    // app-open, welcome or check-in onboarding on this session.
                     restoringExternalAdReturn = false
                     clearExternalAdReturnCheckpoint()
                 }
@@ -424,13 +429,15 @@ internal fun DramaAppActivity.completeStartupWhenReady() {
                 restorePlayerAfterCatalog = false
                 clearExternalAdReturnCheckpoint()
                 restoringExternalAdReturn = false
+                restoringBackgroundReturn = false
                 showPlayer(drama, restoredEpisodeIndex, restoredPositionSeconds)
                 return
             }
             restorePlayerAfterCatalog = false
         }
         renderActiveTab()
-        showStartupCheckinWhenReady()
+        if (!restoringBackgroundReturn) showStartupCheckinWhenReady()
+        restoringBackgroundReturn = false
     }
 
 private const val MAX_SHORT_DRAMA_RETRY_ATTEMPTS = 3

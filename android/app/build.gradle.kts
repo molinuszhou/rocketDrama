@@ -145,8 +145,8 @@ android {
         minSdk = 26
         targetSdk = 36
         // Android 客户端每次代码改动递增补丁版本；服务端/文档单独改动不变更此版本。
-        versionCode = 88
-        versionName = "1.7.2.1"
+        versionCode = 92
+        versionName = "1.7.2.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -236,25 +236,31 @@ dependencies {
     // interstitial, rewarded and splash APIs; adding the older standalone format AARs would
     // create duplicate classes during release dexing.
     implementation("com.anythink.sdk:core-tpn:6.5.73.3")
+    // TopOn direct demand: AdMob, Unity Ads, Pangle, TaurusX, Kwai, Liftoff/Vungle,
+    // Mintegral and TopOn ADX. Keep shared AdMob, Unity, Pangle, Vungle and Mintegral SDK
+    // versions aligned with MAX below; direct adapters are packaged now so those networks can be
+    // enabled in the TopOn console without another client release.
     implementation("com.anythink.sdk:adapter-tpn-sdm:6.5.68.1.1")
     implementation("com.smartdigimkttech.sdk:smartdigimkttech-sdk:6.5.68")
-    implementation("com.anythink.sdk:adapter-tpn-admob:6.5.36")
-    implementation("com.google.android.gms:play-services-ads:24.6.0")
+    implementation("com.anythink.sdk:adapter-tpn-admob:6.5.40")
+    implementation("com.anythink.sdk:adapter-tpn-unityads:4.20.0.1.0")
+    implementation("com.anythink.sdk:adapter-tpn-pangle:8.1.0.3.1.0")
+    implementation("com.anythink.sdk:adapter-tpn-taurusx:1.18.4.1.0")
+    implementation("com.anythink.sdk:adapter-tpn-kwai:1.2.26.1.0")
+    implementation("com.anythink.sdk:adapter-tpn-vungle:7.7.7.1.0")
+    implementation("com.anythink.sdk:adapter-tpn-mintegral:17.1.71.1.0")
 
-    // MAX is configured as a Custom Network inside TopOn. The Alex adapter bridges TopOn requests
-    // to MAX, while these MAX adapters bring the SDKs for the enabled MAX demand partners.
-    // MAX's AppLovin SDK key and each MAX ad-unit ID remain TopOn dashboard server extras; no MAX
-    // credential is embedded in the client. MAX does not provide the Splash format in this bridge.
+    // Full production matrix: MAX is a TopOn Custom Network ad source and retains its bridge.
+    // MAX's network SDKs/adapters below are also shared by TopOn's direct source adapters.
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.browser:browser:1.8.0")
     implementation("com.applovin:applovin-sdk:13.6.0")
     implementation("io.github.alex-only:max_adapter_tpn:1.3.1")
     implementation("com.applovin.mediation:google-adapter:24.6.0.0")
-    implementation("com.applovin.mediation:vungle-adapter:7.7.8.1")
-    implementation("com.applovin.mediation:facebook-adapter:6.20.0.0")
-    implementation("com.applovin.mediation:bytedance-adapter:8.3.0.4.1")
+    implementation("com.applovin.mediation:bytedance-adapter:8.1.0.3.0")
+    implementation("com.applovin.mediation:vungle-adapter:7.7.7.1")
     implementation("com.applovin.mediation:unityads-adapter:4.20.1.0")
-    implementation("com.applovin.mediation:mintegral-adapter:17.1.81.0")
+    implementation("com.applovin.mediation:mintegral-adapter:17.1.71.0")
 
     // Attribution and analytics.
     implementation("com.appsflyer:af-android-sdk:6.17.5")

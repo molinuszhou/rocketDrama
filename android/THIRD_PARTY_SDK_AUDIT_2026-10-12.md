@@ -2,7 +2,7 @@
 
 **审计日期：** 2026-10-12
 **适用客户端：** JoyeDrama Android `com.feather.joyelledrama`
-**代码基线：** `release/formal-production`，版本 `1.7.2.1 (88)`
+**代码基线：** `release/formal-production`，版本 `1.7.2.5 (92)`
 **本次不包含：** APK/AAB 编译、签名或服务器部署。
 
 ## 已完成的代码整改
@@ -30,7 +30,7 @@ TopOn 的广告场景接口已按官方顺序接入：
 
 ### TopOn：收入字段
 
-TopOn 的 `onAdRevenuePaid()` 已改为以 `ATAdInfo.publisherRevenue` 作为单次展示收入，而非自行按 eCPM 除以 1,000 推算。eCPM 仍会保留在本地审计记录和炫羽协议参数中；`publisherRevenue` 用于 Firebase、AppsFlyer 和 PSSDK 的实际展示收入回传。
+TopOn 的 `onAdRevenuePaid()` 以 `ATAdInfo.publisherRevenue` 作为单次展示收入，而非自行按 eCPM 除以 1,000 推算。eCPM 仍会保留在本地审计记录和炫羽协议参数中；**仅激励和插屏**的 `publisherRevenue` 用于 Firebase、AppsFlyer 和 PSSDK 的实际展示收入回传。开屏不绑定收入监听器，也不发送任何外部展示或收入事件。
 
 ### PSSDK：播放服务可用性门控
 
@@ -49,12 +49,12 @@ AppsFlyer 已完成以下整改：
 - `start()` 使用 `AppsFlyerRequestListener`，本地审计能区分“已发起”与启动请求返回 HTTP 200；不再把启动调用本身直接写成成功。
 - 移除了 Release 普通日志中的 AppsFlyer UID，避免安装标识暴露在生产 Logcat。
 - 已确认 `Non-organic` 的 B 面后，后续空归因、缺字段或 Organic 回调不会把用户降级回 A 面。
-- SDK `6.17.5` 的每次真实展示收入新增调用官方 `AppsFlyerLib.logAdRevenue(AFAdRevenueData, additionalParameters)`，中介类型为 `TOPON`。
+- SDK `6.17.5` 的激励和插屏每次真实展示收入调用官方 `AppsFlyerLib.logAdRevenue(AFAdRevenueData, additionalParameters)`，中介类型为 `TOPON`；开屏明确不调用该 API 或 AppsFlyer 自定义收入事件。
 - 现有合作方要求的 `ad_impression` 与 `ad_impression_001` 自定义事件继续保留，不改变既有外部核对口径；只有 USD 才参与原有美元累计阈值，非 USD 不会伪造汇率，但仍会通过官方 IAA API 上报原始 ISO 货币与实际展示收入。
 
 ### Firebase：实际展示收入
 
-Firebase 标准 `ad_impression` 现在使用 TopOn paid-impression 的：
+激励和插屏的 Firebase 标准 `ad_impression` 使用 TopOn paid-impression 的：
 
 - `publisherRevenue` 作为 `value`；
 - TopOn 返回的 ISO-4217 货币作为 `currency`；
@@ -70,6 +70,7 @@ Firebase 标准 `ad_impression` 现在使用 TopOn paid-impression 的：
 - 非有限值或负 eCPM 不上报。
 - 仅网络异常和 5xx 执行有限重试；4xx 不再无意义重试。
 - 仍保持异步、非阻塞行为，炫羽失败不会影响广告展示、奖励结算或播放器恢复。
+- 开屏不调用炫羽展示上报，也不写入 Rewards 运营账本的展示队列。
 
 ## TopOn 场景策略
 
@@ -84,6 +85,12 @@ Firebase 标准 `ad_impression` 现在使用 TopOn paid-impression 的：
 ### MAX Custom Network
 
 代码没有嵌入 MAX SDK Key 或 MAX Ad Unit ID，符合“控制台/受控配置管理”的边界。当前 `io.github.alex-only:max_adapter_tpn:1.3.1`、MAX SDK `13.6.0` 与 TopOn Core `6.5.73.3` 的组合尚缺公开的三方兼容矩阵证据。上线前仍应向 TopOn、MAX 或该 Adapter 供应方确认：Adapter 版本兼容性、初始化责任、控制台字段映射与 R8 consumer rules。
+
+**2026-10-13 双层聚合更新：**TopOn 后台广告源固定为 AdMob、Unity Ads、Pangle、TaurusX、Kwai、Liftoff/Vungle、Mintegral、TopOn ADX 和 MAX；TopOn 原生 AdMob `6.5.40`、Unity Ads `4.20.0.1.0` adapter 已随客户端打包，因此后续在 TopOn 后台启用这两个广告源不需要再次发包。MAX 的 Google adapter 维持 `24.6.0.0`，Unity adapter 为 `4.20.1.0`，使两层运行时分别使用当前 Kotlin 2.0 可编译的 AdMob `24.6` 和 Unity `4.20.1` SDK。AdMob `25.4` 需要 Kotlin metadata 2.3，超出本项目当前 Kotlin 2.0 编译器兼容范围，不能在不升级构建工具链的情况下接入。其中 MAX 以 TopOn Custom Network 广告源的形式直接加入 TopOn 的 waterfall/bidding 策略，并在其内部固定为 AdMob、Pangle、Liftoff/Vungle、Unity、Mintegral。Pangle、Liftoff/Vungle、Mintegral 的两层 adapter 均锁定到同一底层 SDK 版本；MAX Meta adapter 已移除。仍需在 TopOn 与 MAX 后台分别完成相应广告源、账号、广告位、格式和地域策略的配置。
+
+**2026-10-13 完整广告矩阵恢复：**客户端 `1.7.2.5 (versionCode 92)` 已重新加入 `io.github.alex-only:max_adapter_tpn:1.3.1`，恢复 TopOn→MAX Custom Network 广告源；并已移除仅用于 v91 测试的 TopOn ADX `network_firm_id=66` 客户端过滤。正式包再次允许 TopOn 在后台策略中调度 AdMob、Unity Ads、Pangle、TaurusX、Kwai、Liftoff/Vungle、Mintegral、TopOn ADX 和 MAX。
+
+**2026-10-13 后台状态恢复：**v92 在 `onStop` 同步持久化当前顶层页签、奖励页滚动位置，以及可恢复播放的剧集、分集和进度；进程因内存压力被系统回收后，目录就绪即恢复这些轻量状态，并跳过开屏广告和启动签到弹窗。Manifest 为任务根 Activity 启用 `alwaysRetainTaskState`，避免系统按长期后台任务重置导航栈。该设计恢复状态而不使用前台常驻服务或非合规保活手段。
 
 ### 隐私同意与数据收集
 
@@ -109,9 +116,9 @@ Firebase 标准 `ad_impression` 现在使用 TopOn paid-impression 的：
 3. 插屏不可用时确认恢复播放且不重复弹出广告。
 4. 连续执行“激励失败 → 插屏展示/关闭 → 恢复 PSSDK 锁集”路径，确认不会递归、不会闪退、不会重复结算。
 5. PSSDK 在受支持地区与不受支持地区分别测试：前者能打开播放器；后者保留目录并给出可重试提示，而非空黑页。
-6. AppsFlyer 验证 `logAdRevenue` 的收入数据，同时核对原有 `ad_impression` / `ad_impression_001` 自定义事件未中断。
-7. Firebase 使用 DebugView、Realtime 和 BigQuery 抽样验证 `ad_impression` 的 `value`、`currency`、广告源和重复率。
-8. 核对炫羽只请求 `api.eventtrack.top`，HTTP 4xx 不重试，网络错误最多有限重试。
+6. AppsFlyer 仅用激励、插屏验证 `logAdRevenue` 的收入数据及原有 `ad_impression` / `ad_impression_001` 自定义事件；开屏不应出现相关记录。
+7. Firebase 仅用激励、插屏通过 DebugView、Realtime 和 BigQuery 抽样验证 `ad_impression` 的 `value`、`currency`、广告源和重复率；开屏不应出现相关记录。
+8. 核对炫羽只请求 `api.eventtrack.top`，HTTP 4xx 不重试，网络错误最多有限重试；开屏不应产生请求。
 
 ## 参考资料
 

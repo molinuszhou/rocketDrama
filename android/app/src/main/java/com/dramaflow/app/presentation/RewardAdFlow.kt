@@ -79,6 +79,11 @@ internal fun DramaAppActivity.requestRewardedAction(
         fallbackToInterstitialWhenUnavailable: Boolean = true,
         deferCashAnimation: Boolean = true,
     ) {
+        if (readPendingRewardedSettlement() != null) {
+            retryPendingRewardedSettlement()
+            toast(t("reward_settlement_pending"))
+            return
+        }
         if (fullscreenAdInProgress || fullscreenAdRequestInFlight || rewardSettlementInFlight) { toast(t("ad_loading")); return }
         when (consentStore.read()) {
             AdConsent.DECLINED -> { toast(t("enable_ads_to_continue")); return }
@@ -101,6 +106,7 @@ internal fun DramaAppActivity.requestRewardedAction(
         }
         fullscreenAdRequestInFlight = true
         var rewardedWasPresented = false
+        var rewardSettlementStarted = false
         val wasPlayingBeforeRewarded = wasPlaybackActiveForAd()
         // Full-screen ad loading is modal: pause the episode and prevent duplicate interaction
         // while mediation resolves its waterfall, then resume if no creative becomes available.
@@ -108,6 +114,41 @@ internal fun DramaAppActivity.requestRewardedAction(
         pauseForFullscreenAd()
         resumeAfterFullscreenAd = wasPlayingBeforeRewarded
         showFullscreenAdLoadingOverlay()
+        fun settleVerifiedReward() {
+            if (rewardSettlementStarted) return
+            rewardSettlementStarted = true
+            val checkpoint = createPendingRewardedSettlement(placementId, targetId, episodeIndex)
+            rewardSettlementInFlight = true
+            rewardsApi.completeRewarded(
+                userId = checkpoint.userId,
+                placementId = checkpoint.placementId,
+                targetId = checkpoint.targetId,
+                episodeIndex = checkpoint.episodeIndex,
+                proof = "",
+                adEventId = checkpoint.eventId,
+                onSuccess = { action -> runOnUiThread {
+                    clearPendingRewardedSettlement(checkpoint.eventId)
+                    fullscreenAdInProgress = false
+                    rewardSettlementInFlight = false
+                    playbackInterstitialShownAtElapsedMillis.clear()
+                    playbackInterstitialShownAtElapsedMillis.add(SystemClock.elapsedRealtime())
+                    handleSettledRewardAction(action, onSettled, deferCashAnimation)
+                } },
+                onFailure = { message -> runOnUiThread {
+                    // Preserve the checkpoint and event ID. A later bootstrap can retry exactly
+                    // this completion without granting the same reward twice on the server.
+                    if (deferCashAnimation) deferNextCashFlight = false
+                    fullscreenAdInProgress = false
+                    rewardSettlementInFlight = false
+                    if (onSettlementUnavailable != null) onSettlementUnavailable.invoke(message) else {
+                        episodeTransitionInProgress = false
+                        resumeAfterFullscreenAdIfNeeded()
+                        toast(t("reward_settlement_pending"))
+                        logStatus("广告奖励同步待重试：$message")
+                    }
+                } },
+            )
+        }
         topOnAds.showRewarded(
             activity = this,
             logicalPlacement = placementId,
@@ -118,6 +159,7 @@ internal fun DramaAppActivity.requestRewardedAction(
                 runOnUiThread { hideFullscreenAdLoadingOverlay() }
             },
             onAdClicked = ::markExternalAdReturnCheckpoint,
+            onRewardVerified = { runOnUiThread { settleVerifiedReward() } },
         ) { result -> runOnUiThread {
             fullscreenAdRequestInFlight = false
             hideFullscreenAdLoadingOverlay()
@@ -125,27 +167,9 @@ internal fun DramaAppActivity.requestRewardedAction(
                 TopOnAdsManager.RewardedResult.RewardEarned -> {
                     fullscreenAdInProgress = false
                     if (rewardedWasPresented && wasPlayingBeforeRewarded) { resumeAfterFullscreenAd = true; resumeAfterFullscreenAdIfNeeded() }
-                    rewardSettlementInFlight = true
-                    rewardsApi.completeRewarded(
-                        userId = anonymousInstallationId(), placementId = placementId, targetId = targetId,
-                        episodeIndex = episodeIndex, proof = "",
-                        onSuccess = { action -> runOnUiThread {
-                            fullscreenAdInProgress = false
-                            rewardSettlementInFlight = false
-                            playbackInterstitialShownAtElapsedMillis.clear()
-                            playbackInterstitialShownAtElapsedMillis.add(SystemClock.elapsedRealtime())
-                            handleSettledRewardAction(action, onSettled, deferCashAnimation)
-                        } },
-                        onFailure = { message -> runOnUiThread {
-                            if (deferCashAnimation) deferNextCashFlight = false
-                            fullscreenAdInProgress = false
-                            rewardSettlementInFlight = false
-                            if (onSettlementUnavailable != null) onSettlementUnavailable.invoke(message) else {
-                                episodeTransitionInProgress = false; resumeAfterFullscreenAdIfNeeded()
-                                toast(t("reward_settlement_pending")); logStatus("广告奖励同步失败：$message")
-                            }
-                        } },
-                    )
+                    // Normal paths also reach this close callback. If the click-out removed it,
+                    // onRewardVerified already created the durable settlement above.
+                    settleVerifiedReward()
                 }
                 TopOnAdsManager.RewardedResult.Cancelled -> {
                     if (deferCashAnimation) deferNextCashFlight = false
@@ -174,6 +198,33 @@ internal fun DramaAppActivity.requestRewardedAction(
             }
         } }
     }
+
+/** Replays a reward completion that TopOn confirmed before an external store/browser hand-off. */
+internal fun DramaAppActivity.retryPendingRewardedSettlement() {
+    val checkpoint = readPendingRewardedSettlement() ?: return
+    if (!rewardsApi.isConfigured || rewardSettlementInFlight) return
+    rewardSettlementInFlight = true
+    logStatus("重试已完成广告奖励结算：${checkpoint.placementId}")
+    rewardsApi.completeRewarded(
+        userId = checkpoint.userId,
+        placementId = checkpoint.placementId,
+        targetId = checkpoint.targetId,
+        episodeIndex = checkpoint.episodeIndex,
+        proof = "",
+        adEventId = checkpoint.eventId,
+        onSuccess = { action -> runOnUiThread {
+            clearPendingRewardedSettlement(checkpoint.eventId)
+            rewardSettlementInFlight = false
+            playbackInterstitialShownAtElapsedMillis.clear()
+            playbackInterstitialShownAtElapsedMillis.add(SystemClock.elapsedRealtime())
+            handleSettledRewardAction(action, onSettled = null)
+        } },
+        onFailure = { message -> runOnUiThread {
+            rewardSettlementInFlight = false
+            logStatus("广告奖励重试仍未完成：$message")
+        } },
+    )
+}
 
 /** Organic A surface: a shown incentive interstitial, not a rewarded creative, settles the action once. */
 internal fun DramaAppActivity.requestOrganicInterstitialIncentive(
