@@ -765,7 +765,25 @@ internal fun DramaAppActivity.createHistoryRow(drama: LocalDrama): View = Linear
         isClickable = true
         setOnClickListener { showPlayer(drama, resumeEpisode, resumeSecond) }
         addView(ImageView(this@createHistoryRow).apply { scaleType = ImageView.ScaleType.CENTER_CROP; background = posterFallbackDrawable(); load(drama.coverImage) { placeholder(posterFallbackDrawable()); error(posterFallbackDrawable()) } }, LinearLayout.LayoutParams(dp(48), dp(64)))
-        addView(TextView(this@createHistoryRow).apply { text = "${drama.title}\n${t("watch_progress", resumeEpisode + 1, formatPlaybackTime(resumeSecond))}"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY); maxLines = 2; setPadding(dp(12), 0, dp(8), 0) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        addView(LinearLayout(this@createHistoryRow).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(TextView(this@createHistoryRow).apply {
+                text = drama.title.ifBlank { t("drama_fallback") }
+                textSize = 15f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(COLOR_TEXT_PRIMARY)
+                maxLines = 2
+            })
+            addView(TextView(this@createHistoryRow).apply {
+                text = t("watch_progress", resumeEpisode + 1, formatPlaybackTime(resumeSecond))
+                textSize = 12f
+                setTextColor(COLOR_TEXT_MUTED)
+                setPadding(0, dp(4), 0, 0)
+            })
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+            marginStart = dp(12)
+            marginEnd = dp(8)
+        })
         addView(TextView(this@createHistoryRow).apply { text = "${t("continue_label")} ›"; textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE) })
     }
 
