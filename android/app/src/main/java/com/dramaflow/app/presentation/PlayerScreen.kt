@@ -69,6 +69,9 @@ import java.util.UUID
 import kotlin.random.Random
 
 internal const val MIDROLL_MAX_UNAVAILABLE_ATTEMPTS = 2
+private const val PERSISTED_DRAMA_RESTORE_FIRST_SEARCH_PAGE = 1
+private const val PERSISTED_DRAMA_RESTORE_SEARCH_PAGE_SIZE = 50
+private const val PERSISTED_DRAMA_RESTORE_MAX_SEARCH_PAGES = 8
 
 internal fun DramaAppActivity.showPlayer(drama: LocalDrama, startIndex: Int, resumePositionSeconds: Int = 0) {
         val card = sdkDramaCardsByCatalogId[drama.id]
@@ -95,28 +98,43 @@ private fun DramaAppActivity.resolvePersistedDramaForPlayback(
         return
     }
     toast(t("loading_episode"))
-    shortDramaSdk.search(
-        keyword = drama.title,
-        pageSize = 50,
-        onSuccess = { cards -> runOnUiThread {
-            if (isFinishing || isDestroyed) return@runOnUiThread
-            val card = cards.firstOrNull { it.id == shortPlayId }
-            if (card == null) {
-                logStatus("历史剧集不在 PSSDK 搜索结果中：$shortPlayId")
-                toast(t("player_not_ready"))
-                return@runOnUiThread
-            }
-            val resolvedDrama = sdkCatalogDrama(card)
-            sdkDramaCardsByCatalogId[resolvedDrama.id] = card
-            saveDramaLibrarySnapshot(resolvedDrama)
-            showSdkDramaPlayer(resolvedDrama, card, startIndex, resumePositionSeconds)
-        } },
-        onFailure = { message -> runOnUiThread {
-            if (isFinishing || isDestroyed) return@runOnUiThread
-            logStatus("历史剧集卡片恢复失败：$shortPlayId $message")
-            toast(t("player_not_ready"))
-        } },
-    )
+    fun openResolvedCard(card: ShortDramaSdkManager.DramaCard) {
+        val resolvedDrama = sdkCatalogDrama(card)
+        sdkDramaCardsByCatalogId[resolvedDrama.id] = card
+        saveDramaLibrarySnapshot(resolvedDrama)
+        showSdkDramaPlayer(resolvedDrama, card, startIndex, resumePositionSeconds)
+    }
+    fun failResolution(reason: String) {
+        if (isFinishing || isDestroyed) return
+        logStatus("历史剧集卡片恢复失败：$shortPlayId $reason")
+        toast(t("player_not_ready"))
+    }
+    fun resolveSearchPage(page: Int) {
+        shortDramaSdk.searchPage(
+            keyword = drama.title,
+            page = page,
+            pageSize = PERSISTED_DRAMA_RESTORE_SEARCH_PAGE_SIZE,
+            onSuccess = { result -> runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                val card = result.cards.firstOrNull { it.id == shortPlayId }
+                if (card != null) {
+                    openResolvedCard(card)
+                    return@runOnUiThread
+                }
+                if (result.hasMore && page < PERSISTED_DRAMA_RESTORE_MAX_SEARCH_PAGES) {
+                    // PSSDK does not expose a public lookup-by-ID API. A persisted title may
+                    // rank beyond its first search page, especially when many shows share a name.
+                    resolveSearchPage(page + 1)
+                } else {
+                    failResolution("搜索 $page 页后未找到目标短剧")
+                }
+            } },
+            onFailure = { message -> runOnUiThread {
+                failResolution(message)
+            } },
+        )
+    }
+    resolveSearchPage(PERSISTED_DRAMA_RESTORE_FIRST_SEARCH_PAGE)
 }
 
 private fun DramaAppActivity.renderLegacyPlayer(drama: LocalDrama, startIndex: Int, resumePositionSeconds: Int = 0) {
