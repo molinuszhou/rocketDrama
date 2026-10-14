@@ -16,9 +16,21 @@ class PssdkEpisodeIndexMapperTest {
     }
 
     @Test
-    fun `keeps start play positions zero based and safely clamps invalid callback numbers`() {
-        assertEquals(0, PssdkEpisodeIndexMapper.localPositionToStartPlayIndex(-5))
-        assertEquals(4, PssdkEpisodeIndexMapper.localPositionToStartPlayIndex(4))
+    fun `maps local zero based positions to one based PSSDK start episode numbers`() {
+        assertEquals(1, PssdkEpisodeIndexMapper.localPositionToStartPlayIndex(-5))
+        assertEquals(1, PssdkEpisodeIndexMapper.localPositionToStartPlayIndex(0))
+        assertEquals(5, PssdkEpisodeIndexMapper.localPositionToStartPlayIndex(4))
+    }
+
+    @Test
+    fun `round trips the fifth local episode through PSSDK one based numbering`() {
+        val providerEpisodeNumber = PssdkEpisodeIndexMapper.localPositionToStartPlayIndex(4)
+
+        assertEquals(4, PssdkEpisodeIndexMapper.callbackEpisodeNumberToLocalPosition(providerEpisodeNumber))
+    }
+
+    @Test
+    fun `safely clamps invalid callback episode numbers`() {
         assertEquals(0, PssdkEpisodeIndexMapper.callbackEpisodeNumberToLocalPosition(0))
     }
 }
