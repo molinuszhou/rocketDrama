@@ -311,7 +311,6 @@ class TopOnAdsManager(
         initialize { init ->
             when (init) {
                 Initialization.Ready -> {
-                    recordSplashScenarioArrival()
                     auditEvent("SCENARIO_REACHED", "splash", settings.splashPlacementId, "splash", result = "ENTERED", detail = DEFAULT_SCENARIO_DETAIL)
                     var splash: ATSplashAd? = null
                     var host: FrameLayout? = null
@@ -377,6 +376,12 @@ class TopOnAdsManager(
 
                         override fun onAdClick(entity: ATAdInfo) = Unit
 
+                        // v6.6.21 makes this callback mandatory. Splash never drives rewards in
+                        // JoyeDrama, so retain only a local audit trail and no external reporting.
+                        override fun onSplashAdReward(entity: ATAdInfo) {
+                            auditAdInfo("REWARD_CALLBACK", "splash", settings.splashPlacementId, "splash", entity, "IGNORED")
+                        }
+
                         override fun onAdDismiss(entity: ATAdInfo, splashAdExtraInfo: ATSplashAdExtraInfo) {
                             Log.i(TAG, "Splash dismissed")
                             auditAdInfo("CLOSED", "splash", settings.splashPlacementId, "splash", entity, "DISMISSED")
@@ -387,12 +392,15 @@ class TopOnAdsManager(
 
                         override fun onDownloadConfirm(context: Context, adInfo: ATAdInfo, networkConfirmInfo: ATNetworkConfirmInfo) = Unit
                     }, SPLASH_TIMEOUT_MS)
+                    recordSplashScenarioArrival(requireNotNull(splash))
                     // Do not attach TopOnRevenueListener for Splash: it would send paid-impression
                     // revenue to AppsFlyer, Firebase, PSSDK and the operations reconciliation flow.
                     // Required sequence: entryAdScenario(Default) -> isAdReady -> show; load only
                     // when this initial Ready check is false. New SDK instances are commonly empty,
                     // but the check remains explicit for a uniform, auditable integration path.
-                    if (!showSplashIfReady("before_load")) splash!!.loadAd()
+                    if (!showSplashIfReady("before_load")) {
+                        splash!!.loadAd()
+                    }
                 }
                 Initialization.NotConfigured -> deliver(FullscreenResult.Skipped("尚未配置 TopOn 广告参数"))
                 is Initialization.Failed -> deliver(FullscreenResult.Failed(init.code, init.message))
@@ -482,9 +490,9 @@ class TopOnAdsManager(
             if (requestExpired || delivered) return@initialize
             when (init) {
                 Initialization.Ready -> {
-                    recordInterstitialScenarioArrival()
                     auditEvent("SCENARIO_REACHED", logicalPlacement, settings.interstitialPlacementId, "interstitial", result = "ENTERED", detail = DEFAULT_SCENARIO_DETAIL)
                     val ad = ATInterstitial(applicationContext, settings.interstitialPlacementId)
+                    recordInterstitialScenarioArrival(ad)
                     ad.setAdRevenueListener(TopOnRevenueListener(logicalPlacement, settings.interstitialPlacementId, "interstitial", analytics, adNetworkAudit, adMediationReporter))
                     fun showInterstitialIfReady(source: String): Boolean {
                         if (requestExpired || delivered) return true
@@ -527,7 +535,7 @@ class TopOnAdsManager(
                         }
 
                         override fun onInterstitialAdClicked(entity: ATAdInfo) {
-                            onAdClicked()
+                            notifyAdClicked(onAdClicked)
                         }
 
                         override fun onInterstitialAdShow(entity: ATAdInfo) {
@@ -549,6 +557,10 @@ class TopOnAdsManager(
                             deliver(FullscreenResult.Shown)
                         }
 
+                        // v6.6.21 exposes rewards from reward-capable interstitial demand. This
+                        // product never grants business rewards from an interstitial callback.
+                        override fun onInterstitialAdReward(entity: ATAdInfo) = Unit
+
                         override fun onInterstitialAdVideoStart(entity: ATAdInfo) = Unit
                         override fun onInterstitialAdVideoEnd(entity: ATAdInfo) = Unit
                         override fun onInterstitialAdVideoError(adError: AdError) = Unit
@@ -557,7 +569,9 @@ class TopOnAdsManager(
                     })
                     // Required sequence: entryAdScenario(Default) -> isAdReady -> show; only
                     // request a new creative after an explicit initial NOT_READY result.
-                    if (!showInterstitialIfReady("before_load")) ad.load()
+                    if (!showInterstitialIfReady("before_load")) {
+                        ad.load()
+                    }
                 }
                 Initialization.NotConfigured -> deliver(FullscreenResult.Skipped("尚未配置 TopOn 广告参数"))
                 is Initialization.Failed -> deliver(FullscreenResult.Failed(init.code, init.message))
@@ -578,9 +592,9 @@ class TopOnAdsManager(
         onRewardVerified: () -> Unit,
         deliver: (RewardedResult) -> Unit,
     ) {
-        recordRewardedScenarioArrival()
         auditEvent("SCENARIO_REACHED", logicalPlacement, settings.rewardedPlacementId, "rewarded", result = "ENTERED", detail = DEFAULT_SCENARIO_DETAIL)
         val ad = ATRewardVideoAd(applicationContext, settings.rewardedPlacementId)
+        recordRewardedScenarioArrival(ad)
         var rewardState = RewardState.NOT_REWARDED
         var latestInfo: ATAdInfo? = null
         var requestExpired = false
@@ -668,7 +682,7 @@ class TopOnAdsManager(
             }
 
             override fun onRewardedVideoAdPlayClicked(entity: ATAdInfo) {
-                onAdClicked()
+                notifyAdClicked(onAdClicked)
             }
 
             override fun onReward(entity: ATAdInfo) {
@@ -768,6 +782,7 @@ class TopOnAdsManager(
 
     private fun restoreAppWindowAfterAd(activity: Activity) {
         val state = safeAdWindows.remove(activity) ?: return
+        if (activity.isFinishing || activity.isDestroyed) return
         val window: Window = activity.window ?: return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             window.attributes = window.attributes.apply { layoutInDisplayCutoutMode = state.cutoutMode }
@@ -841,21 +856,28 @@ class TopOnAdsManager(
 
     private fun errorCode(error: AdError): Int = error.code.toIntOrNull() ?: -1
 
+    /** An advertiser callback must never crash the mediation callback thread. */
+    private fun notifyAdClicked(callback: () -> Unit) {
+        runCatching(callback).onFailure { error ->
+            Log.w(TAG, "Ad click callback failed", error)
+        }
+    }
+
     /** Cooperation policy: every TopOn call is recorded and shown in the Default scenario. */
     private fun defaultScenarioShowConfig(): ATShowConfig = ATShowConfig.Builder()
         .scenarioId(null)
         .build()
 
-    private fun recordRewardedScenarioArrival() {
-        ATRewardVideoAd.entryAdScenario(settings.rewardedPlacementId, null)
+    private fun recordRewardedScenarioArrival(ad: ATRewardVideoAd) {
+        ad.entryAdScenario(null)
     }
 
-    private fun recordInterstitialScenarioArrival() {
-        ATInterstitial.entryAdScenario(settings.interstitialPlacementId, null)
+    private fun recordInterstitialScenarioArrival(ad: ATInterstitial) {
+        ad.entryAdScenario(null)
     }
 
-    private fun recordSplashScenarioArrival() {
-        ATSplashAd.entryAdScenario(settings.splashPlacementId, null)
+    private fun recordSplashScenarioArrival(ad: ATSplashAd) {
+        ad.entryAdScenario(null)
     }
 
     private class TopOnRevenueListener(

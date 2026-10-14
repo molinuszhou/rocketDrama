@@ -160,7 +160,7 @@ internal fun DramaAppActivity.requestRewardedAction(
             },
             onAdClicked = ::markExternalAdReturnCheckpoint,
             onRewardVerified = { runOnUiThread { settleVerifiedReward() } },
-        ) { result -> runOnUiThread {
+        ) { result -> runFullscreenResultWhenForeground {
             fullscreenAdRequestInFlight = false
             hideFullscreenAdLoadingOverlay()
             when (result) {
@@ -519,20 +519,14 @@ internal fun DramaAppActivity.resumeAfterFullscreenAdIfNeeded() {
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             resumeSdkPlaybackWhenForeground = false
         }
-        // A live Activity reaching this point received its normal ad-result callback.
-        // The durable checkpoint is therefore no longer needed and must not revive an old
-        // episode after a later cold launch.
-        if (!fullscreenAdInProgress && !fullscreenAdRequestInFlight && (playerShown || sdkPlayerShown)) {
-            clearExternalAdReturnCheckpoint()
-        }
         if (restoreImmersiveAfterFullscreenAd && !isFinishing && !isDestroyed && (playerShown || sdkPlayerShown)) {
             enterImmersivePlayerMode(announce = false)
         }
         restoreImmersiveAfterFullscreenAd = false
         resumeAfterFullscreenAd = false
-        // The host Activity survived the ad hand-off, so a later cold launch must not reopen this
-        // now-stale checkpoint instead of the user's normal catalog entry.
-        clearExternalAdReturnCheckpoint()
+        // Do not clear the external-click checkpoint here. Some mediation SDKs send the close
+        // callback before Google Play or a browser takes over; the checkpoint is cleared only
+        // after this Activity is demonstrably foregrounded again or its saved route is restored.
         if (!isFinishing && !isDestroyed) {
             if (playerShown || sdkPlayerShown) configurePlayerWindow() else configureCatalogWindow()
             root.post {
@@ -590,7 +584,7 @@ internal fun DramaAppActivity.showPlaybackActionInterstitial(
                 runOnUiThread { hideFullscreenAdLoadingOverlay() }
             },
             onAdClicked = ::markExternalAdReturnCheckpoint,
-        ) { result -> runOnUiThread {
+        ) { result -> runFullscreenResultWhenForeground {
             fullscreenAdRequestInFlight = false
             fullscreenAdInProgress = false
             hideFullscreenAdLoadingOverlay()

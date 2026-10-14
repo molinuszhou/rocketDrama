@@ -19,6 +19,7 @@ import com.bytedance.sdk.shortplay.api.PSSDK
 import com.bytedance.sdk.shortplay.api.ShortPlayFragment
 import com.ss.ttvideoengine.Resolution
 import com.dramaflow.app.R
+import com.dramaflow.app.content.PssdkEpisodeIndexMapper
 import com.dramaflow.app.content.ShortDramaSdkManager
 import com.dramaflow.app.local.LocalDrama
 
@@ -533,11 +534,11 @@ internal fun DramaAppActivity.playSdkEpisodeAt(index: Int) {
     if (needsUnlock(safeIndex)) {
         requestSdkEpisodeUnlock(safeIndex, object : PSSDK.ShortPlayBlockResultListener {
             override fun onShortPlayUnlocked() {
-                fragment.startPlayIndex(safeIndex)
+                fragment.startPlayIndex(PssdkEpisodeIndexMapper.localPositionToStartPlayIndex(safeIndex))
             }
         })
     } else {
-        fragment.startPlayIndex(safeIndex)
+        fragment.startPlayIndex(PssdkEpisodeIndexMapper.localPositionToStartPlayIndex(safeIndex))
     }
 }
 
@@ -614,7 +615,9 @@ private fun DramaAppActivity.onSdkPlaybackFailure(message: String): Boolean {
             primaryLabel = t("retry"),
             onPrimary = {
                 shortDramaSdk.checkPlaybackService { status -> runOnUiThread {
-                    if (status.supported) currentSdkPlayerFragment()?.startPlayIndex(currentEpisodeIndex)
+                    if (status.supported) currentSdkPlayerFragment()?.startPlayIndex(
+                        PssdkEpisodeIndexMapper.localPositionToStartPlayIndex(currentEpisodeIndex),
+                    )
                     else logStatus("PSSDK 重试前服务检查未通过：${status.reason}")
                 } }
             },

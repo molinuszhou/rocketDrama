@@ -384,7 +384,7 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
                 .hideLeftTopCloseAndTitle(true, object : PSSDK.ShortPlayDetailPageCloseListener {
                     override fun onCloseClicked(): Boolean { onClose(); return true }
                 })
-                .startPlayIndex(startEpisodeIndex.coerceAtLeast(0))
+                .startPlayIndex(PssdkEpisodeIndexMapper.localPositionToStartPlayIndex(startEpisodeIndex))
                 .startPlayAtTimeSeconds(startPositionSeconds.coerceAtLeast(0))
                 // The SDK preloads and advances naturally. Completion callbacks remain wired
                 // to JoyeDrama's reward ledger but must not race a second host-side transition.
@@ -408,25 +408,28 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
             object : PSSDK.ShortPlayDetailPageListener {
                 override fun onOverScroll(direction: Int) = onOverScroll(direction)
                 override fun onProgressChange(shortPlay: ShortPlay?, episodeIndex: Int, progress: Int, duration: Int) =
-                    onPlaybackProgress(episodeIndex, progress, duration)
+                    onPlaybackProgress(PssdkEpisodeIndexMapper.callbackEpisodeNumberToLocalPosition(episodeIndex), progress, duration)
                 override fun onPlayFailed(error: PSSDK.ErrorInfo?): Boolean =
                     onPlaybackFailure("${error?.code ?: -1} ${error?.msg.orEmpty()}")
                 override fun onShortPlayPlayed(shortPlay: ShortPlay?, episodeIndex: Int, episode: com.bytedance.sdk.shortplay.api.EpisodeData?) {
-                    onEpisodeStarted(episodeIndex, episode)
+                    onEpisodeStarted(PssdkEpisodeIndexMapper.callbackEpisodeNumberToLocalPosition(episodeIndex), episode)
                 }
-                override fun onItemSelected(position: Int, itemType: PSSDK.ShortPlayDetailPageListener.ItemType?, episodeIndex: Int) = onItemSelected(episodeIndex)
-                override fun onVideoPlayStateChanged(shortPlay: ShortPlay?, episodeIndex: Int, state: Int) = onPlaybackStateChanged(episodeIndex, state)
+                override fun onItemSelected(position: Int, itemType: PSSDK.ShortPlayDetailPageListener.ItemType?, episodeIndex: Int) =
+                    onItemSelected(PssdkEpisodeIndexMapper.callbackEpisodeNumberToLocalPosition(episodeIndex))
+                override fun onVideoPlayStateChanged(shortPlay: ShortPlay?, episodeIndex: Int, state: Int) =
+                    onPlaybackStateChanged(PssdkEpisodeIndexMapper.callbackEpisodeNumberToLocalPosition(episodeIndex), state)
                 override fun onVideoPlayCompleted(shortPlay: ShortPlay?, episodeIndex: Int) {
-                    onEpisodeCompleted(episodeIndex)
+                    onEpisodeCompleted(PssdkEpisodeIndexMapper.callbackEpisodeNumberToLocalPosition(episodeIndex))
                 }
                 override fun onEnterImmersiveMode() = onImmersiveChanged(true)
                 override fun onExitImmersiveMode() = onImmersiveChanged(false)
-                override fun isNeedBlock(shortPlay: ShortPlay?, episodeIndex: Int): Boolean = needsEpisodeUnlock(episodeIndex)
+                override fun isNeedBlock(shortPlay: ShortPlay?, episodeIndex: Int): Boolean =
+                    needsEpisodeUnlock(PssdkEpisodeIndexMapper.callbackEpisodeNumberToLocalPosition(episodeIndex))
                 override fun showAdIfNeed(shortPlay: ShortPlay?, episodeIndex: Int, listener: PSSDK.ShortPlayBlockResultListener?) {
-                    requestEpisodeUnlock(episodeIndex, listener)
+                    requestEpisodeUnlock(PssdkEpisodeIndexMapper.callbackEpisodeNumberToLocalPosition(episodeIndex), listener)
                 }
                 override fun onVideoInfoFetched(shortPlay: ShortPlay?, episodeIndex: Int, info: PSSDK.VideoPlayInfo?) {
-                    onVideoInfoFetched(episodeIndex, info?.toString().orEmpty())
+                    onVideoInfoFetched(PssdkEpisodeIndexMapper.callbackEpisodeNumberToLocalPosition(episodeIndex), info?.toString().orEmpty())
                 }
                 override fun onObtainPlayerControlViews(): MutableList<android.view.View> = mutableListOf()
             },

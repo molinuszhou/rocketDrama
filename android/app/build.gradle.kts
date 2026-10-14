@@ -145,8 +145,8 @@ android {
         minSdk = 26
         targetSdk = 36
         // Android 客户端每次代码改动递增补丁版本；服务端/文档单独改动不变更此版本。
-        versionCode = 93
-        versionName = "1.7.2.6"
+        versionCode = 97
+        versionName = "1.7.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -215,7 +215,11 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions { jvmTarget = "17" }
+    kotlin {
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        }
+    }
 
     buildFeatures { buildConfig = true }
     // This legacy project keeps shared Kotlin under src/main/java. Register the variant-only
@@ -232,17 +236,22 @@ dependencies {
     // Android 12+ system splash attributes referenced by the formal launcher theme.
     implementation("androidx.core:core-splashscreen:1.0.1")
 
-    // TopOn mediation core. In the current 6.5.73.3 distribution it already bundles the
+    // TopOn mediation core. v6.6.21 is the official recommended baseline for the current
+    // adapter bridge contract. It already bundles the
     // interstitial, rewarded and splash APIs; adding the older standalone format AARs would
     // create duplicate classes during release dexing.
-    implementation("com.anythink.sdk:core-tpn:6.5.73.3")
+    implementation("com.anythink.sdk:core-tpn:6.6.21")
     // TopOn direct demand: AdMob, Unity Ads, Pangle, TaurusX, Kwai, Liftoff/Vungle,
     // Mintegral and TopOn ADX. Keep shared AdMob, Unity, Pangle, Vungle and Mintegral SDK
     // versions aligned with MAX below; direct adapters are packaged now so those networks can be
     // enabled in the TopOn console without another client release.
     implementation("com.anythink.sdk:adapter-tpn-sdm:6.5.68.1.1")
     implementation("com.smartdigimkttech.sdk:smartdigimkttech-sdk:6.5.68")
-    implementation("com.anythink.sdk:adapter-tpn-admob:6.5.40")
+    // Adapter versions follow each network's SDK line rather than the Core version number.
+    // This 25.4 adapter implements the v6.6.21 bridge contract, including
+    // getAdapterBridgeVersion(), unlike the obsolete 6.5.36 adapter.
+    implementation("com.anythink.sdk:adapter-tpn-admob:25.4.0.1.1")
+    implementation("com.google.android.gms:play-services-ads:25.4.0")
     implementation("com.anythink.sdk:adapter-tpn-unityads:4.20.0.1.0")
     implementation("com.anythink.sdk:adapter-tpn-pangle:8.1.0.3.1.0")
     implementation("com.anythink.sdk:adapter-tpn-taurusx:1.18.4.1.0")
@@ -265,7 +274,8 @@ dependencies {
     implementation("androidx.browser:browser:1.8.0")
     implementation("com.applovin:applovin-sdk:13.6.0")
     implementation("io.github.alex-only:max_adapter_tpn:1.3.1")
-    implementation("com.applovin.mediation:google-adapter:24.6.0.0")
+    // Keep MAX's Google adapter on the same GMA line as TopOn's direct AdMob adapter.
+    implementation("com.applovin.mediation:google-adapter:25.4.0.0")
     implementation("com.applovin.mediation:bytedance-adapter:8.1.0.3.0")
     implementation("com.applovin.mediation:vungle-adapter:7.7.7.1")
     implementation("com.applovin.mediation:unityads-adapter:4.20.1.0")

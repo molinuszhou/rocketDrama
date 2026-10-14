@@ -269,6 +269,7 @@ internal fun DramaAppActivity.createProfileViewAllRow(title: String, onClick: ()
 /** Full-screen secondary list with the ordinary wallet header and bottom navigation retained. */
 internal fun DramaAppActivity.showProfileCollectionPage(showFavorites: Boolean) {
     profileCollectionPageShown = true
+    profileCollectionShowsFavorites = showFavorites
     withdrawalPageShown = false
     activeTab = MainTab.PROFILE
     configureCatalogWindow()
@@ -290,6 +291,7 @@ internal fun DramaAppActivity.showProfileCollectionPage(showFavorites: Boolean) 
             isClickable = true
             setOnClickListener {
                 profileCollectionPageShown = false
+                profileCollectionShowsFavorites = false
                 renderActiveTab()
             }
         }, LinearLayout.LayoutParams(dp(40), dp(40)))

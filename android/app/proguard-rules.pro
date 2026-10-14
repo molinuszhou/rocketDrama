@@ -5,6 +5,14 @@
 # used by the white-label mediation, revenue reporting and test debugger paths.
 -keep class com.secmtp.sdk.** { *; }
 -dontwarn com.secmtp.sdk.**
+
+# Pangle 8.1 and Kwai's optional device-security modules reference these symbols
+# from split/optional SDK artifacts. The tested ad request and display paths do
+# not invoke them; suppress only the three exact R8 missing-class warnings.
+-dontwarn com.bytedance.sdk.openadsdk.core.model.NetExtParams$RenderType
+-dontwarn com.bytedance.sdk.openadsdk.core.settings.TTSdkSettings$FETCH_REQUEST_SOURCE
+-dontwarn com.kwad.sdk.datacollection.KsSafetyPrivateDataController
+
 -keep class com.smartdigimkttech.sdk.** { *; }
 -dontwarn com.smartdigimkttech.sdk.**
 

@@ -245,11 +245,12 @@ private fun DramaAppActivity.preloadShortDramaSdkCatalog() {
                 updateStartupProgress(30, t("startup_content_ready"))
                 if (restoreExternalAdReturnPlayerIfPossible()) return@runOnUiThread
                 if (restoringExternalAdReturn) {
-                    // Non-player ad click-out: activeTab and Rewards scroll position were
-                    // captured with the click, so return to that exact surface without replaying
-                    // app-open, welcome or check-in onboarding on this session.
+                    // Non-player ad click-out: return to the exact captured route without
+                    // replaying app-open, welcome or check-in onboarding on this session.
                     restoringExternalAdReturn = false
+                    renderRecoveredExternalAdReturnSurface()
                     clearExternalAdReturnCheckpoint()
+                    return@runOnUiThread
                 }
                 if (startupContentInitializationStarted) renderActiveTab()
                 preloadCatalogCovers(
@@ -427,7 +428,13 @@ internal fun DramaAppActivity.completeStartupWhenReady() {
             val drama = catalogItems.firstOrNull { it.id == restoredDramaId }
             if (drama != null) {
                 restorePlayerAfterCatalog = false
-                clearExternalAdReturnCheckpoint()
+                if (restoringExternalAdReturn) {
+                    // Keep the click-out checkpoint until the provider player reports the
+                    // requested episode/position. A callback may still be pending while Play
+                    // returns through a fresh launcher route.
+                    pendingExternalAdRestoreEpisodeIndex = restoredEpisodeIndex
+                    pendingExternalAdRestorePositionSeconds = restoredPositionSeconds
+                }
                 restoringExternalAdReturn = false
                 restoringBackgroundReturn = false
                 showPlayer(drama, restoredEpisodeIndex, restoredPositionSeconds)

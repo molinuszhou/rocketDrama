@@ -37,6 +37,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.Lifecycle
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -96,6 +97,8 @@ class DramaAppActivity : FragmentActivity() {
     internal var withdrawalPageShown = false
     /** Profile history/favorites expands into a normal in-app secondary page. */
     internal var profileCollectionPageShown = false
+    /** Distinguishes the two Profile secondary pages when restoring an external-ad return. */
+    internal var profileCollectionShowsFavorites = false
     internal var rewardsSnapshot: RewardsApiClient.Snapshot? = null
     internal var rewardsLoading = false
     /** Invalidates an older bootstrap response after a newer server-confirmed reward action. */
@@ -152,6 +155,8 @@ class DramaAppActivity : FragmentActivity() {
     internal var restorePlayerAfterCatalog = false
     /** Prevents a second app-open ad while recovering from an ad click's external destination. */
     internal var restoringExternalAdReturn = false
+    /** A mediation callback may arrive while the host is stopped behind Google Play or a browser. */
+    internal var pendingFullscreenAdResult: (() -> Unit)? = null
     internal var restoredDramaId: String? = null
     internal var restoredEpisodeIndex = 0
     internal var restoredPositionSeconds = 0
@@ -320,22 +325,20 @@ class DramaAppActivity : FragmentActivity() {
         if (BuildConfig.SCREENSHOT_PROTECTION_ENABLED) {
             window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
         }
-        val externalAdReturnPending = hasFreshExternalAdReturnSession()
-        if (externalAdReturnPending) {
-            restoreExternalAdReturnSurface()
-            readExternalAdReturnCheckpoint()?.let { checkpoint ->
-                restoringExternalAdReturn = true
-                // A synchronous checkpoint is newer and more reliable than Android's saved Bundle:
-                // external click-outs often destroy the process after the Bundle was last written.
+        val externalAdReturnCheckpoint = readExternalAdReturnCheckpoint()
+        if (externalAdReturnCheckpoint != null) {
+            restoreExternalAdReturnSurface(externalAdReturnCheckpoint)
+            restoringExternalAdReturn = true
+            // A synchronous checkpoint is newer and more reliable than Android's saved Bundle:
+            // external click-outs often destroy the process after the Bundle was last written.
+            if (externalAdReturnCheckpoint.playerVisible) {
                 restorePlayerAfterCatalog = true
-                restoredDramaId = checkpoint.dramaId
-                restoredEpisodeIndex = checkpoint.episodeIndex
-                restoredPositionSeconds = checkpoint.positionSeconds
-                logStatus("恢复广告外跳前的播放检查点：${checkpoint.dramaId} #${checkpoint.episodeIndex + 1}")
-            }
-            if (!restorePlayerAfterCatalog) {
-                restoringExternalAdReturn = true
-                logStatus("检测到非播放器广告外跳返回")
+                restoredDramaId = externalAdReturnCheckpoint.dramaId
+                restoredEpisodeIndex = externalAdReturnCheckpoint.episodeIndex
+                restoredPositionSeconds = externalAdReturnCheckpoint.positionSeconds
+                logStatus("恢复广告外跳前的播放器：${externalAdReturnCheckpoint.dramaId} #${externalAdReturnCheckpoint.episodeIndex + 1}")
+            } else {
+                logStatus("恢复广告外跳前页面：${externalAdReturnCheckpoint.activeTabName}")
             }
         } else {
             val savedStateCheckpoint = savedInstanceState?.let(::checkpointFromSavedInstanceState)
@@ -359,6 +362,7 @@ class DramaAppActivity : FragmentActivity() {
                     }
                     profileCollectionPageShown -> {
                         profileCollectionPageShown = false
+                        profileCollectionShowsFavorites = false
                         activeTab = MainTab.PROFILE
                         renderActiveTab()
                     }
@@ -383,6 +387,10 @@ class DramaAppActivity : FragmentActivity() {
     override fun onPostResume() {
         super.onPostResume()
         if (!startupContentInitializationStarted) maybeShowAppOpenAd()
+        pendingFullscreenAdResult?.let { pending ->
+            pendingFullscreenAdResult = null
+            pending.invoke()
+        }
         if ((playerShown || sdkPlayerShown) && (fullscreenAdInProgress || fullscreenAdRequestInFlight)) {
             // Store/browser click-outs can return without the mediation activity forwarding a
             // close callback. Do not leave the player blocked behind that stale ad state.
@@ -405,6 +413,27 @@ class DramaAppActivity : FragmentActivity() {
             playerIsPaused = false
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             resumeSdkPlaybackWhenForeground = false
+        }
+        // A live Activity already retains its View hierarchy. Clear the durable click-out marker
+        // only after it is actually foregrounded again; ad-close callbacks can fire before Play or
+        // a browser has taken over and must never erase the process-recreation recovery path.
+        if (!restoringExternalAdReturn && hasFreshExternalAdReturnSession()) {
+            root.postDelayed({
+                if (!isFinishing && !isDestroyed && hasWindowFocus() &&
+                    !restoringExternalAdReturn && hasFreshExternalAdReturnSession()
+                ) {
+                    clearExternalAdReturnCheckpoint()
+                }
+            }, 750L)
+        }
+    }
+
+    /** Defers close/failure callbacks until the host has returned from an external full-screen surface. */
+    internal fun runFullscreenResultWhenForeground(action: () -> Unit) {
+        runOnUiThread {
+            if (isFinishing || isDestroyed) return@runOnUiThread
+            if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) action()
+            else pendingFullscreenAdResult = action
         }
     }
 
@@ -511,6 +540,7 @@ class DramaAppActivity : FragmentActivity() {
     }
 
     override fun onDestroy() {
+        pendingFullscreenAdResult = null
         taskRewardPromptRunnable?.let(root::removeCallbacks)
         taskRewardPromptRunnable = null
         dismissSdkDramaPlayerIfShown()
@@ -994,12 +1024,28 @@ class DramaAppActivity : FragmentActivity() {
      */
     internal fun markExternalAdReturnCheckpoint() {
         val savedAtMillis = System.currentTimeMillis()
+        val playerCanResume = (playerShown || sdkPlayerShown) && !sdkDiscoverPreviewActive &&
+            selectedDrama != null && currentEpisodeIndex in selectedDrama!!.episodes.indices
         val editor = playbackHistory.edit()
             .putLong(AD_RETURN_EXTERNAL_SAVED_AT_MILLIS, savedAtMillis)
             .putString(AD_RETURN_TAB_NAME, activeTab.name)
+            .putString(AD_RETURN_PLAYER_RETURN_TAB_NAME, playerReturnTab.name)
+            .putBoolean(AD_RETURN_PLAYER_VISIBLE, playerCanResume)
             .putInt(AD_RETURN_TASKS_SCROLL_Y, rewardsTasksScrollY.coerceAtLeast(0))
+            .putBoolean(AD_RETURN_WITHDRAWAL_PAGE_SHOWN, withdrawalPageShown)
+            .putBoolean(AD_RETURN_PROFILE_COLLECTION_PAGE_SHOWN, profileCollectionPageShown)
+            .putBoolean(AD_RETURN_PROFILE_COLLECTION_SHOWS_FAVORITES, profileCollectionShowsFavorites)
+            .putBoolean(AD_RETURN_HAS_CATALOG_CATEGORY_ID, selectedCatalogCategoryId != null)
+        selectedCatalogCategoryId?.let { editor.putLong(AD_RETURN_CATALOG_CATEGORY_ID, it) }
+            ?: editor.remove(AD_RETURN_CATALOG_CATEGORY_ID)
+        selectedCatalogGenre?.let { editor.putString(AD_RETURN_CATALOG_GENRE, it) }
+            ?: editor.remove(AD_RETURN_CATALOG_GENRE)
         val drama = selectedDrama
-        if (drama == null || (!playerShown && !sdkPlayerShown) || currentEpisodeIndex !in drama.episodes.indices) {
+        if (!playerCanResume || drama == null) {
+            editor
+                .remove(AD_RETURN_DRAMA_ID)
+                .remove(AD_RETURN_EPISODE_INDEX)
+                .remove(AD_RETURN_POSITION_SECONDS)
             editor.commit()
             logStatus("已保存非播放器广告外跳会话")
             return
@@ -1016,12 +1062,22 @@ class DramaAppActivity : FragmentActivity() {
         logStatus("已保存广告外跳播放检查点：${drama.id} #${currentEpisodeIndex + 1} @${positionSeconds}s")
     }
 
-    internal fun readExternalAdReturnCheckpoint(): PlaybackReturnCheckpoint? {
-        val checkpoint = PlaybackReturnCheckpoint(
+    internal fun readExternalAdReturnCheckpoint(): ExternalAdReturnCheckpoint? {
+        val hasCatalogCategoryId = playbackHistory.getBoolean(AD_RETURN_HAS_CATALOG_CATEGORY_ID, false)
+        val checkpoint = ExternalAdReturnCheckpoint(
+            activeTabName = playbackHistory.getString(AD_RETURN_TAB_NAME, null).orEmpty(),
+            playerReturnTabName = playbackHistory.getString(AD_RETURN_PLAYER_RETURN_TAB_NAME, null).orEmpty(),
+            playerVisible = playbackHistory.getBoolean(AD_RETURN_PLAYER_VISIBLE, false),
             dramaId = playbackHistory.getString(AD_RETURN_DRAMA_ID, null).orEmpty(),
             episodeIndex = playbackHistory.getInt(AD_RETURN_EPISODE_INDEX, -1),
             positionSeconds = playbackHistory.getInt(AD_RETURN_POSITION_SECONDS, -1),
-            savedAtMillis = playbackHistory.getLong(AD_RETURN_SAVED_AT_MILLIS, 0L),
+            tasksScrollY = playbackHistory.getInt(AD_RETURN_TASKS_SCROLL_Y, 0).coerceAtLeast(0),
+            withdrawalPageShown = playbackHistory.getBoolean(AD_RETURN_WITHDRAWAL_PAGE_SHOWN, false),
+            profileCollectionPageShown = playbackHistory.getBoolean(AD_RETURN_PROFILE_COLLECTION_PAGE_SHOWN, false),
+            profileCollectionShowsFavorites = playbackHistory.getBoolean(AD_RETURN_PROFILE_COLLECTION_SHOWS_FAVORITES, false),
+            catalogCategoryId = if (hasCatalogCategoryId) playbackHistory.getLong(AD_RETURN_CATALOG_CATEGORY_ID, 0L) else null,
+            catalogGenre = playbackHistory.getString(AD_RETURN_CATALOG_GENRE, null),
+            savedAtMillis = playbackHistory.getLong(AD_RETURN_EXTERNAL_SAVED_AT_MILLIS, 0L),
         )
         return checkpoint.takeIf { it.isFresh(System.currentTimeMillis()) }.also {
             if (it == null) clearExternalAdReturnCheckpoint()
@@ -1029,20 +1085,35 @@ class DramaAppActivity : FragmentActivity() {
     }
 
     internal fun hasFreshExternalAdReturnSession(): Boolean {
-        val savedAtMillis = playbackHistory.getLong(AD_RETURN_EXTERNAL_SAVED_AT_MILLIS, 0L)
-        val nowMillis = System.currentTimeMillis()
-        val fresh = savedAtMillis > 0L && nowMillis >= savedAtMillis &&
-            nowMillis - savedAtMillis <= AD_RETURN_CHECKPOINT_MAX_AGE_MILLIS
-        if (!fresh) playbackHistory.edit().remove(AD_RETURN_EXTERNAL_SAVED_AT_MILLIS).apply()
-        return fresh
+        return readExternalAdReturnCheckpoint() != null
     }
 
     /** Restores the non-player surface exactly as it was when the external creative was clicked. */
-    internal fun restoreExternalAdReturnSurface() {
-        val savedTab = playbackHistory.getString(AD_RETURN_TAB_NAME, null)
-        activeTab = MainTab.entries.firstOrNull { it.name == savedTab } ?: activeTab
-        rewardsTasksScrollY = playbackHistory.getInt(AD_RETURN_TASKS_SCROLL_Y, 0).coerceAtLeast(0)
+    internal fun restoreExternalAdReturnSurface(checkpoint: ExternalAdReturnCheckpoint) {
+        activeTab = MainTab.entries.firstOrNull { it.name == checkpoint.activeTabName } ?: MainTab.HOME
+        playerReturnTab = MainTab.entries.firstOrNull { it.name == checkpoint.playerReturnTabName } ?: activeTab
+        rewardsTasksScrollY = checkpoint.tasksScrollY
+        withdrawalPageShown = checkpoint.withdrawalPageShown
+        profileCollectionPageShown = checkpoint.profileCollectionPageShown
+        profileCollectionShowsFavorites = checkpoint.profileCollectionShowsFavorites
+        selectedCatalogCategoryId = checkpoint.catalogCategoryId
+        selectedCatalogGenre = checkpoint.catalogGenre
         logStatus("恢复广告外跳前页面：${activeTab.name}")
+    }
+
+    /** Renders a recovered non-player route without converting it into a player or a default tab. */
+    internal fun renderRecoveredExternalAdReturnSurface() {
+        when {
+            profileCollectionPageShown -> showProfileCollectionPage(profileCollectionShowsFavorites)
+            withdrawalPageShown && rewardsSnapshot?.wallet != null -> showWithdrawalPage(requireNotNull(rewardsSnapshot).wallet)
+            withdrawalPageShown -> {
+                // Wait for the asynchronous wallet snapshot, while retaining the desired route.
+                val restoreWithdrawal = withdrawalPageShown
+                renderActiveTab()
+                withdrawalPageShown = restoreWithdrawal
+            }
+            else -> renderActiveTab()
+        }
     }
 
     internal fun clearExternalAdReturnCheckpoint() {
@@ -1053,7 +1124,15 @@ class DramaAppActivity : FragmentActivity() {
             .remove(AD_RETURN_SAVED_AT_MILLIS)
             .remove(AD_RETURN_EXTERNAL_SAVED_AT_MILLIS)
             .remove(AD_RETURN_TAB_NAME)
+            .remove(AD_RETURN_PLAYER_RETURN_TAB_NAME)
+            .remove(AD_RETURN_PLAYER_VISIBLE)
             .remove(AD_RETURN_TASKS_SCROLL_Y)
+            .remove(AD_RETURN_WITHDRAWAL_PAGE_SHOWN)
+            .remove(AD_RETURN_PROFILE_COLLECTION_PAGE_SHOWN)
+            .remove(AD_RETURN_PROFILE_COLLECTION_SHOWS_FAVORITES)
+            .remove(AD_RETURN_HAS_CATALOG_CATEGORY_ID)
+            .remove(AD_RETURN_CATALOG_CATEGORY_ID)
+            .remove(AD_RETURN_CATALOG_GENRE)
             .apply()
     }
 

@@ -2,7 +2,7 @@
 
 **审计日期：** 2026-10-12
 **适用客户端：** JoyeDrama Android `com.feather.joyelledrama`
-**代码基线：** `release/formal-production`，版本 `1.7.2.6 (93)`
+**代码基线：** `release/formal-production`，版本 `1.7.3.0 (97)`
 **本次不包含：** APK/AAB 编译、签名或服务器部署。
 
 ## 已完成的代码整改
@@ -80,7 +80,7 @@ AppsFlyer 已完成以下整改：
 
 ### AdMob 与 Google Mobile Ads
 
-当前 Manifest 只配置一个符合格式的 AdMob **App ID**，广告位 ID 没有被误写入 Manifest。Google Services 插件、Firebase 包名与正式 `applicationId` 的匹配校验均存在。TopOn 是广告请求的唯一中介入口，因此没有额外直接调用 `MobileAds.initialize()`，避免与 TopOn 适配层重复初始化。
+当前 Manifest 只配置一个符合格式的 AdMob **App ID**，广告位 ID 没有被误写入 Manifest。Google Services 插件、Firebase 包名与正式 `applicationId` 的匹配校验均存在。TopOn 是广告请求的唯一中介入口，因此没有额外直接调用 `MobileAds.initialize()`，避免与 TopOn 适配层重复初始化。TopOn Core 已升级至官方建议基线 `6.6.21`，并使用与其 bridge 契约兼容的 AdMob `25.4.0.1.1` adapter、Google Mobile Ads SDK `25.4.0`。
 
 ### MAX Custom Network
 
@@ -93,6 +93,8 @@ AppsFlyer 已完成以下整改：
 **2026-10-13 后台状态恢复：**v92 在 `onStop` 同步持久化当前顶层页签、奖励页滚动位置，以及可恢复播放的剧集、分集和进度；进程因内存压力被系统回收后，目录就绪即恢复这些轻量状态，并跳过开屏广告和启动签到弹窗。Manifest 为任务根 Activity 启用 `alwaysRetainTaskState`，避免系统按长期后台任务重置导航栈。该设计恢复状态而不使用前台常驻服务或非合规保活手段。
 
 **2026-10-13 原生广告 SDK 完整接入：**客户端 `1.7.2.6 (versionCode 93)` 将 TaurusX `com.taurusx.tax:ads:1.18.4` 与 Kwai `io.github.kwainetwork:adApi/adImpl:1.2.26` 作为正式依赖，与当前 TopOn adapter `adapter-tpn-taurusx:1.18.4.1.0` 和 `adapter-tpn-kwai:1.2.26.1.0` 精确配对。此前临时 Debug 直连广告源诊断已确认：TaurusX、Kwai 不再产生类缺失，分别可返回 NoBid/无库存；Pangle 在测试地区返回 `20001`（地区不支持），Vungle 可返回无填充。Kwai 原生 SDK 对 `usesCleartextTraffic` 的默认声明由应用自身 `@bool/uses_cleartext_traffic` 通过 Manifest merger 覆盖，维持项目既有网络安全策略。诊断用的 ADX/MAX 过滤和错误弹窗均未保留在正式代码中。
+
+**2026-10-14 正式集成与外跳返回收口：**客户端 `1.7.2.9 (versionCode 96)` 已删除 TopOn DebugUI、临时 AdMob 契约弹窗、临时 ADX/MAX/Vungle/Pangle 广告源过滤以及测试专用 Maven/AAR 依赖；正式包保留完整 TopOn→原生广告源/MAX Custom Network 聚合矩阵。Google Play 或浏览器广告点击会同步保存外跳前的完整页面路由（页签、奖励页位置、二级页面、分类筛选；仅在原本处于播放器时才保存剧集、分集及进度）。广告关闭回调不再抢先清除该快照，且停止态回调会延后到 Activity 回到前台后处理，避免外跳过程中对已停止窗口做 UI 恢复。快照仅在前台确已恢复原页面或 PSSDK 确认指定播放位置后清除。
 
 ### 隐私同意与数据收集
 
