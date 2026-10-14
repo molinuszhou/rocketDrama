@@ -163,6 +163,9 @@ class DramaAppActivity : FragmentActivity() {
     /** Remains set until the recreated PSSDK player reports progress at the requested seek point. */
     internal var pendingExternalAdRestoreEpisodeIndex: Int? = null
     internal var pendingExternalAdRestorePositionSeconds: Int? = null
+    /** Protects a normal History/Favorites resume from PSSDK's first zero-second callback. */
+    internal var pendingSdkResumeCheckpoint: SdkResumeCheckpoint? = null
+    internal var pendingSdkResumeSeekApplied = false
     internal var startupCheckinPromptRequested = false
     internal var startupCheckinPromptShown = false
     /** A deliberate Reward Center check-in must never be followed by the delayed onboarding dialog. */

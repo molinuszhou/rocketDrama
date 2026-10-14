@@ -84,10 +84,19 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
     sdkDiscoverPreviewActive = previewOnly
     playerReturnTab = if (previewOnly) DramaAppActivity.MainTab.DISCOVER else activeTab
     currentEpisodeIndex = startIndex.coerceIn(0, catalogDrama.episodes.lastIndex.coerceAtLeast(0))
+    val requestedResumeSeconds = resumePositionSeconds.coerceAtLeast(0)
+    val restoringExternalAd = pendingExternalAdRestoreEpisodeIndex == currentEpisodeIndex &&
+        (pendingExternalAdRestorePositionSeconds ?: 0) > 0
+    pendingSdkResumeCheckpoint = if (!previewOnly && !restoringExternalAd && requestedResumeSeconds > 0) {
+        SdkResumeCheckpoint(currentEpisodeIndex, requestedResumeSeconds)
+    } else {
+        null
+    }
+    pendingSdkResumeSeekApplied = false
     sdkPlayerShown = true
     sdkPlaybackActive = false
     resumeSdkPlaybackWhenForeground = false
-    playerProgressSeconds = resumePositionSeconds.coerceAtLeast(0)
+    playerProgressSeconds = requestedResumeSeconds
     playerDurationSeconds = 0
     playerIsSeeking = false
     playerIsPaused = false
@@ -327,6 +336,10 @@ private fun DramaAppActivity.createDiscoverEpisodeFloatButton(): View = LinearLa
 
 private fun DramaAppActivity.onSdkItemSelected(episodeIndex: Int) {
     currentEpisodeIndex = episodeIndex.coerceIn(0, selectedDrama?.episodes?.lastIndex ?: 0)
+    if (pendingSdkResumeCheckpoint?.matches(currentEpisodeIndex) == false) {
+        pendingSdkResumeCheckpoint = null
+        pendingSdkResumeSeekApplied = false
+    }
     updateEpisodeStatus()
     logStatus("PSSDK 选择分集：${episodeIndex + 1}")
 }
@@ -429,9 +442,18 @@ private fun DramaAppActivity.onSdkEpisodeStarted(episodeIndex: Int, episode: Epi
     val safeEpisodeIndex = episodeIndex.coerceIn(0, selectedDrama?.episodes?.lastIndex ?: 0)
     val restoringExternalPosition = pendingExternalAdRestoreEpisodeIndex == safeEpisodeIndex &&
         (pendingExternalAdRestorePositionSeconds ?: 0) > 0
+    val historyResume = pendingSdkResumeCheckpoint?.takeIf { it.matches(safeEpisodeIndex) }
+    if (pendingSdkResumeCheckpoint != null && historyResume == null) {
+        pendingSdkResumeCheckpoint = null
+        pendingSdkResumeSeekApplied = false
+    }
     currentEpisodeIndex = safeEpisodeIndex
-    playerProgressSeconds = if (restoringExternalPosition) {
-        maxOf(playerProgressSeconds, pendingExternalAdRestorePositionSeconds ?: 0)
+    playerProgressSeconds = if (restoringExternalPosition || historyResume != null) {
+        maxOf(
+            playerProgressSeconds,
+            pendingExternalAdRestorePositionSeconds ?: 0,
+            historyResume?.positionSeconds ?: 0,
+        )
     } else {
         0
     }
@@ -448,7 +470,18 @@ private fun DramaAppActivity.onSdkEpisodeStarted(episodeIndex: Int, episode: Epi
     updateEpisodeStatus()
     updatePlayerProgress(playerProgressSeconds, 0)
     if (sdkDiscoverPreviewActive) discoverPreviewProgressBar?.progress = 0
-    if (!restoringExternalPosition) persistPlaybackProgress(0)
+    if (!restoringExternalPosition && historyResume == null) persistPlaybackProgress(0)
+    if (historyResume != null && !pendingSdkResumeSeekApplied) {
+        pendingSdkResumeSeekApplied = true
+        // PSSDK's first started callback commonly precedes its Builder start-time seek. Applying
+        // the public seek API once the active item exists prevents that early zero callback from
+        // turning a valid Continue Watching resume into a restart from the first second.
+        root.post {
+            if (sdkPlayerShown && pendingSdkResumeCheckpoint == historyResume) {
+                currentSdkPlayerFragment()?.setCurrentPlayTimeSeconds(historyResume.positionSeconds)
+            }
+        }
+    }
     if (pendingExternalAdRestoreEpisodeIndex == currentEpisodeIndex &&
         (pendingExternalAdRestorePositionSeconds ?: 0) == 0
     ) {
@@ -480,7 +513,9 @@ private fun DramaAppActivity.onSdkPlaybackProgress(episodeIndex: Int, rawProgres
     sdkPlaybackActive = true
     playerIsPaused = false
     updatePauseOverlayVisibility(false)
-    updatePlayerProgress(progress, duration)
+    val historyResume = pendingSdkResumeCheckpoint?.takeIf { it.matches(currentEpisodeIndex) }
+    val displayedProgress = historyResume?.displayedProgress(progress) ?: progress
+    updatePlayerProgress(displayedProgress, duration)
     val expectedEpisode = pendingExternalAdRestoreEpisodeIndex
     val expectedPosition = pendingExternalAdRestorePositionSeconds
     if (expectedEpisode == currentEpisodeIndex && expectedPosition != null && progress >= expectedPosition) {
@@ -489,10 +524,17 @@ private fun DramaAppActivity.onSdkPlaybackProgress(episodeIndex: Int, rawProgres
         clearExternalAdReturnCheckpoint()
         logStatus("广告外跳恢复进度已确认：第 ${currentEpisodeIndex + 1} 集 @${progress}s")
     }
-    if (sdkDiscoverPreviewActive && duration > 0) {
-        discoverPreviewProgressBar?.progress = (progress * 1_000 / duration).coerceIn(0, 1_000)
+    if (historyResume != null && historyResume.isConfirmedBy(progress)) {
+        pendingSdkResumeCheckpoint = null
+        pendingSdkResumeSeekApplied = false
+        logStatus("历史续播进度已确认：第 ${currentEpisodeIndex + 1} 集 @${progress}s")
     }
-    if (pendingExternalAdRestoreEpisodeIndex == null) persistPlaybackProgressIfNeeded(progress)
+    if (sdkDiscoverPreviewActive && duration > 0) {
+        discoverPreviewProgressBar?.progress = (displayedProgress * 1_000 / duration).coerceIn(0, 1_000)
+    }
+    if (pendingExternalAdRestoreEpisodeIndex == null && pendingSdkResumeCheckpoint == null) {
+        persistPlaybackProgressIfNeeded(displayedProgress)
+    }
     requestMidEpisodeInterstitialIfEligible(progress)
 }
 
