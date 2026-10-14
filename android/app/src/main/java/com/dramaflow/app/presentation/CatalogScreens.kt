@@ -211,11 +211,11 @@ internal fun DramaAppActivity.createProfilePage(): View = scrollPage { content -
     }
 
 /** Recent viewing and favorites remain concise on the profile landing page, with a full secondary list on demand. */
-internal fun DramaAppActivity.recentWatchedDramas(): List<LocalDrama> = catalogItems
+internal fun DramaAppActivity.recentWatchedDramas(): List<LocalDrama> = savedDramaLibraryItems()
     .filter { playbackHistory.contains(resumePreferenceKey(it.id, "episode")) }
     .sortedByDescending { playbackHistory.getLong(resumePreferenceKey(it.id, "last_watched_at"), 0L) }
 
-internal fun DramaAppActivity.favoriteDramas(): List<LocalDrama> = catalogItems
+internal fun DramaAppActivity.favoriteDramas(): List<LocalDrama> = savedDramaLibraryItems()
     .filter { favorites.getBoolean("favorite_${it.id}", false) }
     .sortedByDescending { playbackHistory.getLong(resumePreferenceKey(it.id, "last_watched_at"), 0L) }
 
@@ -462,14 +462,14 @@ internal fun DramaAppActivity.filteredCatalogItems(): List<LocalDrama> {
         if (selectedCatalogCategoryId != null) return categoryCatalogItems
         val genre = selectedCatalogGenre ?: return catalogItems
         return catalogItems.filter { drama -> drama.genres.any { it.equals(genre, ignoreCase = true) } }
-    }
+}
 
-internal fun DramaAppActivity.hasCatalogPreferenceSignals(): Boolean = catalogItems.any { drama ->
+internal fun DramaAppActivity.hasCatalogPreferenceSignals(): Boolean = savedDramaLibraryItems().any { drama ->
         favorites.getBoolean("favorite_${drama.id}", false) || playbackHistory.contains(resumePreferenceKey(drama.id, "episode"))
     }
 
 internal fun DramaAppActivity.recommendedCatalogItems(): List<LocalDrama> {
-        val preferredGenres = catalogItems
+        val preferredGenres = savedDramaLibraryItems()
             .filter { drama -> favorites.getBoolean("favorite_${drama.id}", false) || playbackHistory.contains(resumePreferenceKey(drama.id, "episode")) }
             .flatMap { it.genres }
             .map { it.trim().lowercase(Locale.ROOT) }

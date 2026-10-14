@@ -73,12 +73,51 @@ internal const val MIDROLL_MAX_UNAVAILABLE_ATTEMPTS = 2
 internal fun DramaAppActivity.showPlayer(drama: LocalDrama, startIndex: Int, resumePositionSeconds: Int = 0) {
         val card = sdkDramaCardsByCatalogId[drama.id]
         if (card == null) {
-            logStatus("PSSDK 目录映射缺失：${drama.id}")
-            renderFailure(t("player_not_ready"))
+            resolvePersistedDramaForPlayback(drama, startIndex, resumePositionSeconds)
             return
         }
         showSdkDramaPlayer(drama, card, startIndex, resumePositionSeconds)
     }
+
+/**
+ * A history/favorite title may not appear in the new process's first PSSDK discovery page.
+ * Resolve that durable record by its stored provider ID before opening the provider-owned player.
+ */
+private fun DramaAppActivity.resolvePersistedDramaForPlayback(
+    drama: LocalDrama,
+    startIndex: Int,
+    resumePositionSeconds: Int,
+) {
+    val shortPlayId = drama.id.removePrefix("pssdk-").toLongOrNull()
+    if (shortPlayId == null || drama.title.isBlank()) {
+        logStatus("无法恢复历史剧集的 PSSDK 卡片：${drama.id}")
+        toast(t("player_not_ready"))
+        return
+    }
+    toast(t("loading_episode"))
+    shortDramaSdk.search(
+        keyword = drama.title,
+        pageSize = 50,
+        onSuccess = { cards -> runOnUiThread {
+            if (isFinishing || isDestroyed) return@runOnUiThread
+            val card = cards.firstOrNull { it.id == shortPlayId }
+            if (card == null) {
+                logStatus("历史剧集不在 PSSDK 搜索结果中：$shortPlayId")
+                toast(t("player_not_ready"))
+                return@runOnUiThread
+            }
+            val resolvedDrama = sdkCatalogDrama(card)
+            sdkDramaCardsByCatalogId[resolvedDrama.id] = card
+            saveDramaLibrarySnapshot(resolvedDrama)
+            showSdkDramaPlayer(resolvedDrama, card, startIndex, resumePositionSeconds)
+        } },
+        onFailure = { message -> runOnUiThread {
+            if (isFinishing || isDestroyed) return@runOnUiThread
+            logStatus("历史剧集卡片恢复失败：$shortPlayId $message")
+            toast(t("player_not_ready"))
+        } },
+    )
+}
 
 private fun DramaAppActivity.renderLegacyPlayer(drama: LocalDrama, startIndex: Int, resumePositionSeconds: Int = 0) {
         releasePlayer()

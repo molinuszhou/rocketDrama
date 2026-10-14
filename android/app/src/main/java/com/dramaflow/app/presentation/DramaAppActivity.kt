@@ -292,6 +292,7 @@ class DramaAppActivity : FragmentActivity() {
     internal var ignoreVideoTapsUntilMillis = 0L
     internal val favorites by lazy { getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE) }
     internal val playbackHistory by lazy { getSharedPreferences(PLAYBACK_HISTORY_PREFERENCES, Context.MODE_PRIVATE) }
+    internal val persistedDramaLibrary by lazy { getSharedPreferences(PERSISTED_DRAMA_LIBRARY_PREFERENCES, Context.MODE_PRIVATE) }
     internal val taskRewardPromptPreferences by lazy { getSharedPreferences("joyedrama.task_reward_prompts", Context.MODE_PRIVATE) }
 
     internal val consentStore by lazy { AdConsentStore(applicationContext) }
@@ -804,10 +805,12 @@ class DramaAppActivity : FragmentActivity() {
     }
 
     internal fun toggleFavorite() {
-        val dramaId = selectedDrama?.id ?: return
+        val drama = selectedDrama ?: return
+        val dramaId = drama.id
         val key = "favorite_$dramaId"
         val nowFavorite = !favorites.getBoolean(key, false)
         favorites.edit().putBoolean(key, nowFavorite).apply()
+        if (nowFavorite) saveDramaLibrarySnapshot(drama)
         favoriteButton?.text = if (nowFavorite) "♥" else "♡"
         toast(if (nowFavorite) t("favorite_added") else t("favorite_removed"))
     }
@@ -990,6 +993,28 @@ class DramaAppActivity : FragmentActivity() {
 
     internal fun resumePreferenceKey(dramaId: String, suffix: String): String = "resume_${suffix}_${dramaId}"
 
+    /** Saves renderable title metadata separately from PSSDK's transient paged discovery feed. */
+    internal fun saveDramaLibrarySnapshot(drama: LocalDrama) {
+        PersistedDramaLibrary.save(persistedDramaLibrary, drama)
+    }
+
+    /**
+     * Returns current provider records plus durable metadata for titles not present in this launch's
+     * first PSSDK page. Existing favorite and progress keys remain the source of truth for filters.
+     */
+    internal fun savedDramaLibraryItems(): List<LocalDrama> {
+        catalogItems.asSequence()
+            .filter { drama ->
+                favorites.getBoolean("favorite_${drama.id}", false) ||
+                    playbackHistory.contains(resumePreferenceKey(drama.id, "episode"))
+            }
+            .forEach(::saveDramaLibrarySnapshot)
+        return PersistedDramaLibrary.mergeWithCurrentCatalog(
+            currentCatalog = catalogItems,
+            persistedSnapshots = PersistedDramaLibrary.snapshots(persistedDramaLibrary),
+        )
+    }
+
     internal fun savedResumeEpisodeIndex(drama: LocalDrama): Int = playbackHistory
         .getInt(resumePreferenceKey(drama.id, "episode"), 0)
         .coerceIn(0, drama.episodes.lastIndex.coerceAtLeast(0))
@@ -1015,6 +1040,7 @@ class DramaAppActivity : FragmentActivity() {
             .putInt(resumePreferenceKey(drama.id, "position"), safePosition)
             .putLong(resumePreferenceKey(drama.id, "last_watched_at"), System.currentTimeMillis())
             .apply()
+        saveDramaLibrarySnapshot(drama)
         lastPersistedPlaybackSecond = safePosition
     }
 
@@ -1276,6 +1302,7 @@ class DramaAppActivity : FragmentActivity() {
             .putInt(resumePreferenceKey(drama.id, "position"), 0)
             .putLong(resumePreferenceKey(drama.id, "last_watched_at"), System.currentTimeMillis())
             .apply()
+        saveDramaLibrarySnapshot(drama)
     }
 
     internal fun releasePlayer() {

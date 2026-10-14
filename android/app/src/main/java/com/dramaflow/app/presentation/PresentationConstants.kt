@@ -10,6 +10,7 @@ internal const val BOTTOM_NAV_HEIGHT_DP = 82
 internal const val FIRST_DAMPING_TIER_NOTICE_THRESHOLD_UNITS = 2_900_000L
 internal const val PREFERENCES = "joyedrama.short_drama"
 internal const val PLAYBACK_HISTORY_PREFERENCES = "joyedrama.playback_history"
+internal const val PERSISTED_DRAMA_LIBRARY_PREFERENCES = "joyedrama.persisted_drama_library"
 internal const val INSTALLATION_KEY = "anonymous_installation_id"
 internal const val SESSION_TOKEN_KEY = "rewards_session_token"
 internal const val STATE_PLAYER_VISIBLE = "state_player_visible"
