@@ -163,6 +163,9 @@ class RewardsService:
                 (user_id, business_date, episode_id),
             )
             if existing:
+                self._grant_episode_unlock_entitlements(
+                    connection, user_id, episode_id, 1, "AD_UNAVAILABLE", None,
+                )
                 return {"idempotent": True, "daily_limit": daily_limit, "snapshot": self._snapshot(connection, user_id)}
             if daily_limit <= 0:
                 raise ServiceError(1031, "广告不可用时的剧集放行当前未启用", 409)
@@ -181,12 +184,50 @@ class RewardsService:
                    VALUES (%s, %s, %s, %s)""",
                 (user_id, business_date, episode_id, episode_index),
             )
+            self._grant_episode_unlock_entitlements(
+                connection, user_id, episode_id, 1, "AD_UNAVAILABLE", None,
+            )
             return {
                 "idempotent": False,
                 "daily_limit": daily_limit,
                 "daily_used": used + 1,
                 "snapshot": self._snapshot(connection, user_id),
             }
+
+    @staticmethod
+    def _episode_unlock_targets(episode_target: str, unlock_count: int) -> list[str]:
+        """Normalise legacy PSSDK IDs and expand a rewarded multi-episode pass."""
+        target = episode_target.strip()
+        legacy_prefix, legacy_marker, legacy_number = target.rpartition("-episode-")
+        if legacy_marker and legacy_prefix and legacy_number.isdigit():
+            target = f"{legacy_prefix}:{int(legacy_number)}"
+        prefix, separator, episode_number = target.rpartition(":")
+        if not separator or not prefix or not episode_number.isdigit():
+            return [target]
+        first_episode_number = int(episode_number)
+        return [
+            f"{prefix}:{first_episode_number + offset}"
+            for offset in range(max(1, unlock_count))
+        ]
+
+    def _grant_episode_unlock_entitlements(
+        self,
+        connection: psycopg.Connection[Any],
+        user_id: str,
+        episode_target: str,
+        unlock_count: int,
+        source: str,
+        source_event_id: str | None,
+    ) -> None:
+        for target in self._episode_unlock_targets(episode_target, unlock_count):
+            self._execute(
+                connection,
+                """INSERT INTO episode_unlock_entitlements
+                   (user_id, episode_target, source, source_event_id)
+                   VALUES (%s, %s, %s, %s)
+                   ON CONFLICT (user_id, episode_target) DO NOTHING""",
+                (user_id, target, source, source_event_id),
+            )
 
     def complete_rewarded_ad(
         self,
@@ -210,6 +251,18 @@ class RewardsService:
                 (ad_event_id,),
             )
             if existing:
+                existing_result = existing["result_payload"]
+                if placement_id == "rv_episode_pass" and isinstance(existing_result, dict):
+                    recorded_target = str(existing_result.get("episode_id") or target_id or "").strip()
+                    if recorded_target:
+                        self._grant_episode_unlock_entitlements(
+                            connection,
+                            user_id,
+                            recorded_target,
+                            int(existing_result.get("unlock_episode_count", 1)),
+                            "AD_REWARDED",
+                            ad_event_id,
+                        )
                 return {"idempotent": True, "result": existing["result_payload"], "snapshot": self._snapshot(connection, user_id)}
 
             policy = self._policy(connection)
@@ -2074,7 +2127,16 @@ class RewardsService:
         policy = self._policy(connection)
         action = payload["action"]
         if action == "EPISODE_PASS":
-            # 广告只授予本集的内容通行权益；观看完成后才会形成独立的待领取宝石。
+            # 广告只授予内容通行权益；观看完成后才会形成独立的待领取宝石。
+            # Keep the entitlement server-side so a process restart cannot relock paid views.
+            self._grant_episode_unlock_entitlements(
+                connection,
+                user_id,
+                str(payload["episode_id"]),
+                int(payload.get("unlock_episode_count", 1)),
+                "AD_REWARDED",
+                ad_event_id,
+            )
             return
         elif action == "WELCOME_BONUS":
             updated = self._execute(
@@ -2504,6 +2566,12 @@ class RewardsService:
             "SELECT episode_id FROM episode_reward_boosts WHERE user_id = %s ORDER BY boosted_at DESC",
             (user_id,),
         )
+        unlocked_episode_rows = self._all(
+            connection,
+            """SELECT episode_target FROM episode_unlock_entitlements
+               WHERE user_id = %s ORDER BY unlocked_at DESC""",
+            (user_id,),
+        )
         achievements = self._all(connection, "SELECT code, gems, virtual_entitlement, earned_at FROM user_achievements WHERE user_id = %s ORDER BY earned_at", (user_id,))
         welcome = self._one(connection, "SELECT gems, state FROM welcome_rewards WHERE user_id = %s", (user_id,))
         recent_ledger = self._all(
@@ -2651,6 +2719,7 @@ class RewardsService:
             "pending_claims": task_rows,
             "episode_reward_claims": episode_reward_claims,
             "episode_reward_preboosted_ids": [item["episode_id"] for item in preboosted_episode_rows],
+            "unlocked_episode_targets": [item["episode_target"] for item in unlocked_episode_rows],
             "achievements": achievements,
             "crown_progress": self._crown_progress(connection, user_id),
             "episode_unlock": {

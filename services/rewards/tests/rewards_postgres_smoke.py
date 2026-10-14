@@ -410,6 +410,13 @@ def run() -> None:
     # 单条激励广告连续解锁一个两集集包；低频模式关闭单集广告翻倍。
     episode_pass, _ = rewarded(service, user_id, "rv_episode_pass", "owned:smoke:ep:4", 4)
     assert episode_pass["result"]["unlock_episode_count"] == 2
+    assert {"owned:smoke:ep:4", "owned:smoke:ep:5"}.issubset(
+        set(episode_pass["snapshot"]["unlocked_episode_targets"])
+    )
+    restarted_snapshot = service.bootstrap(user_id)
+    assert {"owned:smoke:ep:4", "owned:smoke:ep:5"}.issubset(
+        set(restarted_snapshot["unlocked_episode_targets"])
+    )
     boost_rejected = False
     try:
         rewarded(service, user_id, "rv_episode_reward_boost", "owned:smoke:ep:1")
@@ -433,6 +440,16 @@ def run() -> None:
 
     after_watches = service.bootstrap(user_id)
     assert len(after_watches["episode_reward_claims"]) == 10
+    watched_count_before_repeat = after_watches["today"]["episode_count"]
+    repeated_watch = service.record_watch_event(
+        user_id=user_id,
+        event_id=event_id("watch-repeat"),
+        drama_id="owned:smoke",
+        episode_id="owned:smoke:ep:1",
+        watched_seconds=60,
+    )
+    assert repeated_watch["idempotent"] is True
+    assert repeated_watch["snapshot"]["today"]["episode_count"] == watched_count_before_repeat
     assert after_watches["ring"]["claimable"] is True
     assert after_watches["ring"]["reward_gems"] == sum(watched_rewards)
     assert after_watches["chest"]["available_count"] == 0

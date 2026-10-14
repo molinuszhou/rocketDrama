@@ -208,7 +208,7 @@ internal fun DramaAppActivity.unlockEpisodeThenAutoPlay(
 
     /** 用户确认后完整观看激励广告；服务端结算成功后才向内容服务申请本集解锁并自动播放。 */
 internal fun DramaAppActivity.startEpisodeUnlockAfterConfirmation(index: Int, onUnlocked: () -> Unit = {}) {
-        val episode = selectedDrama?.episodes?.getOrNull(index) ?: run {
+        if (selectedDrama?.episodes?.getOrNull(index) == null) {
             episodeTransitionInProgress = false
             return
         }
@@ -220,7 +220,7 @@ internal fun DramaAppActivity.startEpisodeUnlockAfterConfirmation(index: Int, on
         episodeTransitionInProgress = true
         requestRewardedAction(
             placementId = "rv_episode_pass",
-            targetId = episode.id,
+            targetId = episodeKey(index),
             episodeIndex = index + 1,
             onSettled = { action ->
                 settleEpisodeUnlockAfterAd(index, unlockMethod = "AD_REWARDED", unlockCount = action.unlockEpisodeCount) {
@@ -239,14 +239,14 @@ internal fun DramaAppActivity.startEpisodeUnlockAfterConfirmation(index: Int, on
 
 /** A no-fill/error pass is server-capped, auditable and deliberately carries no cash reward. */
 internal fun DramaAppActivity.allowEpisodeUnlockAfterAdUnavailable(index: Int, onUnlocked: () -> Unit) {
-    val episode = selectedDrama?.episodes?.getOrNull(index) ?: run {
+    if (selectedDrama?.episodes?.getOrNull(index) == null) {
         episodeTransitionInProgress = false
         return
     }
-    rewardsApi.allowEpisodeUnlockAfterAdUnavailable(
-        userId = anonymousInstallationId(),
-        episodeId = episode.id,
-        episodeIndex = index + 1,
+        rewardsApi.allowEpisodeUnlockAfterAdUnavailable(
+            userId = anonymousInstallationId(),
+            episodeId = episodeKey(index),
+            episodeIndex = index + 1,
         onSuccess = { snapshot -> runOnUiThread {
             applyRewardsSnapshot(snapshot)
             settleEpisodeUnlockAfterAd(index, unlockMethod = "AD_UNAVAILABLE", unlockCount = 1, onUnlocked = onUnlocked)
@@ -285,7 +285,12 @@ internal fun DramaAppActivity.settleEpisodeUnlockAfterAd(
         episodeTransitionInProgress = false
         return
     }
-    indexes.forEach { unlockedIndex -> sessionUnlockedEpisodeKeys.add(episodeKey(unlockedIndex)) }
+    indexes.forEach { unlockedIndex ->
+        // This function runs only after a server-confirmed rewarded or no-fill
+        // entitlement response. Keep the live UI in sync until the next snapshot.
+        unlockedEpisodeKeys.add(episodeKey(unlockedIndex))
+        sessionUnlockedEpisodeKeys.remove(episodeKey(unlockedIndex))
+    }
     pendingUnlockIndex = -1
     episodeTransitionInProgress = false
     updateEpisodeStatus()

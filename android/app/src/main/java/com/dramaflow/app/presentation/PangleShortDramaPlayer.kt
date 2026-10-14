@@ -603,7 +603,7 @@ internal fun DramaAppActivity.requestSdkEpisodeUnlock(
         logStatus("PSSDK 分集解锁已在处理中：${safeIndex + 1}")
         return
     }
-    val episode = selectedDrama?.episodes?.getOrNull(safeIndex) ?: return
+    if (selectedDrama?.episodes?.getOrNull(safeIndex) == null) return
     if (fullscreenAdInProgress || fullscreenAdRequestInFlight) {
         toast(t("ad_loading"))
         return
@@ -611,12 +611,15 @@ internal fun DramaAppActivity.requestSdkEpisodeUnlock(
     episodeTransitionInProgress = true
     requestRewardedAction(
         placementId = "rv_episode_pass",
-        targetId = episode.id,
+        targetId = episodeKey(safeIndex),
         episodeIndex = safeIndex + 1,
         onSettled = { action ->
             val unlockCount = action.unlockEpisodeCount.coerceAtLeast(1)
             (safeIndex until (safeIndex + unlockCount).coerceAtMost(selectedDrama?.episodes?.size ?: safeIndex + 1))
-                .forEach { sessionUnlockedEpisodeKeys.add(episodeKey(it)) }
+                .forEach {
+                    unlockedEpisodeKeys.add(episodeKey(it))
+                    sessionUnlockedEpisodeKeys.remove(episodeKey(it))
+                }
             episodeTransitionInProgress = false
             listener?.onShortPlayUnlocked()
         },

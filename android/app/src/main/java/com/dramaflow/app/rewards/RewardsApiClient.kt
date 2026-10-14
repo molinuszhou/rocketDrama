@@ -639,6 +639,7 @@ class RewardsApiClient(
             tasks = taskList,
             pendingEpisodeRewards = pendingEpisodeRewards,
             preboostedEpisodeIds = parseStringSet(json.optJSONArray("episode_reward_preboosted_ids")),
+            unlockedEpisodeTargets = parseStringSet(json.optJSONArray("unlocked_episode_targets")),
             tenRoundSize = today.optInt("ten_round_size", 10).coerceAtLeast(1),
             episodesToNextTenRound = today.optInt("episodes_to_next_ten_round", 10).coerceAtLeast(0),
             nextTenRoundPreviewCoins = today.optLong("next_ten_round_preview_gems").coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
