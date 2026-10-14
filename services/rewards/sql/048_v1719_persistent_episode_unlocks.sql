@@ -43,12 +43,12 @@ INSERT INTO episode_unlock_entitlements
     (user_id, episode_target, source, source_event_id, unlocked_at)
 SELECT
     user_id,
-    drama_id || ':' || (first_episode_number + offset)::TEXT,
+    drama_id || ':' || (first_episode_number + episode_offset)::TEXT,
     'AD_REWARDED_LEGACY',
     ad_event_id,
     unlocked_at
 FROM normalized_unlocks
-CROSS JOIN LATERAL generate_series(0, unlock_count - 1) AS series(offset)
+CROSS JOIN LATERAL generate_series(0, unlock_count - 1) AS series(episode_offset)
 ON CONFLICT (user_id, episode_target) DO NOTHING;
 
 -- Preserve the previously server-approved no-fill passes as well. These carry
