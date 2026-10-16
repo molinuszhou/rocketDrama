@@ -9,6 +9,7 @@ import com.dramaflow.app.presentation.INSTALLATION_KEY
 import com.dramaflow.app.presentation.PREFERENCES
 import com.dramaflow.app.presentation.SESSION_TOKEN_KEY
 import com.dramaflow.app.rewards.RewardsApiClient
+import java.util.Locale
 import java.util.UUID
 
 /**
@@ -27,7 +28,8 @@ class DramaFlowApplication : Application() {
             sessionTokenProvider = { getSharedPreferences(PREFERENCES, MODE_PRIVATE).getString(SESSION_TOKEN_KEY, null) },
             onSessionTokenReceived = { token -> getSharedPreferences(PREFERENCES, MODE_PRIVATE).edit().putString(SESSION_TOKEN_KEY, token).apply() },
         )
-        EngagementAnalytics.get(this).apply {
+        val engagementAnalytics = EngagementAnalytics.get(this)
+        engagementAnalytics.apply {
             setAttributionSyncListener { attribution ->
                 if (rewardsApi.isConfigured) {
                     rewardsApi.syncAttribution(anonymousInstallationId(), attribution) { error ->
@@ -36,6 +38,20 @@ class DramaFlowApplication : Application() {
                 }
             }
             initialize()
+        }
+        // Register this anonymous installation as soon as the process is created, alongside
+        // AppsFlyer initialization. The request is asynchronous and idempotent; Activity still
+        // refreshes the snapshot later for UI state, so this never blocks the launch surface.
+        if (rewardsApi.isConfigured) {
+            rewardsApi.bootstrap(
+                userId = anonymousInstallationId(),
+                region = Locale.getDefault().country.trim().uppercase(Locale.ROOT).ifBlank { "US" },
+                attribution = engagementAnalytics.currentAttributionForRewards(),
+                onSuccess = { Log.i(TAG, "Rewards early bootstrap completed") },
+                onFailure = { error -> Log.w(TAG, "Rewards early bootstrap failed: $error") },
+            )
+        } else {
+            Log.w(TAG, "Rewards API is not configured; early user bootstrap is skipped")
         }
         val settings = TopOnSettings.fromBuildConfig()
         if (settings.isConfigured) {
