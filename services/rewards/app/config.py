@@ -45,6 +45,8 @@ class Settings:
             require_user_session=os.getenv("REWARDS_REQUIRE_USER_SESSION", "false").strip().lower() == "true",
             admin_initial_username=os.getenv("ADMIN_INITIAL_USERNAME", "").strip() or None,
             admin_initial_password=os.getenv("ADMIN_INITIAL_PASSWORD", "").strip() or None,
-            timezone=os.getenv("TIMEZONE", "Asia/Shanghai").strip() or "Asia/Shanghai",
+            # All product reporting and reward-day boundaries use UTC+0 unless deployment
+            # explicitly supplies another (legacy) business timezone.
+            timezone=os.getenv("TIMEZONE", "UTC").strip() or "UTC",
             geoip_db_path=os.getenv("GEOIP_DB_PATH", "/usr/share/GeoIP/GeoLite2-Country.mmdb").strip() or None,
         )

@@ -1164,7 +1164,7 @@ class RewardsService:
         by AppsFlyer/Firebase/Xuanyu/PSSDK delivery attempts.
         """
         self._verify_admin_token(authorization)
-        default_end = self._now().date()
+        default_end = datetime.now(UTC).date()
         actual_end = end_date or default_end
         actual_start = start_date or actual_end - timedelta(days=6)
         if actual_start > actual_end:
@@ -1190,8 +1190,11 @@ class RewardsService:
         if normalised["event_type"] not in allowed_event_types:
             raise ServiceError(2304, "不支持的广告事件类型筛选", 422)
 
-        raw_filters = ["client_occurred_at >= %s", "client_occurred_at < (%s::date + INTERVAL '1 day')"]
-        raw_params: list[Any] = [actual_start, actual_end]
+        raw_filters = ["client_occurred_at >= %s", "client_occurred_at < %s"]
+        raw_params: list[Any] = [
+            self._utc_start_of_day(actual_start),
+            self._utc_start_of_day(actual_end + timedelta(days=1)),
+        ]
         for column in ("logical_placement", "topon_placement_id", "ad_format", "ad_network", "app_version", "currency"):
             value = normalised[column]
             if value:
@@ -1410,10 +1413,10 @@ class RewardsService:
             params.append(normalized_country[:2])
         if created_start:
             clauses.append("u.created_at >= %s")
-            params.append(created_start)
+            params.append(self._utc_start_of_day(created_start))
         if created_end:
-            clauses.append("u.created_at < (%s::date + INTERVAL '1 day')")
-            params.append(created_end)
+            clauses.append("u.created_at < %s")
+            params.append(self._utc_start_of_day(created_end + timedelta(days=1)))
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         with self._transaction() as connection:
             total = self._one(
@@ -1512,7 +1515,9 @@ class RewardsService:
         """
 
         self._verify_admin_token(authorization)
-        actual_end = end_date or self._business_date()
+        # Operator registration reports reconcile against AppsFlyer on a UTC+0 calendar,
+        # independently of any legacy reward-day timezone configuration.
+        actual_end = end_date or datetime.now(UTC).date()
         actual_start = start_date or actual_end - timedelta(days=6)
         if actual_start > actual_end:
             raise ServiceError(2316, "用户统计开始日期不能晚于结束日期", 422)
@@ -1543,7 +1548,9 @@ class RewardsService:
             clauses.append("u.geo_country = %s")
             params.append(normalized_country[:2])
         user_where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
-        registration_filters = list(clauses) + ["u.created_at >= %s", "u.created_at < (%s::date + INTERVAL '1 day')"]
+        registration_start = self._utc_start_of_day(actual_start)
+        registration_end = self._utc_start_of_day(actual_end + timedelta(days=1))
+        registration_filters = list(clauses) + ["u.created_at >= %s", "u.created_at < %s"]
         registration_where = " WHERE " + " AND ".join(registration_filters)
         active_filters = ["dc.business_date BETWEEN %s AND %s"] + list(clauses)
         active_where = " WHERE " + " AND ".join(active_filters)
@@ -1557,12 +1564,12 @@ class RewardsService:
             registrations = self._all(
                 connection,
                 f"""
-                SELECT u.created_at::date AS metric_date, COUNT(*) AS registration_count
+                SELECT (u.created_at AT TIME ZONE 'UTC')::date AS metric_date, COUNT(*) AS registration_count
                 FROM users u
                 {registration_where}
-                GROUP BY u.created_at::date
+                GROUP BY (u.created_at AT TIME ZONE 'UTC')::date
                 """,
-                tuple(params + [actual_start, actual_end]),
+                tuple(params + [registration_start, registration_end]),
             )
             active_users = self._all(
                 connection,
@@ -1575,6 +1582,77 @@ class RewardsService:
                 """,
                 tuple([actual_start, actual_end] + params),
             )
+            funnel = self._one(
+                connection,
+                f"""
+                WITH cohort AS (
+                    SELECT u.user_id, u.attribution_status, u.attribution_surface
+                    FROM users u
+                    {registration_where}
+                ), behaviour AS (
+                    SELECT
+                        c.user_id,
+                        c.attribution_status,
+                        c.attribution_surface,
+                        COALESCE(rewarded.completed_count, 0) AS rewarded_completed_count,
+                        COALESCE(rewarded.welcome_count, 0) AS welcome_reward_count,
+                        COALESCE(watched.watch_count, 0) AS watch_count,
+                        COALESCE(interstitial.interstitial_count, 0) AS interstitial_count,
+                        COALESCE(checkin.checkin_count, 0) AS checkin_count
+                    FROM cohort c
+                    LEFT JOIN LATERAL (
+                        SELECT
+                            COUNT(*) FILTER (
+                                WHERE verification_method IN ('client_reward_callback', 'debug_test_callback')
+                            ) AS completed_count,
+                            COUNT(*) FILTER (
+                                WHERE placement_id = 'rv_welcome_bonus'
+                                  AND verification_method IN ('client_reward_callback', 'debug_test_callback')
+                            ) AS welcome_count
+                        FROM rewarded_ad_events r
+                        WHERE r.user_id = c.user_id
+                    ) rewarded ON TRUE
+                    LEFT JOIN LATERAL (
+                        SELECT COUNT(*) AS watch_count
+                        FROM watch_events w
+                        WHERE w.user_id = c.user_id
+                    ) watched ON TRUE
+                    LEFT JOIN LATERAL (
+                        SELECT COUNT(*) AS interstitial_count
+                        FROM interstitial_events i
+                        WHERE i.user_id = c.user_id
+                    ) interstitial ON TRUE
+                    LEFT JOIN LATERAL (
+                        SELECT COUNT(*) AS checkin_count
+                        FROM checkins ci
+                        WHERE ci.user_id = c.user_id
+                    ) checkin ON TRUE
+                )
+                SELECT
+                    COUNT(*) AS cohort_users,
+                    COUNT(*) FILTER (WHERE COALESCE(BTRIM(attribution_status), '') <> '') AS attribution_recorded_users,
+                    COUNT(*) FILTER (WHERE attribution_surface = 'A') AS organic_a_users,
+                    COUNT(*) FILTER (WHERE attribution_surface = 'B') AS attributed_b_users,
+                    COUNT(*) FILTER (WHERE COALESCE(BTRIM(attribution_status), '') = '') AS attribution_pending_users,
+                    COUNT(*) FILTER (WHERE welcome_reward_count > 0) AS welcome_reward_completed_users,
+                    COUNT(*) FILTER (WHERE rewarded_completed_count > 0) AS rewarded_completed_users,
+                    COUNT(*) FILTER (WHERE watch_count > 0) AS valid_watch_users,
+                    COUNT(*) FILTER (WHERE interstitial_count > 0) AS interstitial_users,
+                    COUNT(*) FILTER (WHERE checkin_count > 0) AS checkin_users,
+                    COUNT(*) FILTER (
+                        WHERE rewarded_completed_count = 0
+                          AND watch_count = 0
+                          AND interstitial_count = 0
+                          AND checkin_count = 0
+                    ) AS no_recorded_action_users,
+                    COUNT(*) FILTER (WHERE rewarded_completed_count = 0) AS rewarded_zero_users,
+                    COUNT(*) FILTER (WHERE rewarded_completed_count = 1) AS rewarded_once_users,
+                    COUNT(*) FILTER (WHERE rewarded_completed_count = 2) AS rewarded_twice_users,
+                    COUNT(*) FILTER (WHERE rewarded_completed_count >= 3) AS rewarded_three_or_more_users
+                FROM behaviour
+                """,
+                tuple(params + [registration_start, registration_end]),
+            ) or {}
 
         registration_by_day = {row["metric_date"]: int(row["registration_count"]) for row in registrations}
         active_by_day = {row["metric_date"]: int(row["daily_active_users"]) for row in active_users}
@@ -1592,7 +1670,27 @@ class RewardsService:
             "start_date": actual_start.isoformat(),
             "end_date": actual_end.isoformat(),
             "daily": daily,
-            "definition": "日活用户指当日已创建或更新 Rewards 每日计数器的匿名用户；应用 bootstrap、观看、广告、奖励等受服务端记录的行为均会计入。",
+            "definition": "注册、日活和 cohort 统计均按 UTC+0 自然日；日活用户指当日已创建或更新 Rewards 每日计数器的匿名用户。",
+            "funnel": {
+                "cohort_users": int(funnel.get("cohort_users", 0)),
+                "attribution_recorded_users": int(funnel.get("attribution_recorded_users", 0)),
+                "organic_a_users": int(funnel.get("organic_a_users", 0)),
+                "attributed_b_users": int(funnel.get("attributed_b_users", 0)),
+                "attribution_pending_users": int(funnel.get("attribution_pending_users", 0)),
+                "welcome_reward_completed_users": int(funnel.get("welcome_reward_completed_users", 0)),
+                "rewarded_completed_users": int(funnel.get("rewarded_completed_users", 0)),
+                "valid_watch_users": int(funnel.get("valid_watch_users", 0)),
+                "interstitial_users": int(funnel.get("interstitial_users", 0)),
+                "checkin_users": int(funnel.get("checkin_users", 0)),
+                "no_recorded_action_users": int(funnel.get("no_recorded_action_users", 0)),
+                "rewarded_distribution": {
+                    "zero": int(funnel.get("rewarded_zero_users", 0)),
+                    "once": int(funnel.get("rewarded_once_users", 0)),
+                    "twice": int(funnel.get("rewarded_twice_users", 0)),
+                    "three_or_more": int(funnel.get("rewarded_three_or_more_users", 0)),
+                },
+                "definition": "以所选 UTC+0 注册日期内创建的用户为 cohort，行为为该 cohort 截至查询时已成功写入 Rewards 的累计业务记录；不等同于客户端页面曝光、广告请求或未成功送达服务端的行为。",
+            },
         }
 
     def admin_reporting_delivery_metrics(
@@ -1612,7 +1710,7 @@ class RewardsService:
         """Return recent AppsFlyer/Firebase/Xuanyu delivery results retained by Rewards."""
 
         self._verify_admin_token(authorization)
-        default_end = self._now().date()
+        default_end = datetime.now(UTC).date()
         actual_end = end_date or default_end
         actual_start = start_date or actual_end - timedelta(days=6)
         if actual_start > actual_end:
@@ -1622,8 +1720,11 @@ class RewardsService:
         actual_page = max(int(page), 1)
         actual_limit = min(max(int(page_size), 1), 10_000)
         actual_offset = (actual_page - 1) * actual_limit
-        filters = ["client_occurred_at >= %s", "client_occurred_at < (%s::date + INTERVAL '1 day')"]
-        filter_params: list[Any] = [actual_start, actual_end]
+        filters = ["client_occurred_at >= %s", "client_occurred_at < %s"]
+        filter_params: list[Any] = [
+            self._utc_start_of_day(actual_start),
+            self._utc_start_of_day(actual_end + timedelta(days=1)),
+        ]
         for column, value in (("provider", provider), ("event_name", event_name), ("status", status), ("logical_placement", logical_placement), ("ad_unit_id", ad_unit_id)):
             normalized = value.strip()
             if normalized:
@@ -3493,6 +3594,11 @@ class RewardsService:
 
     def _now(self) -> datetime:
         return datetime.now(UTC).astimezone(self._business_timezone)
+
+    @staticmethod
+    def _utc_start_of_day(value: date) -> datetime:
+        """Return the UTC+0 instant that starts a calendar reporting day."""
+        return datetime(value.year, value.month, value.day, tzinfo=UTC)
 
     @staticmethod
     def _money(micros: int, wallet_policy: dict[str, Any]) -> str:
