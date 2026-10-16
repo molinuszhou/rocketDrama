@@ -354,6 +354,11 @@ class DramaAppActivity : FragmentActivity() {
                         placementId = requireNotNull(externalAdReturnCheckpoint.adPlacementId),
                         adFormat = requireNotNull(externalAdReturnCheckpoint.adFormat),
                         earlyVideoRank = externalAdReturnCheckpoint.adEarlyVideoRank,
+                        dramaId = externalAdReturnCheckpoint.dramaId,
+                        // The persisted pre-click snapshot has the drama ID and episode index,
+                        // but not the mutable catalog title or provider episode ID.
+                        episodeId = null,
+                        contentTitle = null,
                     )
                     adClickReturnRecorded = false
                     adClickPlaybackResumeRecorded = false
