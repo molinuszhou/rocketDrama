@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import csv
+import io
 import json
 from datetime import date
 
 from fastapi import FastAPI, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from app.admin_dashboard import DASHBOARD_HTML
 from app.config import Settings
@@ -47,6 +49,21 @@ settings = Settings.from_environment()
 apply_runtime_migrations(settings)
 service = RewardsService(settings)
 geo_country_resolver = GeoCountryResolver(settings.geoip_db_path)
+
+
+def _csv_response(filename: str, header: list[str], rows: list[list[object]]) -> Response:
+    """Return a UTF-8-with-BOM CSV that opens correctly in spreadsheet clients."""
+
+    output = io.StringIO(newline="")
+    writer = csv.writer(output)
+    writer.writerow(header)
+    writer.writerows(rows)
+    content = ("\ufeff" + output.getvalue()).encode("utf-8")
+    return Response(
+        content=content,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 def client_ip(request: Request) -> str:
@@ -400,6 +417,72 @@ def admin_users(
     }
 
 
+@app.get("/v2/admin/users/metrics", response_model=ApiEnvelope)
+def admin_user_metrics(
+    authorization: str | None = Header(default=None),
+    query: str = "",
+    market_code: str = "",
+    attribution_surface: str = "",
+    geo_country: str = "",
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> dict:
+    return {
+        "code": 0,
+        "data": service.admin_user_metrics(
+            authorization,
+            query=query,
+            market_code=market_code,
+            attribution_surface=attribution_surface,
+            geo_country=geo_country,
+            start_date=start_date,
+            end_date=end_date,
+        ),
+    }
+
+
+@app.get("/v2/admin/users/export")
+def admin_users_export(
+    authorization: str | None = Header(default=None),
+    query: str = "",
+    market_code: str = "",
+    attribution_surface: str = "",
+    geo_country: str = "",
+    created_start: date | None = None,
+    created_end: date | None = None,
+) -> Response:
+    data = service.admin_users(
+        authorization,
+        query=query,
+        market_code=market_code,
+        attribution_surface=attribution_surface,
+        geo_country=geo_country,
+        created_start=created_start,
+        created_end=created_end,
+        limit=10_000,
+        offset=0,
+    )
+    if data["total"] > len(data["rows"]):
+        raise ServiceError(2318, "导出结果超过 10,000 条，请缩小筛选范围后重试", 422)
+    rows: list[list[object]] = []
+    for item in data["rows"]:
+        wallet = item["wallet"]
+        activity = item["activity"]
+        attribution = item.get("attribution") or {}
+        currency = item.get("currency") or {}
+        rows.append([
+            item["user_id"], item.get("created_at", ""), item.get("updated_at", ""), item.get("market_code", ""), item.get("geo_country", ""), currency.get("code", ""),
+            wallet.get("cash_wallet", ""), wallet.get("available_balance", ""), wallet.get("reward_progress_units", 0),
+            activity.get("watch_count", 0), activity.get("rewarded_count", 0), activity.get("interstitial_count", 0), activity.get("ledger_count", 0),
+            attribution.get("af_status", ""), attribution.get("appsflyer_uid", ""), attribution.get("media_source", ""), attribution.get("campaign", ""), attribution.get("channel", ""), attribution.get("surface", ""),
+        ])
+    return _csv_response(
+        "joyedrama-users.csv",
+        ["匿名用户 ID", "注册时间", "最近活动", "市场", "GeoIP 国家", "币种", "钱包余额", "可用余额", "奖励进度", "观看次数", "激励完成", "插屏展示", "账本条数", "归因状态", "AppsFlyer UID", "媒体来源", "Campaign", "Channel", "A/B 面"],
+        rows,
+    )
+
+
 @app.get("/v2/admin/operations/reporting-delivery", response_model=ApiEnvelope)
 def admin_reporting_delivery(
     authorization: str | None = Header(default=None),
@@ -422,6 +505,34 @@ def admin_reporting_delivery(
         ),
     }
 
+
+@app.get("/v2/admin/operations/reporting-delivery/export")
+def admin_reporting_delivery_export(
+    authorization: str | None = Header(default=None),
+    start_date: date | None = None,
+    end_date: date | None = None,
+    provider: str = "",
+    event_name: str = "",
+    status: str = "",
+    user_uid: str = "",
+    logical_placement: str = "",
+    ad_unit_id: str = "",
+) -> Response:
+    data = service.admin_reporting_delivery_metrics(
+        authorization, start_date, end_date, 1, 10_000,
+        provider, event_name, status, user_uid, logical_placement, ad_unit_id,
+    )
+    if data["total"] > len(data["rows"]):
+        raise ServiceError(2319, "导出结果超过 10,000 条，请缩小筛选范围后重试", 422)
+    rows = [[
+        item.get("client_occurred_at", ""), item.get("accepted_at", ""), item.get("user_uid", ""), item.get("provider", ""), item.get("event_name", ""), item.get("status", ""),
+        item.get("logical_placement", ""), item.get("ad_unit_id", ""), item.get("currency", ""), item.get("ecpm", ""), item.get("value", ""), item.get("error_code", ""),
+    ] for item in data["rows"]]
+    return _csv_response(
+        "joyedrama-reporting-delivery.csv",
+        ["客户端发生时间", "服务端接收时间", "匿名 UID", "渠道", "事件", "状态", "广告位", "广告单元", "币种", "eCPM", "Value", "错误码"],
+        rows,
+    )
 
 @app.post("/v2/withdrawals/preflight", response_model=ApiEnvelope)
 def withdrawal_preflight(payload: WithdrawalPreflightRequest) -> dict:

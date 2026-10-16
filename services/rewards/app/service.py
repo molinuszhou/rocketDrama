@@ -1383,7 +1383,7 @@ class RewardsService:
         """Return a bounded, token-protected operational view of anonymous Rewards users."""
 
         self._verify_admin_token(authorization)
-        actual_limit = min(max(int(limit), 1), 100)
+        actual_limit = min(max(int(limit), 1), 10_000)
         actual_offset = max(int(offset), 0)
         clauses: list[str] = []
         params: list[Any] = []
@@ -1491,6 +1491,110 @@ class RewardsService:
             "rows": [serialize(row) for row in rows],
         }
 
+
+    def admin_user_metrics(
+        self,
+        authorization: str | None,
+        *,
+        query: str = "",
+        market_code: str = "",
+        attribution_surface: str = "",
+        geo_country: str = "",
+        start_date: date | None = None,
+        end_date: date | None = None,
+    ) -> dict[str, Any]:
+        """Return operator-facing registration and daily active-user metrics.
+
+        A daily counter is created during every authenticated bootstrap and is
+        subsequently updated by viewing, advertising and reward actions. It is
+        therefore the durable active-day source instead of a volatile browser
+        session or the mutable ``users.updated_at`` timestamp.
+        """
+
+        self._verify_admin_token(authorization)
+        actual_end = end_date or self._business_date()
+        actual_start = start_date or actual_end - timedelta(days=6)
+        if actual_start > actual_end:
+            raise ServiceError(2316, "用户统计开始日期不能晚于结束日期", 422)
+        if actual_end - actual_start > timedelta(days=365):
+            raise ServiceError(2317, "用户日统计最大查询范围为 365 天", 422)
+
+        clauses: list[str] = []
+        params: list[Any] = []
+        normalized_query = query.strip()
+        normalized_market = market_code.strip().upper()
+        normalized_surface = attribution_surface.strip().upper()
+        normalized_country = geo_country.strip().upper()
+        if normalized_query:
+            clauses.append(
+                "(u.user_id ILIKE %s OR u.appsflyer_uid ILIKE %s OR u.attribution_media_source ILIKE %s OR u.attribution_campaign ILIKE %s)"
+            )
+            wildcard = f"%{normalized_query[:160]}%"
+            params.extend([wildcard, wildcard, wildcard, wildcard])
+        if normalized_market:
+            clauses.append("u.market_code = %s")
+            params.append(normalized_market)
+        if normalized_surface:
+            if normalized_surface not in {"A", "B"}:
+                raise ServiceError(2312, "归因面仅支持 A 或 B", 422)
+            clauses.append("u.attribution_surface = %s")
+            params.append(normalized_surface)
+        if normalized_country:
+            clauses.append("u.geo_country = %s")
+            params.append(normalized_country[:2])
+        user_where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        registration_filters = list(clauses) + ["u.created_at >= %s", "u.created_at < (%s::date + INTERVAL '1 day')"]
+        registration_where = " WHERE " + " AND ".join(registration_filters)
+        active_filters = ["dc.business_date BETWEEN %s AND %s"] + list(clauses)
+        active_where = " WHERE " + " AND ".join(active_filters)
+
+        with self._transaction() as connection:
+            total = self._one(
+                connection,
+                f"SELECT COUNT(*) AS count FROM users u{user_where}",
+                tuple(params),
+            ) or {"count": 0}
+            registrations = self._all(
+                connection,
+                f"""
+                SELECT u.created_at::date AS metric_date, COUNT(*) AS registration_count
+                FROM users u
+                {registration_where}
+                GROUP BY u.created_at::date
+                """,
+                tuple(params + [actual_start, actual_end]),
+            )
+            active_users = self._all(
+                connection,
+                f"""
+                SELECT dc.business_date AS metric_date, COUNT(DISTINCT dc.user_id) AS daily_active_users
+                FROM daily_counters dc
+                JOIN users u ON u.user_id = dc.user_id
+                {active_where}
+                GROUP BY dc.business_date
+                """,
+                tuple([actual_start, actual_end] + params),
+            )
+
+        registration_by_day = {row["metric_date"]: int(row["registration_count"]) for row in registrations}
+        active_by_day = {row["metric_date"]: int(row["daily_active_users"]) for row in active_users}
+        daily: list[dict[str, Any]] = []
+        cursor = actual_start
+        while cursor <= actual_end:
+            daily.append({
+                "metric_date": cursor.isoformat(),
+                "registration_count": registration_by_day.get(cursor, 0),
+                "daily_active_users": active_by_day.get(cursor, 0),
+            })
+            cursor += timedelta(days=1)
+        return {
+            "total_users": int(total["count"]),
+            "start_date": actual_start.isoformat(),
+            "end_date": actual_end.isoformat(),
+            "daily": daily,
+            "definition": "日活用户指当日已创建或更新 Rewards 每日计数器的匿名用户；应用 bootstrap、观看、广告、奖励等受服务端记录的行为均会计入。",
+        }
+
     def admin_reporting_delivery_metrics(
         self,
         authorization: str | None,
@@ -1516,7 +1620,7 @@ class RewardsService:
         if actual_end - actual_start > timedelta(days=90):
             raise ServiceError(2314, "上报记录最大查询范围为 90 天", 422)
         actual_page = max(int(page), 1)
-        actual_limit = min(max(int(page_size), 1), 200)
+        actual_limit = min(max(int(page_size), 1), 10_000)
         actual_offset = (actual_page - 1) * actual_limit
         filters = ["client_occurred_at >= %s", "client_occurred_at < (%s::date + INTERVAL '1 day')"]
         filter_params: list[Any] = [actual_start, actual_end]

@@ -189,6 +189,24 @@ def run() -> None:
         assert rows_payload["total"] == 1
         assert rows_payload["rows"][0]["attribution"]["campaign"] == "launch"
         assert rows_payload["rows"][0]["attribution"]["appsflyer_uid"] == "af-http-smoke"
+        assert rows_payload["rows"][0]["created_at"]
+        business_date = service._business_date().isoformat()  # noqa: SLF001 - endpoint date boundary smoke coverage
+        user_metrics = client.get(
+            "/v2/admin/users/metrics",
+            params={"query": attribution_user, "start_date": business_date, "end_date": business_date},
+            headers=admin_headers,
+        )
+        assert user_metrics.status_code == 200
+        assert user_metrics.json()["data"]["total_users"] == 1
+        assert user_metrics.json()["data"]["daily"]
+        user_export = client.get(
+            "/v2/admin/users/export",
+            params={"query": attribution_user},
+            headers=admin_headers,
+        )
+        assert user_export.status_code == 200
+        assert user_export.headers["content-type"].startswith("text/csv")
+        assert "注册时间" in user_export.content.decode("utf-8-sig")
 
         reporting_event = client.post(
             "/v2/operations/reporting-delivery-events",
@@ -217,6 +235,13 @@ def run() -> None:
         assert report_payload["totals"]["success_count"] >= 1
         assert any(row["provider"] == "AppsFlyer" for row in report_payload["rows"])
         assert any(row["user_uid"] == "user-uid-reporting-smoke" for row in report_payload["rows"])
+        reporting_export = client.get(
+            "/v2/admin/operations/reporting-delivery/export",
+            params={"provider": "AppsFlyer"},
+            headers=admin_headers,
+        )
+        assert reporting_export.status_code == 200
+        assert "AppsFlyer" in reporting_export.content.decode("utf-8-sig")
 
         ad_event = client.post(
             "/v2/operations/ad-mediation-events",
