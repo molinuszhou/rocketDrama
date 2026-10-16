@@ -19,6 +19,7 @@ class Settings:
     admin_initial_password: str | None
     timezone: str
     geoip_db_path: str | None
+    telemetry_encryption_key: str | None
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -49,4 +50,8 @@ class Settings:
             # explicitly supplies another (legacy) business timezone.
             timezone=os.getenv("TIMEZONE", "UTC").strip() or "UTC",
             geoip_db_path=os.getenv("GEOIP_DB_PATH", "/usr/share/GeoIP/GeoLite2-Country.mmdb").strip() or None,
+            # A Fernet key used only for the restricted raw-IP / raw-AppsFlyer audit stream.
+            # If omitted, ordinary Rewards behavior remains available but sensitive values are
+            # intentionally not persisted in plaintext or via a fallback cipher.
+            telemetry_encryption_key=os.getenv("TELEMETRY_ENCRYPTION_KEY", "").strip() or None,
         )

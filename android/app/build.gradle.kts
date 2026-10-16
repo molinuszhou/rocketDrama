@@ -272,7 +272,10 @@ dependencies {
     // MAX's network SDKs/adapters below are also shared by TopOn's direct source adapters.
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.browser:browser:1.8.0")
-    implementation("com.applovin:applovin-sdk:13.6.0")
+    // 13.6.4 is the current AppLovin Android SDK release. Its minSdk is 24,
+    // which remains below this app's minSdk 26. The Alex bridge documents MAX
+    // 13.3.0+ support, so the bridge contract remains within its published range.
+    implementation("com.applovin:applovin-sdk:13.6.4")
     implementation("io.github.alex-only:max_adapter_tpn:1.3.1")
     // Keep MAX's Google adapter on the same GMA line as TopOn's direct AdMob adapter.
     implementation("com.applovin.mediation:google-adapter:25.4.0.0")

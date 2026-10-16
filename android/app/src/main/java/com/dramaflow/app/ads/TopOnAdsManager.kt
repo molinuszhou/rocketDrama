@@ -17,6 +17,7 @@ import android.widget.FrameLayout
 import java.util.concurrent.atomic.AtomicBoolean
 import com.dramaflow.app.BuildConfig
 import com.dramaflow.app.analytics.EngagementAnalytics
+import com.dramaflow.app.analytics.UserBehaviorEventReporter
 import com.dramaflow.app.content.PssdkRevenueReporter
 import com.secmtp.sdk.core.api.ATAdInfo
 import com.secmtp.sdk.core.api.ATAdRevenueListener
@@ -174,9 +175,19 @@ class TopOnAdsManager(
 
     private fun completeInitialization(result: Initialization) {
         when (result) {
-            Initialization.Ready -> auditEvent("INITIALIZATION", "sdk", "", "sdk", result = "READY")
+            Initialization.Ready -> {
+                auditEvent("INITIALIZATION", "sdk", "", "sdk", result = "READY")
+                UserBehaviorEventReporter.get(applicationContext).record("SDK", "TOPON_INITIALIZED")
+            }
             Initialization.NotConfigured -> Unit
-            is Initialization.Failed -> auditEvent("INITIALIZATION", "sdk", "", "sdk", result = "FAILED", errorCode = result.code, detail = "sdk_initialization_failed")
+            is Initialization.Failed -> {
+                auditEvent("INITIALIZATION", "sdk", "", "sdk", result = "FAILED", errorCode = result.code, detail = "sdk_initialization_failed")
+                UserBehaviorEventReporter.get(applicationContext).record(
+                    "SDK",
+                    "TOPON_INITIALIZATION_FAILED",
+                    mapOf("error_code" to result.code),
+                )
+            }
         }
         val callbacks = synchronized(initializationLock) {
             topOnInitialized = result is Initialization.Ready

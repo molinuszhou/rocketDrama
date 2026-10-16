@@ -38,13 +38,14 @@ InterstitialPlacement = Literal[
 
 
 class AttributionPayload(BaseModel):
-    """Minimal install-attribution fields supplied after AppsFlyer conversion succeeds."""
+    """Normalized attribution plus a separately encrypted raw conversion audit payload."""
 
     appsflyer_uid: str | None = Field(default=None, max_length=160)
     af_status: str = Field(min_length=1, max_length=64)
     media_source: str | None = Field(default=None, max_length=160)
     campaign: str | None = Field(default=None, max_length=160)
     channel: str | None = Field(default=None, max_length=160)
+    raw_conversion_payload: dict[str, Any] | None = None
 
 
 class BootstrapRequest(BaseModel):
@@ -270,6 +271,19 @@ class AdMediationEventRequest(BaseModel):
     occurred_at_ms: int = Field(ge=0, le=4_102_444_800_000)
 
 
+class UserBehaviorEventRequest(BaseModel):
+    """Privacy-minimised lifecycle and early-funnel event from an anonymous client."""
+
+    user_id: str = Field(min_length=1, max_length=128)
+    event_id: str = Field(min_length=8, max_length=160)
+    session_id: str = Field(min_length=8, max_length=80)
+    event_category: Literal["APP", "SDK", "ONBOARDING", "PLAYBACK", "AD", "NETWORK", "REWARDS"]
+    event_name: str = Field(min_length=2, max_length=80, pattern=r"^[A-Z][A-Z0-9_]{1,79}$")
+    properties: dict[str, Any] = Field(default_factory=dict, max_length=16)
+    app_version: str = Field(min_length=1, max_length=64)
+    occurred_at_ms: int = Field(ge=0, le=4_102_444_800_000)
+
+
 class ReportingDeliveryEventRequest(BaseModel):
     """Minimal server-side record of a provider callback and its anonymous app UID."""
 
@@ -323,3 +337,4 @@ class HealthResponse(BaseModel):
     environment: str
     now: datetime
     geoip: dict[str, Any] | None = None
+    sensitive_telemetry: dict[str, bool | int] | None = None

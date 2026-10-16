@@ -18,6 +18,10 @@ internal data class ExternalAdReturnCheckpoint(
     val profileCollectionShowsFavorites: Boolean,
     val catalogCategoryId: Long?,
     val catalogGenre: String?,
+    val adInteractionId: String?,
+    val adPlacementId: String?,
+    val adFormat: String?,
+    val adEarlyVideoRank: Int?,
     val savedAtMillis: Long,
 ) {
     fun isFresh(nowMillis: Long, maxAgeMillis: Long = AD_RETURN_CHECKPOINT_MAX_AGE_MILLIS): Boolean {

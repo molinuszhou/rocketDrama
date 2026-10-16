@@ -430,11 +430,13 @@ internal fun DramaAppActivity.claimWelcomeBonus(
                     // Let the wallet celebration settle before guiding a new user toward Reward Center.
                     root.postDelayed({
                         if (isFinishing || isDestroyed) return@postDelayed
+                        userBehaviorReporter.record("ONBOARDING", "ONBOARDING_REWARD_CENTER_GUIDE_SHOWN")
                         showBrandedChoiceDialog(
                             t("welcome_rewards_guide_title"),
                             t("welcome_rewards_guide_message"),
                             t("welcome_rewards_guide_action"),
                             {
+                                userBehaviorReporter.record("ONBOARDING", "ONBOARDING_REWARD_CENTER_GUIDE_CLICKED")
                                 activeTab = MainTab.TASKS
                                 if (playerShown) showCatalog() else if (catalogItems.isNotEmpty()) renderActiveTab()
                             },

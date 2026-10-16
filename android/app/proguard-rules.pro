@@ -6,6 +6,14 @@
 -keep class com.secmtp.sdk.** { *; }
 -dontwarn com.secmtp.sdk.**
 
+# MAX is loaded by TopOn as a Custom Network through the Dashboard-configured
+# com.alex adapter class names. The bridge AAR also ships these consumer rules;
+# keeping them here makes the release requirement explicit at the app boundary.
+-keep class com.alex.** { *; }
+-keepclassmembers public class com.alex.** {
+    public *;
+}
+
 # Pangle 8.1 and Kwai's optional device-security modules reference these symbols
 # from split/optional SDK artifacts. The tested ad request and display paths do
 # not invoke them; suppress only the three exact R8 missing-class warnings.

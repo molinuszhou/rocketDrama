@@ -1,5 +1,7 @@
 package com.dramaflow.app.rewards
 
+import android.os.Handler
+import android.os.Looper
 import com.dramaflow.app.BuildConfig
 import okhttp3.Call
 import okhttp3.Callback
@@ -25,18 +27,20 @@ class RewardsApiClient(
     private val baseUrlProvider: () -> String,
     private val sessionTokenProvider: () -> String? = { null },
     private val onSessionTokenReceived: (String) -> Unit = {},
+    private val onNetworkRetryScheduled: (path: String, statusCode: Int?) -> Unit = { _, _ -> },
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(12, TimeUnit.SECONDS)
         .build(),
 ) {
-    /** Minimal AppsFlyer install-attribution record retained with the anonymous Rewards user. */
+    /** Normalized attribution plus an in-memory raw conversion payload for encrypted server audit. */
     data class AttributionPayload(
         val appsFlyerUid: String?,
         val afStatus: String,
         val mediaSource: String?,
         val campaign: String?,
         val channel: String?,
+        val rawConversionPayload: Map<String, Any?>? = null,
     )
 
     /**
@@ -51,6 +55,7 @@ class RewardsApiClient(
     )
 
     private val attributionSyncLock = Any()
+    private val retryHandler = Handler(Looper.getMainLooper())
 
     @Volatile
     private var inMemorySessionToken: String? = null
@@ -420,6 +425,7 @@ class RewardsApiClient(
     fun recordRewardedSkipped(userId: String, context: String, onSuccess: (Snapshot) -> Unit, onFailure: (String) -> Unit) = post(
         "/v2/ads/rewarded/skipped", JSONObject().put("user_id", userId).put("context", context),
         { data -> onSuccess(parseSnapshot(data.getJSONObject("snapshot"))) }, onFailure,
+        retryable = false,
     )
 
     fun claimEpisodeReward(userId: String, episodeId: String, onSuccess: (RewardAction) -> Unit, onFailure: (String) -> Unit) = post(
@@ -603,6 +609,7 @@ class RewardsApiClient(
         onSuccess: (JSONObject) -> Unit,
         onFailure: (String) -> Unit,
         sessionTokenOverride: String? = null,
+        retryable: Boolean = true,
     ) {
         val baseUrl = normalisedBaseUrl()
         if (baseUrl == null) { onFailure("独立积分服务尚未配置"); return }
@@ -611,12 +618,44 @@ class RewardsApiClient(
             .header("X-Rewards-Session", "v1")
         (sessionTokenOverride ?: currentSessionToken())?.let { builder.header("Authorization", "Bearer $it") }
         val request = builder.build()
+        postRequest(request, onSuccess, onFailure, retryable, attempt = 0)
+    }
+
+    private fun postRequest(
+        request: Request,
+        onSuccess: (JSONObject) -> Unit,
+        onFailure: (String) -> Unit,
+        retryable: Boolean,
+        attempt: Int,
+    ) {
         httpClient.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, error: IOException) = onFailure("积分服务网络错误：${error.message ?: "无法连接"}")
+            override fun onFailure(call: Call, error: IOException) {
+                if (retryable && attempt < RETRY_DELAYS_MS.size) {
+                    runCatching { onNetworkRetryScheduled(request.url.encodedPath, null) }
+                    retryHandler.postDelayed(
+                        { postRequest(request, onSuccess, onFailure, retryable, attempt + 1) },
+                        RETRY_DELAYS_MS[attempt],
+                    )
+                } else {
+                    onFailure("积分服务网络错误：${error.message ?: "无法连接"}")
+                }
+            }
+
             override fun onResponse(call: Call, response: okhttp3.Response) {
                 response.use {
                     val json = runCatching { JSONObject(it.body?.string().orEmpty()) }.getOrNull()
-                    if (!it.isSuccessful) { onFailure(json?.optString("msg")?.takeIf(String::isNotBlank) ?: "积分服务请求失败（HTTP ${it.code}）"); return }
+                    if (!it.isSuccessful) {
+                        if (retryable && it.code in RETRYABLE_HTTP_CODES && attempt < RETRY_DELAYS_MS.size) {
+                            runCatching { onNetworkRetryScheduled(request.url.encodedPath, it.code) }
+                            retryHandler.postDelayed(
+                                { postRequest(request, onSuccess, onFailure, retryable, attempt + 1) },
+                                RETRY_DELAYS_MS[attempt],
+                            )
+                        } else {
+                            onFailure(json?.optString("msg")?.takeIf(String::isNotBlank) ?: "积分服务请求失败（HTTP ${it.code}）")
+                        }
+                        return
+                    }
                     val data = json?.optJSONObject("data")
                     if (json?.optInt("code", -1) != 0 || data == null) { onFailure(json?.optString("msg")?.takeIf(String::isNotBlank) ?: "积分服务响应无效"); return }
                     runCatching { onSuccess(data) }.onFailure { onFailure("积分服务响应解析失败：${it.message}") }
@@ -633,6 +672,10 @@ class RewardsApiClient(
         .put("media_source", mediaSource)
         .put("campaign", campaign)
         .put("channel", channel)
+        .also { payload ->
+            rawConversionPayload?.takeIf { it.isNotEmpty() }
+                ?.let { payload.put("raw_conversion_payload", JSONObject(it)) }
+        }
 
     private fun parseSnapshot(json: JSONObject): Snapshot {
         val walletJson = json.getJSONObject("wallet")
@@ -864,5 +907,9 @@ class RewardsApiClient(
             .toPlainString()
     }
 
-    private companion object { val JSON = "application/json; charset=utf-8".toMediaType() }
+    private companion object {
+        val JSON = "application/json; charset=utf-8".toMediaType()
+        val RETRY_DELAYS_MS = longArrayOf(1_000L, 3_000L)
+        val RETRYABLE_HTTP_CODES = (500..599).toSet() + setOf(408, 429)
+    }
 }

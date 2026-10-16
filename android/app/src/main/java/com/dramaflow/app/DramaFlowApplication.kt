@@ -4,6 +4,7 @@ import android.app.Application
 import android.util.Log
 import com.dramaflow.app.ads.TopOnSettings
 import com.dramaflow.app.analytics.EngagementAnalytics
+import com.dramaflow.app.analytics.UserBehaviorEventReporter
 import com.dramaflow.app.content.ShortDramaSdkManager
 import com.dramaflow.app.presentation.INSTALLATION_KEY
 import com.dramaflow.app.presentation.PREFERENCES
@@ -20,13 +21,25 @@ import java.util.UUID
 class DramaFlowApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        val behaviorReporter = UserBehaviorEventReporter.get(this)
+        behaviorReporter.record("APP", "PROCESS_CREATED")
         // Attribution and analytics are reporting services rather than TopOn SDK initialization.
         // Starting them here preserves AppsFlyer install/open attribution while TopOn still waits
         // for an eligible, consented ad request.
         val rewardsApi = RewardsApiClient(
             baseUrlProvider = { BuildConfig.REWARDS_API_BASE_URL },
             sessionTokenProvider = { getSharedPreferences(PREFERENCES, MODE_PRIVATE).getString(SESSION_TOKEN_KEY, null) },
-            onSessionTokenReceived = { token -> getSharedPreferences(PREFERENCES, MODE_PRIVATE).edit().putString(SESSION_TOKEN_KEY, token).apply() },
+            onSessionTokenReceived = { token ->
+                getSharedPreferences(PREFERENCES, MODE_PRIVATE).edit().putString(SESSION_TOKEN_KEY, token).commit()
+                behaviorReporter.flushPending()
+            },
+            onNetworkRetryScheduled = { path, statusCode ->
+                behaviorReporter.record(
+                    "NETWORK",
+                    "REWARDS_REQUEST_RETRY_SCHEDULED",
+                    mapOf("endpoint" to path, "status_code" to (statusCode ?: 0)),
+                )
+            },
         )
         val engagementAnalytics = EngagementAnalytics.get(this)
         engagementAnalytics.setAttributionSyncListener { attribution ->
@@ -44,10 +57,17 @@ class DramaFlowApplication : Application() {
                 userId = anonymousInstallationId(),
                 region = Locale.getDefault().country.trim().uppercase(Locale.ROOT).ifBlank { "US" },
                 attribution = engagementAnalytics.currentAttributionForRewards(),
-                onSuccess = { Log.i(TAG, "Rewards early bootstrap completed") },
-                onFailure = { error -> Log.w(TAG, "Rewards early bootstrap failed: $error") },
+                onSuccess = {
+                    behaviorReporter.record("NETWORK", "REWARDS_BOOTSTRAP_SUCCEEDED", mapOf("source" to "application"))
+                    Log.i(TAG, "Rewards early bootstrap completed")
+                },
+                onFailure = { error ->
+                    behaviorReporter.record("NETWORK", "REWARDS_BOOTSTRAP_FAILED", mapOf("source" to "application", "failure_type" to "bootstrap"))
+                    Log.w(TAG, "Rewards early bootstrap failed: $error")
+                },
             )
         } else {
+            behaviorReporter.record("NETWORK", "REWARDS_BOOTSTRAP_SKIPPED", mapOf("reason" to "not_configured"))
             Log.w(TAG, "Rewards API is not configured; early user bootstrap is skipped")
         }
         // The request above is already enqueued. AppsFlyer remains in Application.onCreate so its

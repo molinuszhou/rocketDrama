@@ -1,0 +1,40 @@
+# Merge these locations into the existing HTTPS server block for www.joyelleasia.com.
+# This example assumes the existing public prefix is /joyedrama-rewards/.
+# The more-specific /v2/admin/ location must be placed before the public API location.
+
+location = /joyedrama-rewards/admin {
+    proxy_pass http://127.0.0.1:18101/admin;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+location = /joyedrama-rewards/admin/ {
+    proxy_pass http://127.0.0.1:18101/admin;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+location ^~ /joyedrama-rewards/v2/admin/ {
+    proxy_pass http://127.0.0.1:18101/v2/admin/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+# Android clients and all non-admin Rewards APIs continue to use this existing path.
+location ^~ /joyedrama-rewards/ {
+    proxy_pass http://127.0.0.1:18100/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}

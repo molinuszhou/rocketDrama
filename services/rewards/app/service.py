@@ -3,6 +3,8 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import ipaddress
+import json
 import math
 import secrets
 from contextlib import contextmanager
@@ -12,6 +14,7 @@ from typing import Any, Iterator
 from zoneinfo import ZoneInfo
 
 import psycopg
+from cryptography.fernet import Fernet, InvalidToken
 from psycopg.rows import dict_row
 
 from app.config import Settings
@@ -44,7 +47,19 @@ class RewardsService:
             with connection.cursor() as cursor:
                 cursor.execute("SELECT 1 AS ready")
                 cursor.fetchone()
-        return {"status": "ok", "database": "ok", "environment": self.settings.environment, "now": self._now()}
+        sensitive_cipher = self._sensitive_telemetry_cipher()
+        return {
+            "status": "ok",
+            "database": "ok",
+            "environment": self.settings.environment,
+            "now": self._now(),
+            "sensitive_telemetry": {
+                "raw_audit_enabled": sensitive_cipher is not None,
+                "raw_ip_retention_days": 14,
+                "raw_appsflyer_retention_days": 30,
+                "ip_fingerprint_retention_days": 180,
+            },
+        }
 
     def bootstrap(
         self,
@@ -52,15 +67,15 @@ class RewardsService:
         region: str | None = None,
         *,
         geo_country: str | None = None,
+        client_ip: str | None = None,
         attribution: dict[str, Any] | None = None,
-        session_token: str | None = None,
-        session_required: bool = False,
     ) -> dict[str, Any]:
         with self._transaction() as connection:
-            existing = self._one(connection, "SELECT user_id FROM users WHERE user_id = %s", (user_id,))
-            if existing and session_required:
-                self.verify_user_session(user_id, session_token)
+            # Bootstrap is also the session renewal endpoint. Requiring the old token here would
+            # create a permanent 401 loop after its 30-day expiry or a signing-secret rotation:
+            # the client could not obtain the very token required to refresh itself.
             self._ensure_user(connection, user_id, region, geo_country)
+            self._record_bootstrap_ip_audit(connection, user_id, client_ip)
             if attribution:
                 self._update_attribution(connection, user_id=user_id, **attribution)
             self._ensure_random_chests(connection, user_id, self._business_date(), self._policy(connection))
@@ -120,12 +135,14 @@ class RewardsService:
         media_source: str | None,
         campaign: str | None,
         channel: str | None,
+        raw_conversion_payload: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Persist the minimal AppsFlyer install-attribution result for an anonymous user.
+        """Persist normalized AppsFlyer attribution and an optional encrypted raw audit.
 
         The client sends this only from AppsFlyer's conversion callback. The server derives
         the A/B surface from ``af_status`` rather than trusting a client-selected surface;
-        optional blank values never erase a previously received attribution value.
+        optional blank values never erase a previously received attribution value. The raw SDK
+        map is written only to the separately encrypted, retention-bounded audit table.
         """
         with self._transaction() as connection:
             self._ensure_user(connection, user_id)
@@ -138,8 +155,16 @@ class RewardsService:
                 campaign=campaign,
                 channel=channel,
             )
+            sensitive_audit_stored = self._record_appsflyer_conversion_audit(
+                connection,
+                user_id=user_id,
+                raw_conversion_payload=raw_conversion_payload,
+            )
             user = self._one(connection, "SELECT * FROM users WHERE user_id = %s", (user_id,))
-            return {"attribution": self._attribution_payload(user)}
+            return {
+                "attribution": self._attribution_payload(user),
+                "sensitive_audit_stored": sensitive_audit_stored,
+            }
 
     def allow_episode_unlock_when_ad_unavailable(
         self,
@@ -1369,6 +1394,319 @@ class RewardsService:
                 "DELETE FROM reporting_delivery_events WHERE accepted_at < NOW() - INTERVAL '90 days'",
             )
         return {"idempotent": False, "accepted": True, "client_event_id": client_event_id}
+
+    def record_user_behavior_event(
+        self,
+        *,
+        user_id: str,
+        event_id: str,
+        session_id: str,
+        event_category: str,
+        event_name: str,
+        properties: dict[str, Any],
+        app_version: str,
+        occurred_at_ms: int,
+    ) -> dict[str, Any]:
+        """Store a de-duplicated, privacy-minimised client lifecycle event.
+
+        This stream exists to understand the early product funnel. It is not a
+        financial ledger and deliberately rejects unbounded or nested metadata
+        that could accidentally become a raw attribution or advertising payload.
+        """
+
+        occurred_at = datetime.fromtimestamp(occurred_at_ms / 1_000, UTC)
+        if abs((datetime.now(UTC) - occurred_at).total_seconds()) > 31 * 24 * 60 * 60:
+            raise ServiceError(2319, "用户行为事件时间超出允许范围", 422)
+        normalized_properties = self._sanitize_behavior_properties(properties)
+        with self._transaction() as connection:
+            self._ensure_user(connection, user_id)
+            existing = self._one(
+                connection,
+                "SELECT event_id FROM user_behavior_events WHERE event_id = %s",
+                (event_id,),
+            )
+            if existing:
+                return {"idempotent": True, "accepted": True, "event_id": event_id}
+            self._execute(
+                connection,
+                """
+                INSERT INTO user_behavior_events (
+                    event_id, user_id, session_id, event_category, event_name,
+                    properties, app_version, client_occurred_at
+                ) VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s, %s)
+                """,
+                (
+                    event_id,
+                    user_id,
+                    session_id,
+                    event_category,
+                    event_name,
+                    self._json(normalized_properties),
+                    app_version,
+                    occurred_at,
+                ),
+            )
+            # Behaviour telemetry is operationally useful only for short-term
+            # funnel analysis. Keep its retention deliberately bounded.
+            self._execute(
+                connection,
+                "DELETE FROM user_behavior_events WHERE accepted_at < NOW() - INTERVAL '90 days'",
+            )
+        return {"idempotent": False, "accepted": True, "event_id": event_id}
+
+    @staticmethod
+    def _sanitize_behavior_properties(properties: dict[str, Any]) -> dict[str, str | int | float | bool]:
+        """Keep only small, scalar event dimensions safe for JSONB storage."""
+
+        clean: dict[str, str | int | float | bool] = {}
+        for raw_key, raw_value in properties.items():
+            key = str(raw_key).strip().lower()[:40]
+            if not key or not all(character.isascii() and (character.isalnum() or character == "_") for character in key):
+                continue
+            if isinstance(raw_value, bool):
+                clean[key] = raw_value
+            elif isinstance(raw_value, int):
+                clean[key] = raw_value
+            elif isinstance(raw_value, float) and math.isfinite(raw_value):
+                clean[key] = raw_value
+            elif isinstance(raw_value, str):
+                value = raw_value.strip()
+                if value:
+                    clean[key] = value[:512]
+            if len(clean) >= 16:
+                break
+        return clean
+
+    def admin_behavior_flow_metrics(
+        self,
+        authorization: str | None,
+        *,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        user_id: str = "",
+        event_category: str = "",
+        event_name: str = "",
+        page: int = 1,
+        page_size: int = 100,
+    ) -> dict[str, Any]:
+        """Return an operator view of the anonymous lifecycle and early-video funnel."""
+
+        self._verify_admin_token(authorization)
+        actual_end = end_date or datetime.now(UTC).date()
+        actual_start = start_date or actual_end - timedelta(days=6)
+        if actual_start > actual_end:
+            raise ServiceError(2320, "行为记录开始日期不能晚于结束日期", 422)
+        if actual_end - actual_start > timedelta(days=90):
+            raise ServiceError(2321, "行为记录最大查询范围为 90 天", 422)
+        normalized_category = event_category.strip().upper()
+        categories = {"APP", "SDK", "ONBOARDING", "PLAYBACK", "AD", "NETWORK", "REWARDS"}
+        if normalized_category and normalized_category not in categories:
+            raise ServiceError(2322, "行为类别不受支持", 422)
+        normalized_event = event_name.strip().upper()
+        if normalized_event and (len(normalized_event) > 80 or not normalized_event.replace("_", "").isalnum()):
+            raise ServiceError(2323, "行为事件名称格式无效", 422)
+        normalized_user_id = user_id.strip()[:128]
+        actual_page = max(int(page), 1)
+        actual_limit = min(max(int(page_size), 1), 500)
+        actual_offset = (actual_page - 1) * actual_limit
+        base_filters = ["client_occurred_at >= %s", "client_occurred_at < %s"]
+        base_params: list[Any] = [
+            self._utc_start_of_day(actual_start),
+            self._utc_start_of_day(actual_end + timedelta(days=1)),
+        ]
+        if normalized_user_id:
+            base_filters.append("user_id = %s")
+            base_params.append(normalized_user_id)
+        where_base = " WHERE " + " AND ".join(base_filters)
+        event_filters = list(base_filters)
+        event_params = list(base_params)
+        if normalized_category:
+            event_filters.append("event_category = %s")
+            event_params.append(normalized_category)
+        if normalized_event:
+            event_filters.append("event_name = %s")
+            event_params.append(normalized_event)
+        where_events = " WHERE " + " AND ".join(event_filters)
+
+        with self._transaction() as connection:
+            totals = self._one(
+                connection,
+                f"""
+                SELECT COUNT(*) AS event_count, COUNT(DISTINCT user_id) AS user_count
+                FROM user_behavior_events
+                {where_events}
+                """,
+                tuple(event_params),
+            ) or {}
+            breakdown = self._all(
+                connection,
+                f"""
+                SELECT event_category, event_name,
+                       COUNT(*) AS event_count, COUNT(DISTINCT user_id) AS user_count
+                FROM user_behavior_events
+                {where_events}
+                GROUP BY event_category, event_name
+                ORDER BY event_category ASC, event_name ASC
+                """,
+                tuple(event_params),
+            )
+            early_videos = self._all(
+                connection,
+                f"""
+                SELECT
+                    (properties ->> 'early_video_rank')::INTEGER AS early_video_rank,
+                    COUNT(DISTINCT user_id) FILTER (WHERE event_name = 'EARLY_VIDEO_STARTED') AS started_users,
+                    COUNT(DISTINCT user_id) FILTER (WHERE event_name = 'EARLY_VIDEO_COMPLETED') AS completed_users,
+                    COUNT(*) FILTER (WHERE event_name = 'EARLY_VIDEO_PLAYBACK_FAILED') AS failure_events
+                FROM user_behavior_events
+                {where_base}
+                  AND event_category = 'PLAYBACK'
+                  AND event_name IN ('EARLY_VIDEO_STARTED', 'EARLY_VIDEO_COMPLETED', 'EARLY_VIDEO_PLAYBACK_FAILED')
+                  AND (properties ->> 'early_video_rank') ~ '^[1-5]$'
+                GROUP BY (properties ->> 'early_video_rank')::INTEGER
+                ORDER BY early_video_rank ASC
+                """,
+                tuple(base_params),
+            )
+            rows = self._all(
+                connection,
+                f"""
+                SELECT user_id, session_id, event_category, event_name, properties,
+                       app_version, client_occurred_at, accepted_at
+                FROM user_behavior_events
+                {where_events}
+                ORDER BY client_occurred_at DESC, accepted_at DESC
+                LIMIT %s OFFSET %s
+                """,
+                tuple(event_params + [actual_limit, actual_offset]),
+            )
+
+        early_by_rank = {int(item["early_video_rank"]): item for item in early_videos}
+        early_rows: list[dict[str, int]] = []
+        for rank in range(1, 6):
+            row = early_by_rank.get(rank, {})
+            early_rows.append({
+                "early_video_rank": rank,
+                "started_users": int(row.get("started_users", 0)),
+                "completed_users": int(row.get("completed_users", 0)),
+                "failure_events": int(row.get("failure_events", 0)),
+            })
+
+        return {
+            "start_date": actual_start.isoformat(),
+            "end_date": actual_end.isoformat(),
+            "page": actual_page,
+            "page_size": actual_limit,
+            "offset": actual_offset,
+            "total": int(totals.get("event_count", 0)),
+            "unique_users": int(totals.get("user_count", 0)),
+            "filters": {
+                "user_id": normalized_user_id,
+                "event_category": normalized_category,
+                "event_name": normalized_event,
+            },
+            "breakdown": [
+                {
+                    "event_category": item["event_category"],
+                    "event_name": item["event_name"],
+                    "event_count": int(item["event_count"]),
+                    "user_count": int(item["user_count"]),
+                }
+                for item in breakdown
+            ],
+            "early_videos": early_rows,
+            "rows": [
+                {
+                    **item,
+                    "client_occurred_at": item["client_occurred_at"].isoformat(),
+                    "accepted_at": item["accepted_at"].isoformat(),
+                }
+                for item in rows
+            ],
+            "definition": (
+                "按客户端事件发生时间的 UTC+0 自然日统计。仅保留匿名用户、有限事件名称及最小化标量属性；"
+                "首五视频从安装了此埋点版本后首次观察到的不同视频开始计数，不追溯历史版本。"
+            ),
+        }
+
+    def admin_sensitive_telemetry(
+        self,
+        authorization: str | None,
+        *,
+        user_id: str,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """Return decrypted raw diagnostics for one user to an authenticated administrator.
+
+        This deliberately has no list/export endpoint: operators must enter a complete anonymous
+        user identifier, and the same encryption key required for writing is required for reading.
+        """
+
+        self._verify_admin_token(authorization)
+        normalized_user_id = user_id.strip()[:128]
+        if not normalized_user_id:
+            raise ServiceError(2324, "受限审计查询需要完整匿名用户 ID", 422)
+        actual_limit = min(max(int(limit), 1), 100)
+        cipher = self._sensitive_telemetry_cipher()
+        if cipher is None:
+            return {
+                "available": False,
+                "reason": "服务端未配置 TELEMETRY_ENCRYPTION_KEY，未保存原始敏感审计数据。",
+                "events": [],
+                "ip_fingerprints": [],
+                "retention": {"raw_ip_days": 14, "raw_appsflyer_days": 30, "ip_fingerprint_days": 180},
+            }
+        with self._transaction() as connection:
+            self._purge_expired_sensitive_telemetry(connection)
+            rows = self._all(
+                connection,
+                """
+                SELECT audit_type, encrypted_payload, received_at, expires_at
+                FROM sensitive_telemetry_audit_events
+                WHERE user_id = %s
+                ORDER BY received_at DESC, audit_id DESC
+                LIMIT %s
+                """,
+                (normalized_user_id, actual_limit),
+            )
+            ip_fingerprints = self._all(
+                connection,
+                """
+                SELECT ip_fingerprint, first_seen_at, last_seen_at, expires_at
+                FROM sensitive_telemetry_ip_hash_observations
+                WHERE user_id = %s
+                ORDER BY last_seen_at DESC
+                LIMIT %s
+                """,
+                (normalized_user_id, actual_limit),
+            )
+        events: list[dict[str, Any]] = []
+        for row in rows:
+            try:
+                payload = json.loads(cipher.decrypt(str(row["encrypted_payload"]).encode()).decode("utf-8"))
+            except (InvalidToken, UnicodeDecodeError, json.JSONDecodeError):
+                payload = {"decryption_error": "受限审计记录无法解密；请检查 TELEMETRY_ENCRYPTION_KEY 是否被更换。"}
+            events.append({
+                "audit_type": row["audit_type"],
+                "payload": payload,
+                "received_at": row["received_at"].isoformat(),
+                "expires_at": row["expires_at"].isoformat(),
+            })
+        return {
+            "available": True,
+            "reason": "仅限单用户受限审计查询；不会出现在普通用户列表或 CSV 导出中。",
+            "events": events,
+            "ip_fingerprints": [
+                {
+                    "ip_fingerprint": row["ip_fingerprint"],
+                    "first_seen_at": row["first_seen_at"].isoformat(),
+                    "last_seen_at": row["last_seen_at"].isoformat(),
+                    "expires_at": row["expires_at"].isoformat(),
+                }
+                for row in ip_fingerprints
+            ],
+            "retention": {"raw_ip_days": 14, "raw_appsflyer_days": 30, "ip_fingerprint_days": 180},
+        }
 
     def admin_users(
         self,
@@ -3551,6 +3889,122 @@ class RewardsService:
         if token and hmac.compare_digest(supplied, token):
             return
         raise ServiceError(1902, "管理员令牌无效", 401)
+
+    def _sensitive_telemetry_cipher(self) -> Fernet | None:
+        key = self.settings.telemetry_encryption_key
+        if not key:
+            return None
+        try:
+            return Fernet(key.encode("utf-8"))
+        except (TypeError, ValueError) as error:
+            raise ServiceError(2325, "TELEMETRY_ENCRYPTION_KEY 不是有效的 Fernet 密钥", 503) from error
+
+    def _record_bootstrap_ip_audit(
+        self,
+        connection: psycopg.Connection[Any],
+        user_id: str,
+        client_ip: str | None,
+    ) -> bool:
+        raw_ip = (client_ip or "").strip()
+        if not raw_ip:
+            return False
+        try:
+            canonical_ip = str(ipaddress.ip_address(raw_ip))
+        except ValueError:
+            # Never preserve an untrusted forwarding-header fragment as an IP address.
+            return False
+        cipher = self._sensitive_telemetry_cipher()
+        if cipher is None:
+            return False
+        stored = self._record_sensitive_telemetry(
+            connection,
+            user_id=user_id,
+            audit_type="BOOTSTRAP_IP",
+            payload={"ip": canonical_ip},
+            retention_days=14,
+            cipher=cipher,
+        )
+        if not stored:
+            return False
+        key = self.settings.telemetry_encryption_key or ""
+        fingerprint = hmac.new(key.encode("utf-8"), canonical_ip.encode("utf-8"), hashlib.sha256).hexdigest()
+        expires_at = datetime.now(UTC) + timedelta(days=180)
+        self._execute(
+            connection,
+            """
+            INSERT INTO sensitive_telemetry_ip_hash_observations (
+                user_id, ip_fingerprint, first_seen_at, last_seen_at, expires_at
+            ) VALUES (%s, %s, NOW(), NOW(), %s)
+            ON CONFLICT (user_id, ip_fingerprint) DO UPDATE
+            SET last_seen_at = NOW(), expires_at = EXCLUDED.expires_at
+            """,
+            (user_id, fingerprint, expires_at),
+        )
+        return True
+
+    def _record_appsflyer_conversion_audit(
+        self,
+        connection: psycopg.Connection[Any],
+        *,
+        user_id: str,
+        raw_conversion_payload: dict[str, Any] | None,
+    ) -> bool:
+        if not raw_conversion_payload:
+            return False
+        cipher = self._sensitive_telemetry_cipher()
+        if cipher is None:
+            return False
+        return self._record_sensitive_telemetry(
+            connection,
+            user_id=user_id,
+            audit_type="APPSFLYER_CONVERSION",
+            payload=raw_conversion_payload,
+            retention_days=30,
+            cipher=cipher,
+        )
+
+    def _record_sensitive_telemetry(
+        self,
+        connection: psycopg.Connection[Any],
+        *,
+        user_id: str,
+        audit_type: str,
+        payload: dict[str, Any],
+        retention_days: int,
+        cipher: Fernet,
+    ) -> bool:
+        try:
+            serialized = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=str)
+        except (TypeError, ValueError):
+            return False
+        if len(serialized.encode("utf-8")) > 64 * 1024:
+            # Keep raw diagnostic capacity meaningful while preventing an authenticated client
+            # from turning the audit table into an unbounded arbitrary-payload store.
+            return False
+        key = self.settings.telemetry_encryption_key or ""
+        fingerprint = hmac.new(key.encode("utf-8"), serialized.encode("utf-8"), hashlib.sha256).hexdigest()
+        encrypted = cipher.encrypt(serialized.encode("utf-8")).decode("ascii")
+        expires_at = datetime.now(UTC) + timedelta(days=retention_days)
+        self._execute(
+            connection,
+            """
+            INSERT INTO sensitive_telemetry_audit_events (
+                user_id, audit_type, payload_fingerprint, encrypted_payload, received_at, expires_at
+            ) VALUES (%s, %s, %s, %s, NOW(), %s)
+            ON CONFLICT (user_id, audit_type, payload_fingerprint) DO UPDATE
+            SET encrypted_payload = EXCLUDED.encrypted_payload,
+                received_at = NOW(), expires_at = EXCLUDED.expires_at
+            """,
+            (user_id, audit_type, fingerprint, encrypted, expires_at),
+        )
+        self._purge_expired_sensitive_telemetry(connection)
+        return True
+
+    @staticmethod
+    def _purge_expired_sensitive_telemetry(connection: psycopg.Connection[Any]) -> None:
+        with connection.cursor() as cursor:
+            cursor.execute("DELETE FROM sensitive_telemetry_audit_events WHERE expires_at < NOW()")
+            cursor.execute("DELETE FROM sensitive_telemetry_ip_hash_observations WHERE expires_at < NOW()")
 
     def _issue_admin_session(self, username: str, ttl_seconds: int = 12 * 60 * 60) -> str:
         expires = int(self._now().timestamp()) + ttl_seconds

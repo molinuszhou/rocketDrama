@@ -375,7 +375,7 @@ private fun DramaAppActivity.showGestureCoachmarkIfNeeded(discoverPreview: Boole
         // behind it into a harsh black interruption.
         background = android.graphics.drawable.ColorDrawable(0x66000000)
         isClickable = true
-        setOnClickListener { finishGestureCoachmark(this, preferenceKey) }
+        setOnClickListener { finishGestureCoachmark(this, preferenceKey, "tap") }
     }
     val panel = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
@@ -418,14 +418,20 @@ private fun DramaAppActivity.showGestureCoachmarkIfNeeded(discoverPreview: Boole
     }
     coachmark.addView(panel, FrameLayout.LayoutParams(dp(292), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
     root.addView(coachmark, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+    userBehaviorReporter.record(
+        "ONBOARDING",
+        "ONBOARDING_GESTURE_GUIDE_SHOWN",
+        mapOf("surface" to if (discoverPreview) "discover" else "player"),
+    )
     coachmark.alpha = 0f
     coachmark.animate().alpha(1f).setDuration(260L).start()
-    root.postDelayed({ if (coachmark.parent != null) finishGestureCoachmark(coachmark, preferenceKey) }, 5_000L)
+    root.postDelayed({ if (coachmark.parent != null) finishGestureCoachmark(coachmark, preferenceKey, "timeout") }, 5_000L)
 }
 
-private fun DramaAppActivity.finishGestureCoachmark(view: View, preferenceKey: String) {
+private fun DramaAppActivity.finishGestureCoachmark(view: View, preferenceKey: String, method: String) {
     (view.parent as? ViewGroup)?.removeView(view)
     getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit().putBoolean(preferenceKey, true).apply()
+    userBehaviorReporter.record("ONBOARDING", "ONBOARDING_GESTURE_GUIDE_COMPLETED", mapOf("method" to method))
 }
 
 /** A small host-owned dock with the single authoritative player progress presentation. */
@@ -490,6 +496,7 @@ private fun DramaAppActivity.onSdkEpisodeStarted(episodeIndex: Int, episode: Epi
         clearExternalAdReturnCheckpoint()
         logStatus("广告外跳恢复分集已确认：第 ${currentEpisodeIndex + 1} 集")
     }
+    recordEarlyVideoStarted(provider = "PSSDK", episodeIndex = safeEpisodeIndex)
     episode?.let { logStatus("PSSDK 开始播放分集：${episodeIndex + 1}") }
 }
 
@@ -499,6 +506,7 @@ private fun DramaAppActivity.onSdkEpisodeCompleted(episodeIndex: Int) {
     if (!completedEpisodeKeys.add(key)) return
     currentEpisodeIndex = safeIndex
     persistNextEpisodeResume(safeIndex)
+    recordEarlyVideoCompleted(provider = "PSSDK", episodeIndex = safeIndex)
     // PSSDK owns the actual transition and preloading. Server reward confirmation must not
     // block the next episode or race a second host-side startPlayIndex call.
     recordCompletedEpisodeForRewards(safeIndex) {}
@@ -651,6 +659,7 @@ internal fun DramaAppActivity.dismissSdkDramaPlayerIfShown() {
 private fun DramaAppActivity.onSdkPlaybackFailure(message: String): Boolean {
     sdkPlaybackActive = false
     playerIsPaused = true
+    recordEarlyVideoPlaybackFailure(provider = "PSSDK", episodeIndex = currentEpisodeIndex, reason = message)
     logStatus("PSSDK playback failed: $message")
     runOnUiThread {
         if (!sdkPlayerShown || isFinishing || isDestroyed) return@runOnUiThread

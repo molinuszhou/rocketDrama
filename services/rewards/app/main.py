@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import os
 from datetime import date
 
 from fastapi import FastAPI, Header, Request
@@ -36,6 +37,7 @@ from app.schemas import (
     RewardedSkippedRequest,
     ReportingDeliveryEventRequest,
     TenRoundClaimRequest,
+    UserBehaviorEventRequest,
     WelcomeBonusRequest,
     WatchEventRequest,
     WithdrawalAccountRequest,
@@ -46,7 +48,11 @@ from app.geo import GeoCountryResolver
 from app.service import RewardsService, ServiceError
 
 settings = Settings.from_environment()
-apply_runtime_migrations(settings)
+# The public API is the only production process allowed to apply migrations.
+# This lets a dashboard-only deployment restart rewards-admin without making a
+# database schema change that could affect the live mobile API.
+if os.getenv("APPLY_RUNTIME_MIGRATIONS", "true").strip().lower() == "true":
+    apply_runtime_migrations(settings)
 service = RewardsService(settings)
 geo_country_resolver = GeoCountryResolver(settings.geoip_db_path)
 
@@ -132,9 +138,8 @@ def bootstrap(payload: BootstrapRequest, request: Request) -> dict:
             payload.user_id,
             payload.region,
             geo_country=geo_country_resolver.country_for_ip(client_ip(request)),
-            attribution=payload.attribution.model_dump() if payload.attribution else None,
-            session_token=request.headers.get("authorization"),
-            session_required=settings.require_user_session or request.headers.get("x-rewards-session") == "v1",
+            client_ip=client_ip(request),
+            attribution=payload.attribution.model_dump(exclude={"raw_conversion_payload"}) if payload.attribution else None,
         ),
     }
 
@@ -155,6 +160,7 @@ def update_attribution(payload: AttributionUpdateRequest) -> dict:
             media_source=payload.media_source,
             campaign=payload.campaign,
             channel=payload.channel,
+            raw_conversion_payload=payload.raw_conversion_payload,
         ),
     }
 
@@ -349,6 +355,14 @@ def record_reporting_delivery_event(payload: ReportingDeliveryEventRequest) -> d
     }
 
 
+@app.post("/v2/analytics/behavior-events", response_model=ApiEnvelope)
+def record_user_behavior_event(payload: UserBehaviorEventRequest) -> dict:
+    return {
+        "code": 0,
+        "data": service.record_user_behavior_event(**payload.model_dump()),
+    }
+
+
 @app.get("/v2/admin/operations/ad-mediation-daily", response_model=ApiEnvelope)
 def admin_ad_mediation_daily(
     authorization: str | None = Header(default=None),
@@ -441,6 +455,32 @@ def admin_user_metrics(
     }
 
 
+@app.get("/v2/admin/analytics/behavior-flow", response_model=ApiEnvelope)
+def admin_behavior_flow(
+    authorization: str | None = Header(default=None),
+    start_date: date | None = None,
+    end_date: date | None = None,
+    user_id: str = "",
+    event_category: str = "",
+    event_name: str = "",
+    page: int = 1,
+    page_size: int = 100,
+) -> dict:
+    return {
+        "code": 0,
+        "data": service.admin_behavior_flow_metrics(
+            authorization,
+            start_date=start_date,
+            end_date=end_date,
+            user_id=user_id,
+            event_category=event_category,
+            event_name=event_name,
+            page=page,
+            page_size=page_size,
+        ),
+    }
+
+
 @app.get("/v2/admin/users/export")
 def admin_users_export(
     authorization: str | None = Header(default=None),
@@ -481,6 +521,22 @@ def admin_users_export(
         ["匿名用户 ID", "注册时间", "最近活动", "市场", "GeoIP 国家", "币种", "钱包余额", "可用余额", "奖励进度", "观看次数", "激励完成", "插屏展示", "账本条数", "归因状态", "AppsFlyer UID", "媒体来源", "Campaign", "Channel", "A/B 面"],
         rows,
     )
+
+
+@app.get("/v2/admin/users/{user_id}/sensitive-telemetry", response_model=ApiEnvelope)
+def admin_user_sensitive_telemetry(
+    user_id: str,
+    authorization: str | None = Header(default=None),
+    limit: int = 50,
+) -> dict:
+    return {
+        "code": 0,
+        "data": service.admin_sensitive_telemetry(
+            authorization,
+            user_id=user_id,
+            limit=limit,
+        ),
+    }
 
 
 @app.get("/v2/admin/operations/reporting-delivery", response_model=ApiEnvelope)

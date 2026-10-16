@@ -172,7 +172,10 @@ private fun DramaAppActivity.renderLegacyPlayer(drama: LocalDrama, startIndex: I
                 updatePauseOverlayVisibility(playerIsPaused && !fullscreenAdInProgress)
                 if (isPlaying) {
                     val now = SystemClock.elapsedRealtime()
-                    if (episodePlaybackStartedAtElapsedMillis == 0L) episodePlaybackStartedAtElapsedMillis = now
+                    if (episodePlaybackStartedAtElapsedMillis == 0L) {
+                        episodePlaybackStartedAtElapsedMillis = now
+                        recordEarlyVideoStarted(provider = "LOCAL", episodeIndex = currentEpisodeIndex)
+                    }
                     if (episodePlaybackPausedAtElapsedMillis > 0L) {
                         episodePlaybackPausedDurationMillis += now - episodePlaybackPausedAtElapsedMillis
                         episodePlaybackPausedAtElapsedMillis = 0L
@@ -191,6 +194,7 @@ private fun DramaAppActivity.renderLegacyPlayer(drama: LocalDrama, startIndex: I
                     playerDurationSeconds = player.duration.takeIf { it > 0 }?.div(1_000L)?.toInt()
                         ?: selectedEpisode()?.durationSeconds.orZero()
                 } else if (playbackState == Player.STATE_ENDED) {
+                    recordEarlyVideoCompleted(provider = "LOCAL", episodeIndex = currentEpisodeIndex)
                     handleEpisodeCompleted(currentEpisodeIndex)
                 }
             }
@@ -201,6 +205,7 @@ private fun DramaAppActivity.renderLegacyPlayer(drama: LocalDrama, startIndex: I
                     .firstOrNull()
                 val diagnostic = httpFailure?.let { "HTTP ${it.responseCode}" } ?: error.errorCodeName
                 logStatus("局域网视频播放失败：$diagnostic ${error.message.orEmpty()}")
+                recordEarlyVideoPlaybackFailure(provider = "LOCAL", episodeIndex = currentEpisodeIndex, reason = diagnostic)
                 playerIsPaused = true
                 episodeTransitionInProgress = false
                 window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)

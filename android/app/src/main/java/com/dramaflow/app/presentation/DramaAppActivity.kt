@@ -221,6 +221,10 @@ class DramaAppActivity : FragmentActivity() {
     internal var fullscreenAdLoadingOverlay: View? = null
     internal var episodeTransitionInProgress = false
     internal var resumeAfterFullscreenAd = false
+    /** Correlates a click-out with the subsequent foreground and playback recovery event. */
+    internal var lastClickedAdBehaviorInteraction: AdBehaviorInteraction? = null
+    internal var adClickReturnRecorded = false
+    internal var adClickPlaybackResumeRecorded = false
     /** 广告展示前退出沉浸模式，关闭后仅在原本处于沉浸播放时恢复。 */
     internal var playerInImmersiveMode = false
     internal var restoreImmersiveAfterFullscreenAd = false
@@ -297,6 +301,7 @@ class DramaAppActivity : FragmentActivity() {
     internal val playbackHistory by lazy { getSharedPreferences(PLAYBACK_HISTORY_PREFERENCES, Context.MODE_PRIVATE) }
     internal val persistedDramaLibrary by lazy { getSharedPreferences(PERSISTED_DRAMA_LIBRARY_PREFERENCES, Context.MODE_PRIVATE) }
     internal val taskRewardPromptPreferences by lazy { getSharedPreferences("joyedrama.task_reward_prompts", Context.MODE_PRIVATE) }
+    internal val userBehaviorReporter by lazy { com.dramaflow.app.analytics.UserBehaviorEventReporter.get(applicationContext) }
 
     internal val consentStore by lazy { AdConsentStore(applicationContext) }
     internal val adMediationReporter by lazy {
@@ -315,10 +320,18 @@ class DramaAppActivity : FragmentActivity() {
             baseUrlProvider = { rewardsBaseUrl() },
             sessionTokenProvider = { getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getString(SESSION_TOKEN_KEY, null) },
             onSessionTokenReceived = { token ->
-                getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit().putString(SESSION_TOKEN_KEY, token).apply()
+                getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit().putString(SESSION_TOKEN_KEY, token).commit()
                 // Early startup can flush the non-financial operations queue before bootstrap
                 // issues a session token. Replay it once the signed token is safely available.
                 adMediationReporter.flushPending()
+                userBehaviorReporter.flushPending()
+            },
+            onNetworkRetryScheduled = { path, statusCode ->
+                userBehaviorReporter.record(
+                    "NETWORK",
+                    "REWARDS_REQUEST_RETRY_SCHEDULED",
+                    mapOf("endpoint" to path, "status_code" to (statusCode ?: 0)),
+                )
             },
         )
     }
@@ -333,6 +346,18 @@ class DramaAppActivity : FragmentActivity() {
         if (externalAdReturnCheckpoint != null) {
             restoreExternalAdReturnSurface(externalAdReturnCheckpoint)
             restoringExternalAdReturn = true
+            externalAdReturnCheckpoint.adInteractionId
+                ?.takeIf { !externalAdReturnCheckpoint.adPlacementId.isNullOrBlank() && !externalAdReturnCheckpoint.adFormat.isNullOrBlank() }
+                ?.let { interactionId ->
+                    lastClickedAdBehaviorInteraction = AdBehaviorInteraction(
+                        interactionId = interactionId,
+                        placementId = requireNotNull(externalAdReturnCheckpoint.adPlacementId),
+                        adFormat = requireNotNull(externalAdReturnCheckpoint.adFormat),
+                        earlyVideoRank = externalAdReturnCheckpoint.adEarlyVideoRank,
+                    )
+                    adClickReturnRecorded = false
+                    adClickPlaybackResumeRecorded = false
+                }
             // A synchronous checkpoint is newer and more reliable than Android's saved Bundle:
             // external click-outs often destroy the process after the Bundle was last written.
             if (externalAdReturnCheckpoint.playerVisible) {
@@ -377,6 +402,7 @@ class DramaAppActivity : FragmentActivity() {
         }
         onBackPressedDispatcher.addCallback(this, requireNotNull(navigationBackCallback))
         adMediationReporter.flushPending()
+        userBehaviorReporter.flushPending()
         if (restoringExternalAdReturn) {
             resumeFromExternalAdReturn()
         } else {
@@ -390,6 +416,8 @@ class DramaAppActivity : FragmentActivity() {
      */
     override fun onPostResume() {
         super.onPostResume()
+        userBehaviorReporter.flushPending()
+        recordExternalAdReturnIfPending()
         if (!startupContentInitializationStarted) maybeShowAppOpenAd()
         pendingFullscreenAdResult?.let { pending ->
             pendingFullscreenAdResult = null
@@ -410,6 +438,7 @@ class DramaAppActivity : FragmentActivity() {
             updatePauseOverlayVisibility(false)
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             resumePlaybackWhenForeground = false
+            recordPlaybackResumedAfterAdClickIfPending()
         }
         if (resumeSdkPlaybackWhenForeground && sdkPlayerShown && !fullscreenAdInProgress) {
             currentSdkPlayerFragment()?.startPlay()
@@ -417,6 +446,7 @@ class DramaAppActivity : FragmentActivity() {
             playerIsPaused = false
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             resumeSdkPlaybackWhenForeground = false
+            recordPlaybackResumedAfterAdClickIfPending()
         }
         // A live Activity already retains its View hierarchy. Clear the durable click-out marker
         // only after it is actually foregrounded again; ad-close callbacks can fire before Play or
@@ -1065,6 +1095,18 @@ class DramaAppActivity : FragmentActivity() {
             .putBoolean(AD_RETURN_PROFILE_COLLECTION_PAGE_SHOWN, profileCollectionPageShown)
             .putBoolean(AD_RETURN_PROFILE_COLLECTION_SHOWS_FAVORITES, profileCollectionShowsFavorites)
             .putBoolean(AD_RETURN_HAS_CATALOG_CATEGORY_ID, selectedCatalogCategoryId != null)
+        lastClickedAdBehaviorInteraction?.let { interaction ->
+            editor
+                .putString(AD_RETURN_BEHAVIOR_INTERACTION_ID, interaction.interactionId)
+                .putString(AD_RETURN_BEHAVIOR_PLACEMENT_ID, interaction.placementId)
+                .putString(AD_RETURN_BEHAVIOR_FORMAT, interaction.adFormat)
+            interaction.earlyVideoRank?.let { editor.putInt(AD_RETURN_BEHAVIOR_EARLY_VIDEO_RANK, it) }
+                ?: editor.remove(AD_RETURN_BEHAVIOR_EARLY_VIDEO_RANK)
+        } ?: editor
+            .remove(AD_RETURN_BEHAVIOR_INTERACTION_ID)
+            .remove(AD_RETURN_BEHAVIOR_PLACEMENT_ID)
+            .remove(AD_RETURN_BEHAVIOR_FORMAT)
+            .remove(AD_RETURN_BEHAVIOR_EARLY_VIDEO_RANK)
         selectedCatalogCategoryId?.let { editor.putLong(AD_RETURN_CATALOG_CATEGORY_ID, it) }
             ?: editor.remove(AD_RETURN_CATALOG_CATEGORY_ID)
         selectedCatalogGenre?.let { editor.putString(AD_RETURN_CATALOG_GENRE, it) }
@@ -1106,6 +1148,10 @@ class DramaAppActivity : FragmentActivity() {
             profileCollectionShowsFavorites = playbackHistory.getBoolean(AD_RETURN_PROFILE_COLLECTION_SHOWS_FAVORITES, false),
             catalogCategoryId = if (hasCatalogCategoryId) playbackHistory.getLong(AD_RETURN_CATALOG_CATEGORY_ID, 0L) else null,
             catalogGenre = playbackHistory.getString(AD_RETURN_CATALOG_GENRE, null),
+            adInteractionId = playbackHistory.getString(AD_RETURN_BEHAVIOR_INTERACTION_ID, null),
+            adPlacementId = playbackHistory.getString(AD_RETURN_BEHAVIOR_PLACEMENT_ID, null),
+            adFormat = playbackHistory.getString(AD_RETURN_BEHAVIOR_FORMAT, null),
+            adEarlyVideoRank = playbackHistory.getInt(AD_RETURN_BEHAVIOR_EARLY_VIDEO_RANK, 0).takeIf { it in 1..5 },
             savedAtMillis = playbackHistory.getLong(AD_RETURN_EXTERNAL_SAVED_AT_MILLIS, 0L),
         )
         return checkpoint.takeIf { it.isFresh(System.currentTimeMillis()) }.also {
@@ -1162,6 +1208,10 @@ class DramaAppActivity : FragmentActivity() {
             .remove(AD_RETURN_HAS_CATALOG_CATEGORY_ID)
             .remove(AD_RETURN_CATALOG_CATEGORY_ID)
             .remove(AD_RETURN_CATALOG_GENRE)
+            .remove(AD_RETURN_BEHAVIOR_INTERACTION_ID)
+            .remove(AD_RETURN_BEHAVIOR_PLACEMENT_ID)
+            .remove(AD_RETURN_BEHAVIOR_FORMAT)
+            .remove(AD_RETURN_BEHAVIOR_EARLY_VIDEO_RANK)
             .apply()
     }
 

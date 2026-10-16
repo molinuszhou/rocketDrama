@@ -292,7 +292,7 @@ internal fun DramaAppActivity.showStartupCheckinWhenReady() {
                 showPendingShortDramaCatalogDiagnostic()
                 root.postDelayed({
                     if (!isFinishing && !isDestroyed && !startupCheckinPromptSuppressed && rewardsSnapshot?.checkinSignedToday != true) {
-                        showCheckinRewardDialog(rewardsSnapshot ?: snapshot)
+                        showCheckinRewardDialog(rewardsSnapshot ?: snapshot, onboarding = true)
                     }
                 }, 15_000L)
             }
@@ -303,7 +303,7 @@ internal fun DramaAppActivity.showStartupCheckinWhenReady() {
         when {
             snapshot == null -> Unit
             snapshot.checkinSignedToday -> Unit
-            else -> showCheckinRewardDialog(snapshot)
+            else -> showCheckinRewardDialog(snapshot, onboarding = true)
         }
         showPendingShortDramaCatalogDiagnostic()
     }
@@ -361,7 +361,11 @@ internal fun DramaAppActivity.showWelcomeRewardDialog(snapshot: RewardsApiClient
             setPadding(dp(18), dp(15), dp(18), dp(15))
             isClickable = true
             contentDescription = t("welcome_claim_hint")
-            setOnClickListener { dialog.dismiss(); claimWelcomeBonus { onFinished() } }
+            setOnClickListener {
+                userBehaviorReporter.record("ONBOARDING", "ONBOARDING_WELCOME_CLAIM_CLICKED")
+                dialog.dismiss()
+                claimWelcomeBonus { onFinished() }
+            }
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)))
         content.addView(TextView(this@showWelcomeRewardDialog).apply {
             text = t("later")
@@ -370,13 +374,21 @@ internal fun DramaAppActivity.showWelcomeRewardDialog(snapshot: RewardsApiClient
             setTextColor(COLOR_TEXT_MUTED)
             setPadding(0, dp(16), 0, 0)
             isClickable = true
-            setOnClickListener { dialog.dismiss(); onFinished() }
+            setOnClickListener {
+                userBehaviorReporter.record("ONBOARDING", "ONBOARDING_WELCOME_LATER_CLICKED")
+                dialog.dismiss()
+                onFinished()
+            }
         })
         page.addView(content, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
         dialog.setContentView(page)
         dialog.setCanceledOnTouchOutside(false)
-        dialog.setOnCancelListener { onFinished() }
+        dialog.setOnCancelListener {
+            userBehaviorReporter.record("ONBOARDING", "ONBOARDING_WELCOME_DISMISSED")
+            onFinished()
+        }
         dialog.show()
+        userBehaviorReporter.record("ONBOARDING", "ONBOARDING_WELCOME_SHOWN")
         dialog.window?.apply {
             setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
             setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
@@ -423,7 +435,10 @@ internal fun DramaAppActivity.addWelcomeConfetti(host: FrameLayout) {
     }
 
     /** 深色奖励弹窗：七日格子和金额均以服务端快照为准；服务离线时仅展示同步状态，不发放奖励。 */
-internal fun DramaAppActivity.showCheckinRewardDialog(snapshot: RewardsApiClient.Snapshot?) {
+internal fun DramaAppActivity.showCheckinRewardDialog(
+    snapshot: RewardsApiClient.Snapshot?,
+    onboarding: Boolean = false,
+) {
         val dialog = AlertDialog.Builder(this).create()
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -481,6 +496,12 @@ internal fun DramaAppActivity.showCheckinRewardDialog(snapshot: RewardsApiClient
             background = primaryActionDrawable()
             setPadding(dp(14), dp(13), dp(14), dp(13))
             setOnClickListener {
+                if (onboarding) {
+                    userBehaviorReporter.record(
+                        "ONBOARDING",
+                        if (snapshot == null) "ONBOARDING_CHECKIN_SYNC_CLICKED" else "ONBOARDING_CHECKIN_CLAIM_CLICKED",
+                    )
+                }
                 dialog.dismiss()
                 when {
                     snapshot == null -> refreshRewardsSnapshot()
@@ -498,12 +519,16 @@ internal fun DramaAppActivity.showCheckinRewardDialog(snapshot: RewardsApiClient
             gravity = Gravity.CENTER
             setTextColor(COLOR_TEXT_MUTED)
             setPadding(dp(12), dp(14), dp(12), dp(4))
-            setOnClickListener { dialog.dismiss() }
+            setOnClickListener {
+                if (onboarding) userBehaviorReporter.record("ONBOARDING", "ONBOARDING_CHECKIN_LATER_CLICKED")
+                dialog.dismiss()
+            }
             isClickable = true
         })
         dialog.setView(content)
         dialog.setCanceledOnTouchOutside(false)
         dialog.show()
+        if (onboarding) userBehaviorReporter.record("ONBOARDING", "ONBOARDING_CHECKIN_SHOWN")
         dialog.window?.apply {
             setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
             setLayout((resources.displayMetrics.widthPixels * 0.98f).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)

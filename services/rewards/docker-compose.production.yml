@@ -20,20 +20,25 @@ services:
 
   rewards-api:
     build: .
+    command: ["python", "-m", "uvicorn", "app.api_main:app", "--host", "0.0.0.0", "--port", "8100"]
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-joyedrama}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-joyedrama_rewards}
+      # Set REWARDS_DATABASE_URL during a future RDS migration. Until then, the
+      # Compose-owned PostgreSQL URL below remains the explicit fallback.
+      DATABASE_URL: ${REWARDS_DATABASE_URL:-postgresql://${POSTGRES_USER:-joyedrama}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-joyedrama_rewards}}
       HOST: 0.0.0.0
       PORT: 8100
       ENVIRONMENT: production
       # 填现有站点的来源，不要包含 /joyedrama-rewards 路径。
       CORS_ORIGINS: ${CORS_ORIGINS:?请设置现有 HTTPS 站点来源}
       ALLOW_DEBUG_AD_PROOF: "false"
+      APPLY_RUNTIME_MIGRATIONS: "true"
       ADMIN_DASHBOARD_TOKEN: ${ADMIN_DASHBOARD_TOKEN:?请设置高强度后台管理令牌}
       SESSION_SIGNING_SECRET: ${SESSION_SIGNING_SECRET:?请设置独立的用户会话签名密钥}
+      TELEMETRY_ENCRYPTION_KEY: ${TELEMETRY_ENCRYPTION_KEY:-}
       REWARDS_REQUIRE_USER_SESSION: ${REWARDS_REQUIRE_USER_SESSION:-false}
       ADMIN_INITIAL_USERNAME: ${ADMIN_INITIAL_USERNAME:-}
       ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD:-}
@@ -44,6 +49,43 @@ services:
     # 仅供宿主机原生 Nginx 访问；不要改成 0.0.0.0。
     ports:
       - "127.0.0.1:${REWARDS_BIND_PORT:-18100}:8100"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/health', timeout=3)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # The management UI and every /v2/admin endpoint run in a separate process.
+  # Updating this service leaves rewards-api running on its existing image.
+  rewards-admin:
+    build: .
+    command: ["python", "-m", "uvicorn", "app.admin_main:app", "--host", "0.0.0.0", "--port", "8100"]
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${REWARDS_DATABASE_URL:-postgresql://${POSTGRES_USER:-joyedrama}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-joyedrama_rewards}}
+      HOST: 0.0.0.0
+      PORT: 8100
+      ENVIRONMENT: production
+      CORS_ORIGINS: ${CORS_ORIGINS:?请设置现有 HTTPS 站点来源}
+      ALLOW_DEBUG_AD_PROOF: "false"
+      # A dashboard-only update must never apply shared-schema migrations.
+      APPLY_RUNTIME_MIGRATIONS: "false"
+      ADMIN_DASHBOARD_TOKEN: ${ADMIN_DASHBOARD_TOKEN:?请设置高强度后台管理令牌}
+      SESSION_SIGNING_SECRET: ${SESSION_SIGNING_SECRET:?请设置独立的用户会话签名密钥}
+      TELEMETRY_ENCRYPTION_KEY: ${TELEMETRY_ENCRYPTION_KEY:-}
+      REWARDS_REQUIRE_USER_SESSION: ${REWARDS_REQUIRE_USER_SESSION:-false}
+      ADMIN_INITIAL_USERNAME: ${ADMIN_INITIAL_USERNAME:-}
+      ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD:-}
+      TIMEZONE: ${TIMEZONE:-UTC}
+      GEOIP_DB_PATH: ${GEOIP_DB_PATH:-/usr/share/GeoIP/GeoLite2-Country.mmdb}
+    volumes:
+      - ${GEOIP_DB_HOST_PATH:-./geoip/GeoLite2-Country.mmdb}:/usr/share/GeoIP/GeoLite2-Country.mmdb:ro
+    # Exposed only to host Nginx. Never bind the management port to the public network.
+    ports:
+      - "127.0.0.1:${REWARDS_ADMIN_BIND_PORT:-18101}:8100"
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/health', timeout=3)\""]
       interval: 15s

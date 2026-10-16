@@ -104,6 +104,7 @@ internal fun DramaAppActivity.requestRewardedAction(
             )
             return
         }
+        val behaviorInteraction = beginAdBehaviorInteraction(placementId, "rewarded")
         fullscreenAdRequestInFlight = true
         var rewardedWasPresented = false
         var rewardSettlementStarted = false
@@ -153,18 +154,23 @@ internal fun DramaAppActivity.requestRewardedAction(
             activity = this,
             logicalPlacement = placementId,
             onWillShow = {
+                recordAdBehavior(behaviorInteraction, "AD_SHOWN")
                 rewardedWasPresented = true
                 fullscreenAdRequestInFlight = false
                 fullscreenAdInProgress = true
                 runOnUiThread { hideFullscreenAdLoadingOverlay() }
             },
-            onAdClicked = ::markExternalAdReturnCheckpoint,
-            onRewardVerified = { runOnUiThread { settleVerifiedReward() } },
+            onAdClicked = { recordAdClickAndCheckpoint(behaviorInteraction) },
+            onRewardVerified = {
+                recordAdBehavior(behaviorInteraction, "AD_REWARD_VERIFIED")
+                runOnUiThread { settleVerifiedReward() }
+            },
         ) { result -> runFullscreenResultWhenForeground {
             fullscreenAdRequestInFlight = false
             hideFullscreenAdLoadingOverlay()
             when (result) {
                 TopOnAdsManager.RewardedResult.RewardEarned -> {
+                    recordAdBehavior(behaviorInteraction, "AD_COMPLETED")
                     fullscreenAdInProgress = false
                     if (rewardedWasPresented && wasPlayingBeforeRewarded) { resumeAfterFullscreenAd = true; resumeAfterFullscreenAdIfNeeded() }
                     // Normal paths also reach this close callback. If the click-out removed it,
@@ -172,6 +178,7 @@ internal fun DramaAppActivity.requestRewardedAction(
                     settleVerifiedReward()
                 }
                 TopOnAdsManager.RewardedResult.Cancelled -> {
+                    recordAdBehavior(behaviorInteraction, "AD_CANCELLED")
                     if (deferCashAnimation) deferNextCashFlight = false
                     fullscreenAdInProgress = false
                     recordRewardedSkipThenMaybeShowInterstitial(
@@ -180,6 +187,7 @@ internal fun DramaAppActivity.requestRewardedAction(
                     )
                 }
                 is TopOnAdsManager.RewardedResult.Unavailable -> {
+                    recordAdBehavior(behaviorInteraction, "AD_UNAVAILABLE", mapOf("outcome" to "unavailable"))
                     if (deferCashAnimation) deferNextCashFlight = false
                     fullscreenAdInProgress = false
                     if (rewardedWasPresented) resumeAfterFullscreenAdIfNeeded()
@@ -188,6 +196,7 @@ internal fun DramaAppActivity.requestRewardedAction(
                     else if (onAdUnavailable != null) onAdUnavailable.invoke(message) else showRewardedUnavailableNotice(wasPlayingBeforeRewarded, message)
                 }
                 is TopOnAdsManager.RewardedResult.Failed -> {
+                    recordAdBehavior(behaviorInteraction, "AD_LOAD_FAILED", mapOf("error_code" to result.code))
                     if (deferCashAnimation) deferNextCashFlight = false
                     fullscreenAdInProgress = false
                     if (rewardedWasPresented) resumeAfterFullscreenAdIfNeeded()
@@ -507,18 +516,22 @@ internal fun DramaAppActivity.pauseForFullscreenAd() {
 
 internal fun DramaAppActivity.resumeAfterFullscreenAdIfNeeded() {
         navigationBackCallback?.isEnabled = true
+        var playbackResumed = false
         if (resumeAfterFullscreenAd && !isFinishing && !isDestroyed) {
             ignoreVideoTapsUntilMillis = System.currentTimeMillis() + 750L
             exoPlayer?.play()
             playerIsPaused = false
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            playbackResumed = true
         }
         if (resumeSdkPlaybackWhenForeground && sdkPlayerShown && !isFinishing && !isDestroyed) {
             currentSdkPlayerFragment()?.startPlay()
             playerIsPaused = false
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             resumeSdkPlaybackWhenForeground = false
+            playbackResumed = true
         }
+        if (playbackResumed) recordPlaybackResumedAfterAdClickIfPending()
         if (restoreImmersiveAfterFullscreenAd && !isFinishing && !isDestroyed && (playerShown || sdkPlayerShown)) {
             enterImmersivePlayerMode(announce = false)
         }
@@ -568,6 +581,7 @@ internal fun DramaAppActivity.showPlaybackActionInterstitial(
         if (fullscreenAdInProgress || fullscreenAdRequestInFlight) { onUnavailable("广告正在展示"); return }
         if (consentStore.read() != AdConsent.GRANTED) { onUnavailable("请先在广告与隐私中启用广告"); return }
         val shouldResume = resumePlaybackAfter ?: wasPlaybackActiveForAd()
+        val behaviorInteraction = beginAdBehaviorInteraction(placementId, "interstitial")
         fullscreenAdRequestInFlight = true
         resumeAfterFullscreenAd = shouldResume
         pauseForFullscreenAd()
@@ -578,18 +592,20 @@ internal fun DramaAppActivity.showPlaybackActionInterstitial(
             logicalPlacement = placementId,
             bypassGlobalFrequencyCap = bypassSharedFrequencyCaps,
             onWillShow = {
+                recordAdBehavior(behaviorInteraction, "AD_SHOWN")
                 fullscreenAdRequestInFlight = false
                 fullscreenAdInProgress = true
                 resumeAfterFullscreenAd = shouldResume
                 runOnUiThread { hideFullscreenAdLoadingOverlay() }
             },
-            onAdClicked = ::markExternalAdReturnCheckpoint,
+            onAdClicked = { recordAdClickAndCheckpoint(behaviorInteraction) },
         ) { result -> runFullscreenResultWhenForeground {
             fullscreenAdRequestInFlight = false
             fullscreenAdInProgress = false
             hideFullscreenAdLoadingOverlay()
             when (result) {
                 TopOnAdsManager.FullscreenResult.Shown -> {
+                    recordAdBehavior(behaviorInteraction, "AD_CLOSED")
                     resumeAfterFullscreenAdIfNeeded()
                     val interstitialEventId = "int-${UUID.randomUUID()}"
                     val settled = {
@@ -609,10 +625,12 @@ internal fun DramaAppActivity.showPlaybackActionInterstitial(
                     } else settled()
                 }
                 is TopOnAdsManager.FullscreenResult.Skipped -> {
+                    recordAdBehavior(behaviorInteraction, "AD_UNAVAILABLE", mapOf("outcome" to "skipped"))
                     resumeAfterFullscreenAdIfNeeded()
                     onUnavailable(result.reason)
                 }
                 is TopOnAdsManager.FullscreenResult.Failed -> {
+                    recordAdBehavior(behaviorInteraction, "AD_LOAD_FAILED", mapOf("error_code" to result.code))
                     resumeAfterFullscreenAdIfNeeded()
                     onUnavailable("加载失败（${result.code}）")
                 }

@@ -64,6 +64,10 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
     @Volatile
     private var attributionSyncListener: ((RewardsApiClient.AttributionPayload) -> Unit)? = null
 
+    /** Raw conversion data remains only in process memory until the encrypted Rewards audit request. */
+    @Volatile
+    private var latestRawConversionPayload: Map<String, Any?>? = null
+
     fun initialize() {
         if (initialized) return
         initialized = true
@@ -89,6 +93,7 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
                         ReportingStatus.SUCCESS,
                         detail = "launch_http_200; ${attributionExperience.diagnosticSummary()}",
                     )
+                    UserBehaviorEventReporter.get(appContext).record("SDK", "APPSFLYER_INITIALIZED")
                 }
 
                 override fun onError(errorCode: Int, errorDescription: String) {
@@ -98,6 +103,11 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
                         ReportingStatus.FAILED,
                         errorCode = errorCode.toString(),
                         detail = errorDescription,
+                    )
+                    UserBehaviorEventReporter.get(appContext).record(
+                        "SDK",
+                        "APPSFLYER_INITIALIZATION_FAILED",
+                        mapOf("error_code" to errorCode, "reason" to errorDescription),
                     )
                     Log.w(TAG, "AppsFlyer launch failed: code=$errorCode, message=$errorDescription")
                 }
@@ -118,22 +128,31 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
 
     fun setAttributionSyncListener(listener: ((RewardsApiClient.AttributionPayload) -> Unit)?) {
         attributionSyncListener = listener
-        currentAttributionForRewards()?.let { listener?.invoke(it) }
+        currentAttributionForRewards()?.let { payload ->
+            listener?.invoke(payload.copy(rawConversionPayload = latestRawConversionPayload))
+        }
     }
 
     private fun attributionConversionListener(): AppsFlyerConversionListener = object : AppsFlyerConversionListener {
         override fun onConversionDataSuccess(conversionData: MutableMap<String, Any>?) {
             val experience = attributionExperience.applyConversionData(conversionData)
-            // Retain only the minimal normalized attribution fields needed to retry Rewards
-            // synchronization: status, media source, campaign and channel. Click/site IDs and
-            // the raw AppsFlyer conversion payload are never saved locally or sent to Rewards.
+            // Keep the SDK map in memory only. It is delivered to the server's separately
+            // encrypted, retention-bounded audit channel and is never written to preferences.
+            latestRawConversionPayload = conversionData?.toMap()
             reportingAudit.recordProvider(
                 APPSFLYER,
                 "attribution_surface",
                 ReportingStatus.SUCCESS,
                 detail = "${attributionExperience.diagnosticSummary()}; selected=${experience.wireValue}",
             )
-            currentAttributionForRewards()?.let { attributionSyncListener?.invoke(it) }
+            UserBehaviorEventReporter.get(appContext).record(
+                "SDK",
+                "APPSFLYER_CONVERSION_RECEIVED",
+                mapOf("surface" to experience.wireValue),
+            )
+            currentAttributionForRewards()?.let { payload ->
+                attributionSyncListener?.invoke(payload.copy(rawConversionPayload = latestRawConversionPayload))
+            }
             Log.i(TAG, "AppsFlyer attribution selected release surface ${experience.wireValue}")
         }
 
@@ -143,6 +162,11 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
                 "attribution_surface",
                 ReportingStatus.FAILED,
                 detail = "conversion_data_unavailable; default_surface=${attributionExperience.current().wireValue}",
+            )
+            UserBehaviorEventReporter.get(appContext).record(
+                "SDK",
+                "APPSFLYER_CONVERSION_UNAVAILABLE",
+                mapOf("default_surface" to attributionExperience.current().wireValue),
             )
             Log.w(TAG, "AppsFlyer conversion data unavailable; retaining safe default surface", errorMessage?.let(::IllegalStateException))
         }

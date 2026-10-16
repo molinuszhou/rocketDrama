@@ -8,6 +8,7 @@ import com.bytedance.sdk.shortplay.api.PSSDK
 import com.bytedance.sdk.shortplay.api.ShortPlay
 import com.bytedance.sdk.shortplay.api.ShortPlayFragment
 import com.dramaflow.app.BuildConfig
+import com.dramaflow.app.analytics.UserBehaviorEventReporter
 import com.dramaflow.app.i18n.AppLanguage
 import java.util.UUID
 
@@ -135,6 +136,13 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
         fun deliverFailure(result: Initialization) {
             if (terminalResultDelivered) return
             terminalResultDelivered = true
+            if (result is Initialization.Failed) {
+                UserBehaviorEventReporter.get(appContext).record(
+                    "SDK",
+                    "PSSDK_INITIALIZATION_FAILED",
+                    mapOf("failure_type" to "initialization"),
+                )
+            }
             mainHandler.removeCallbacks(initializationTimeout)
             val callbacks = synchronized(initializationLock) {
                 if (activeInitializationAttempt != attempt) {
@@ -149,6 +157,7 @@ class ShortDramaSdkManager private constructor(private val appContext: Context) 
         fun deliverReady() {
             initialized = true
             terminalResultDelivered = true
+            UserBehaviorEventReporter.get(appContext).record("SDK", "PSSDK_INITIALIZED")
             mainHandler.removeCallbacks(initializationTimeout)
             val callbacks = synchronized(initializationLock) {
                 activeInitializationAttempt = 0
