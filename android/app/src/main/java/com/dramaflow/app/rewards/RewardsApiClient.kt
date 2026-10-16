@@ -39,6 +39,24 @@ class RewardsApiClient(
         val channel: String?,
     )
 
+    /**
+     * AppsFlyer can resolve conversion data before the first Rewards bootstrap returns its
+     * server-signed session. Keep the latest normalized record in memory until that token
+     * exists; AttributionExperienceStore still persists the record for a later cold start.
+     */
+    private data class PendingAttributionSync(
+        val userId: String,
+        val attribution: AttributionPayload,
+        val onFailure: (String) -> Unit,
+    )
+
+    private val attributionSyncLock = Any()
+
+    @Volatile
+    private var inMemorySessionToken: String? = null
+
+    private var pendingAttributionSync: PendingAttributionSync? = null
+
     data class EpisodeReward(
         val episodeId: String,
         val rewardCoins: Int,
@@ -327,18 +345,28 @@ class RewardsApiClient(
         post("/v2/bootstrap", JSONObject().put("user_id", userId).put("region", region).also { payload ->
             attribution?.let { payload.put("attribution", it.toJson()) }
         }, { data ->
-            data.optString("session_token").takeIf { it.isNotBlank() }?.let(onSessionTokenReceived)
+            data.optString("session_token").takeIf { it.isNotBlank() }?.let { sessionToken ->
+                // Do not rely solely on SharedPreferences.apply() becoming visible before an
+                // AppsFlyer callback. The in-memory copy closes the first-launch race.
+                inMemorySessionToken = sessionToken
+                onSessionTokenReceived(sessionToken)
+                flushPendingAttributionSync(sessionToken)
+            }
             onSuccess(parseSnapshot(data))
         }, onFailure)
     }
 
     /** Best-effort out-of-band sync immediately after AppsFlyer resolves install attribution. */
-    fun syncAttribution(userId: String, attribution: AttributionPayload, onFailure: (String) -> Unit = {}) = post(
-        "/v2/attribution",
-        attribution.toJson().put("user_id", userId),
-        onSuccess = {},
-        onFailure = onFailure,
-    )
+    fun syncAttribution(userId: String, attribution: AttributionPayload, onFailure: (String) -> Unit = {}) {
+        val pending = PendingAttributionSync(userId, attribution, onFailure)
+        currentSessionToken()?.let { sessionToken ->
+            sendAttributionSync(pending, sessionToken)
+            return
+        }
+        synchronized(attributionSyncLock) {
+            pendingAttributionSync = pending
+        }
+    }
 
     fun saveWithdrawalAccount(userId: String, provider: String, accountIdentifier: String, onSuccess: (WithdrawalAccount) -> Unit, onFailure: (String) -> Unit) = post(
         "/v2/withdrawals/account",
@@ -543,13 +571,45 @@ class RewardsApiClient(
         { data -> onSuccess(parseSnapshot(data.getJSONObject("snapshot"))) }, onFailure,
     )
 
-    private fun post(path: String, body: JSONObject, onSuccess: (JSONObject) -> Unit, onFailure: (String) -> Unit) {
+    private fun currentSessionToken(): String? = inMemorySessionToken
+        ?.takeIf { it.isNotBlank() }
+        ?: sessionTokenProvider()?.takeIf { it.isNotBlank() }
+
+    private fun flushPendingAttributionSync(sessionToken: String) {
+        val pending = synchronized(attributionSyncLock) {
+            pendingAttributionSync.also { pendingAttributionSync = null }
+        } ?: return
+        sendAttributionSync(pending, sessionToken)
+    }
+
+    private fun sendAttributionSync(pending: PendingAttributionSync, sessionToken: String) = post(
+        "/v2/attribution",
+        pending.attribution.toJson().put("user_id", pending.userId),
+        onSuccess = {},
+        onFailure = { message ->
+            // A stale persisted token may be rejected while bootstrap refreshes it. Retain the
+            // latest record for that refresh or for the next process start.
+            synchronized(attributionSyncLock) {
+                pendingAttributionSync = pending
+            }
+            pending.onFailure(message)
+        },
+        sessionTokenOverride = sessionToken,
+    )
+
+    private fun post(
+        path: String,
+        body: JSONObject,
+        onSuccess: (JSONObject) -> Unit,
+        onFailure: (String) -> Unit,
+        sessionTokenOverride: String? = null,
+    ) {
         val baseUrl = normalisedBaseUrl()
         if (baseUrl == null) { onFailure("独立积分服务尚未配置"); return }
         val builder = Request.Builder().url(baseUrl + path)
             .post(body.toString().toRequestBody(JSON)).header("Content-Type", "application/json")
             .header("X-Rewards-Session", "v1")
-        sessionTokenProvider()?.takeIf { it.isNotBlank() }?.let { builder.header("Authorization", "Bearer $it") }
+        (sessionTokenOverride ?: currentSessionToken())?.let { builder.header("Authorization", "Bearer $it") }
         val request = builder.build()
         httpClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, error: IOException) = onFailure("积分服务网络错误：${error.message ?: "无法连接"}")
