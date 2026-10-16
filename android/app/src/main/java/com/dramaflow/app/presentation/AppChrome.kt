@@ -368,6 +368,10 @@ internal fun DramaAppActivity.createBottomNavigation(): View = LinearLayout(this
                 orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER; isClickable = true
                 setOnClickListener {
                     if (activeTab != tab) {
+                        recordUiAction(
+                            "NAVIGATION_TAB_SELECTED",
+                            mapOf("from_tab" to activeTab.name, "to_tab" to tab.name),
+                        )
                         // The non-immersive Discover preview owns a PSSDK Fragment. Remove it
                         // before rendering another tab so its media surface cannot outlive the page.
                         if (sdkPlayerShown) {

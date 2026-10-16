@@ -268,6 +268,7 @@ internal fun DramaAppActivity.createProfileViewAllRow(title: String, onClick: ()
 
 /** Full-screen secondary list with the ordinary wallet header and bottom navigation retained. */
 internal fun DramaAppActivity.showProfileCollectionPage(showFavorites: Boolean) {
+    recordUiAction("PROFILE_COLLECTION_OPENED", mapOf("collection" to if (showFavorites) "favorites" else "watch_history"))
     profileCollectionPageShown = true
     profileCollectionShowsFavorites = showFavorites
     withdrawalPageShown = false
@@ -403,6 +404,13 @@ internal fun DramaAppActivity.createCategoryTabs(): View = android.widget.Horizo
                 background = roundedDrawable(if (selected) 0xFF212327.toInt() else 0xFF131416.toInt(), 16)
                 isClickable = true
                 setOnClickListener {
+                    recordUiAction(
+                        "CATALOG_CATEGORY_SELECTED",
+                        mapOf(
+                            "category_id" to (tab.category?.id?.toString() ?: "all"),
+                            "category_name" to tab.label,
+                        ),
+                    )
                     if (tab.category == null) selectSdkCatalogCategory(null)
                     else if (tab.category.id < 0) { selectedCatalogCategoryId = null; selectedCatalogGenre = tab.fallbackGenre ?: tab.category.name; renderActiveTab() }
                     else selectSdkCatalogCategory(tab.category)
@@ -490,7 +498,10 @@ internal fun DramaAppActivity.createHeroBanner(drama: LocalDrama): View = FrameL
         clipToOutline = true
         background = roundedDrawable(COLOR_INK, 26)
         isClickable = true
-        setOnClickListener { showPlayer(drama, 0) }
+        setOnClickListener {
+            recordUiAction("HOME_FEATURED_CONTENT_SELECTED", mapOf("drama_id" to drama.id, "content_title" to drama.title))
+            showPlayer(drama, 0)
+        }
         addView(ImageView(this@createHeroBanner).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
             load(drama.coverImage) { crossfade(true); placeholder(posterFallbackDrawable()); error(posterFallbackDrawable()) }
@@ -524,6 +535,7 @@ internal fun DramaAppActivity.createSearchPrompt(): View = LinearLayout(this).ap
     }
 
 internal fun DramaAppActivity.showSearchPage() {
+        recordUiAction("SEARCH_OPENED")
         playerShown = false
         withdrawalPageShown = false
         gemBalanceAnchor = null; gemBalanceLabel = null; cashBalanceLabel = null
@@ -618,7 +630,10 @@ internal fun DramaAppActivity.showSearchPage() {
 
 internal fun DramaAppActivity.createSdkSearchDramaCard(card: ShortDramaSdkManager.DramaCard): View = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL; setPadding(dp(10), dp(10), dp(12), dp(10)); background = roundedDrawable(COLOR_CARD, 18); isClickable = true
-        setOnClickListener { showSdkDramaPlayer(card) }
+        setOnClickListener {
+            recordUiAction("SEARCH_RESULT_SELECTED", mapOf("provider" to "PSSDK", "drama_id" to card.id.toString(), "content_title" to card.title))
+            showSdkDramaPlayer(card)
+        }
         addView(ImageView(this@createSdkSearchDramaCard).apply { scaleType = ImageView.ScaleType.CENTER_CROP; background = posterFallbackDrawable(); load(card.coverUrl) { placeholder(posterFallbackDrawable()); error(posterFallbackDrawable()) } }, LinearLayout.LayoutParams(dp(92), dp(122)))
         addView(LinearLayout(this@createSdkSearchDramaCard).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(12), dp(6), 0, dp(4))
@@ -672,7 +687,10 @@ internal fun DramaAppActivity.addDramaGrid(parent: LinearLayout, dramas: List<Lo
 internal fun DramaAppActivity.createCompactDramaCard(drama: LocalDrama): View = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         isClickable = true
-        setOnClickListener { showPlayer(drama, 0) }
+        setOnClickListener {
+            recordUiAction("CATALOG_CONTENT_SELECTED", mapOf("drama_id" to drama.id, "content_title" to drama.title))
+            showPlayer(drama, 0)
+        }
         val poster = FrameLayout(this@createCompactDramaCard).apply {
             clipToOutline = true
             background = roundedDrawable(COLOR_INK, 17)

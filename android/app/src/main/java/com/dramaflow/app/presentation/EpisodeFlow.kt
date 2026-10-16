@@ -65,10 +65,12 @@ import kotlin.random.Random
 internal fun DramaAppActivity.toggleEpisodePicker() {
         episodePickerDialog?.let { active ->
             if (active.isShowing) {
+                recordUiAction("PLAYER_EPISODE_PICKER_CLOSED")
                 active.dismiss()
                 return
             }
         }
+        recordUiAction("PLAYER_EPISODE_PICKER_OPENED")
         showEpisodePicker()
     }
 
@@ -116,6 +118,10 @@ internal fun DramaAppActivity.showEpisodePicker() {
                 setTextColor(Color.WHITE)
                 background = roundedDrawable(if (index == currentEpisodeIndex) COLOR_ACCENT else COLOR_SURFACE, 12)
                 setOnClickListener {
+                    recordUiAction(
+                        "PLAYER_EPISODE_SELECTED",
+                        mapOf("episode_index" to index + 1, "was_locked" to locked),
+                    )
                     sheet.dismiss()
                     selectEpisode(index)
                 }

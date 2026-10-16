@@ -35,6 +35,15 @@ internal fun DramaAppActivity.currentBehaviorContentKey(): String? {
     return "${drama.id}:${episode.id}"
 }
 
+/** Records a high-value, user-initiated navigation or control action without persisting typed text. */
+internal fun DramaAppActivity.recordUiAction(action: String, properties: Map<String, Any?> = emptyMap()) {
+    userBehaviorReporter.record(
+        "UI",
+        action,
+        mapOf("active_tab" to activeTab.name).plus(properties),
+    )
+}
+
 internal fun DramaAppActivity.recordEarlyVideoStarted(provider: String, episodeIndex: Int = currentEpisodeIndex) {
     if (sdkDiscoverPreviewActive) return
     val drama = selectedDrama ?: return

@@ -409,6 +409,7 @@ def admin_users(
     query: str = "",
     market_code: str = "",
     attribution_surface: str = "",
+    attribution_state: str = "",
     geo_country: str = "",
     created_start: date | None = None,
     created_end: date | None = None,
@@ -422,6 +423,7 @@ def admin_users(
             query=query,
             market_code=market_code,
             attribution_surface=attribution_surface,
+            attribution_state=attribution_state,
             geo_country=geo_country,
             created_start=created_start,
             created_end=created_end,
@@ -437,6 +439,7 @@ def admin_user_metrics(
     query: str = "",
     market_code: str = "",
     attribution_surface: str = "",
+    attribution_state: str = "",
     geo_country: str = "",
     start_date: date | None = None,
     end_date: date | None = None,
@@ -448,6 +451,7 @@ def admin_user_metrics(
             query=query,
             market_code=market_code,
             attribution_surface=attribution_surface,
+            attribution_state=attribution_state,
             geo_country=geo_country,
             start_date=start_date,
             end_date=end_date,
@@ -481,12 +485,49 @@ def admin_behavior_flow(
     }
 
 
+@app.get("/v2/admin/analytics/behavior-flow/export")
+def admin_behavior_flow_export(
+    authorization: str | None = Header(default=None),
+    start_date: date | None = None,
+    end_date: date | None = None,
+    user_id: str = "",
+    event_category: str = "",
+    event_name: str = "",
+) -> Response:
+    data = service.admin_behavior_flow_metrics(
+        authorization,
+        start_date=start_date,
+        end_date=end_date,
+        user_id=user_id,
+        event_category=event_category,
+        event_name=event_name,
+        page=1,
+        page_size=10_001,
+        allow_export=True,
+    )
+    if data["total"] > 10_000:
+        raise ServiceError(2326, "行为事件导出超过 10,000 条，请缩小日期或筛选范围后重试", 422)
+    rows: list[list[object]] = []
+    for item in data["rows"]:
+        rows.append([
+            item["client_occurred_at"], item["accepted_at"], item["user_id"], item["session_id"],
+            item["event_category"], item["event_name"], item["app_version"],
+            json.dumps(item.get("properties") or {}, ensure_ascii=False, separators=(",", ":")),
+        ])
+    return _csv_response(
+        "joyedrama-user-behavior-events.csv",
+        ["客户端发生时间 UTC", "服务端接收时间 UTC", "匿名用户 ID", "会话 ID", "类别", "事件", "客户端版本", "最小化属性 JSON"],
+        rows,
+    )
+
+
 @app.get("/v2/admin/users/export")
 def admin_users_export(
     authorization: str | None = Header(default=None),
     query: str = "",
     market_code: str = "",
     attribution_surface: str = "",
+    attribution_state: str = "",
     geo_country: str = "",
     created_start: date | None = None,
     created_end: date | None = None,
@@ -496,6 +537,7 @@ def admin_users_export(
         query=query,
         market_code=market_code,
         attribution_surface=attribution_surface,
+        attribution_state=attribution_state,
         geo_country=geo_country,
         created_start=created_start,
         created_end=created_end,
@@ -518,7 +560,7 @@ def admin_users_export(
         ])
     return _csv_response(
         "joyedrama-users.csv",
-        ["匿名用户 ID", "注册时间", "最近活动", "市场", "GeoIP 国家", "币种", "钱包余额", "可用余额", "奖励进度", "观看次数", "激励完成", "插屏展示", "账本条数", "归因状态", "AppsFlyer UID", "媒体来源", "Campaign", "Channel", "A/B 面"],
+        ["匿名用户 ID", "注册时间", "最近活动", "市场", "GeoIP 国家", "币种", "钱包余额", "可用余额", "奖励进度", "完成观看集数", "激励完成", "插屏展示", "账本条数", "归因状态", "AppsFlyer UID", "媒体来源", "Campaign", "Channel", "A/B 面"],
         rows,
     )
 

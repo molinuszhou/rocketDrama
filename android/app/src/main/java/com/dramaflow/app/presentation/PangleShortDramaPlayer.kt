@@ -335,6 +335,7 @@ private fun DramaAppActivity.createDiscoverEpisodeFloatButton(): View = LinearLa
 }
 
 private fun DramaAppActivity.onSdkItemSelected(episodeIndex: Int) {
+    recordUiAction("PSSDK_EPISODE_SELECTED", mapOf("episode_index" to episodeIndex + 1))
     currentEpisodeIndex = episodeIndex.coerceIn(0, selectedDrama?.episodes?.lastIndex ?: 0)
     if (pendingSdkResumeCheckpoint?.matches(currentEpisodeIndex) == false) {
         pendingSdkResumeCheckpoint = null
@@ -354,6 +355,7 @@ private fun DramaAppActivity.onSdkPlaybackStateChanged(episodeIndex: Int, state:
 
 internal fun DramaAppActivity.showSdkResolutionPicker() {
     val fragment = currentSdkPlayerFragment() ?: return
+    recordUiAction("PLAYER_RESOLUTION_PICKER_OPENED")
     // Resolution is part of PSSDK's public ShortPlayFragment contract. Calling it directly
     // keeps the compiler checking this integration rather than silently failing through reflection.
     showBrandedOptionsDialog(
@@ -361,6 +363,7 @@ internal fun DramaAppActivity.showSdkResolutionPicker() {
         items = listOf(t("resolution_data_saver"), t("resolution_hd")),
     ) { which ->
         val selected = if (which == 0) Resolution.Standard else Resolution.High
+        recordUiAction("PLAYER_RESOLUTION_SELECTED", mapOf("resolution" to if (which == 0) "standard" else "high"))
         runCatching { fragment.setResolution(selected) }
             .onSuccess { toast(if (which == 0) t("resolution_data_saver_set") else t("resolution_hd_set")) }
             .onFailure { toast(t("resolution_unavailable")) }

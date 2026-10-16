@@ -1488,6 +1488,7 @@ class RewardsService:
         event_name: str = "",
         page: int = 1,
         page_size: int = 100,
+        allow_export: bool = False,
     ) -> dict[str, Any]:
         """Return an operator view of the anonymous lifecycle and early-video funnel."""
 
@@ -1499,7 +1500,7 @@ class RewardsService:
         if actual_end - actual_start > timedelta(days=90):
             raise ServiceError(2321, "行为记录最大查询范围为 90 天", 422)
         normalized_category = event_category.strip().upper()
-        categories = {"APP", "SDK", "ONBOARDING", "PLAYBACK", "AD", "NETWORK", "REWARDS"}
+        categories = {"APP", "SDK", "ONBOARDING", "PLAYBACK", "AD", "NETWORK", "REWARDS", "UI"}
         if normalized_category and normalized_category not in categories:
             raise ServiceError(2322, "行为类别不受支持", 422)
         normalized_event = event_name.strip().upper()
@@ -1507,7 +1508,7 @@ class RewardsService:
             raise ServiceError(2323, "行为事件名称格式无效", 422)
         normalized_user_id = user_id.strip()[:128]
         actual_page = max(int(page), 1)
-        actual_limit = min(max(int(page_size), 1), 500)
+        actual_limit = min(max(int(page_size), 1), 10_000 if allow_export else 500)
         actual_offset = (actual_page - 1) * actual_limit
         base_filters = ["client_occurred_at >= %s", "client_occurred_at < %s"]
         base_params: list[Any] = [
@@ -1550,6 +1551,22 @@ class RewardsService:
                 """,
                 tuple(event_params),
             )
+            journey = self._one(
+                connection,
+                f"""
+                SELECT
+                    COUNT(DISTINCT session_id) AS session_count,
+                    COUNT(*) FILTER (WHERE event_category = 'UI') AS ui_action_count,
+                    COUNT(DISTINCT user_id) FILTER (WHERE event_category = 'UI') AS ui_action_users,
+                    COUNT(DISTINCT properties ->> 'ad_interaction_id') FILTER (WHERE event_name = 'AD_SHOWN') AS ad_shown_count,
+                    COUNT(DISTINCT properties ->> 'ad_interaction_id') FILTER (WHERE event_name = 'AD_CLICKED') AS ad_clicked_count,
+                    COUNT(DISTINCT properties ->> 'ad_interaction_id') FILTER (WHERE event_name = 'AD_RETURNED_TO_APP') AS ad_returned_count,
+                    COUNT(DISTINCT properties ->> 'ad_interaction_id') FILTER (WHERE event_name = 'PLAYBACK_RESUMED_AFTER_AD_CLICK') AS playback_resumed_after_ad_click_count
+                FROM user_behavior_events
+                {where_base}
+                """,
+                tuple(base_params),
+            ) or {}
             early_videos = self._all(
                 connection,
                 f"""
@@ -1562,7 +1579,7 @@ class RewardsService:
                 {where_base}
                   AND event_category = 'PLAYBACK'
                   AND event_name IN ('EARLY_VIDEO_STARTED', 'EARLY_VIDEO_COMPLETED', 'EARLY_VIDEO_PLAYBACK_FAILED')
-                  AND (properties ->> 'early_video_rank') ~ '^[1-5]$'
+                  AND (properties ->> 'early_video_rank') ~ '^(?:[1-9]|1[0-9]|20)$'
                 GROUP BY (properties ->> 'early_video_rank')::INTEGER
                 ORDER BY early_video_rank ASC
                 """,
@@ -1583,7 +1600,7 @@ class RewardsService:
 
         early_by_rank = {int(item["early_video_rank"]): item for item in early_videos}
         early_rows: list[dict[str, int]] = []
-        for rank in range(1, 6):
+        for rank in range(1, 21):
             row = early_by_rank.get(rank, {})
             early_rows.append({
                 "early_video_rank": rank,
@@ -1600,6 +1617,15 @@ class RewardsService:
             "offset": actual_offset,
             "total": int(totals.get("event_count", 0)),
             "unique_users": int(totals.get("user_count", 0)),
+            "journey": {
+                "session_count": int(journey.get("session_count", 0)),
+                "ui_action_count": int(journey.get("ui_action_count", 0)),
+                "ui_action_users": int(journey.get("ui_action_users", 0)),
+                "ad_shown_count": int(journey.get("ad_shown_count", 0)),
+                "ad_clicked_count": int(journey.get("ad_clicked_count", 0)),
+                "ad_returned_count": int(journey.get("ad_returned_count", 0)),
+                "playback_resumed_after_ad_click_count": int(journey.get("playback_resumed_after_ad_click_count", 0)),
+            },
             "filters": {
                 "user_id": normalized_user_id,
                 "event_category": normalized_category,
@@ -1625,7 +1651,7 @@ class RewardsService:
             ],
             "definition": (
                 "按客户端事件发生时间的 UTC+0 自然日统计。仅保留匿名用户、有限事件名称及最小化标量属性；"
-                "首五视频从安装了此埋点版本后首次观察到的不同视频开始计数，不追溯历史版本。"
+                "首二十视频从安装了此埋点版本后首次观察到的不同视频开始计数，不追溯历史版本。"
             ),
         }
 
@@ -1715,6 +1741,7 @@ class RewardsService:
         query: str = "",
         market_code: str = "",
         attribution_surface: str = "",
+        attribution_state: str = "",
         geo_country: str = "",
         created_start: date | None = None,
         created_end: date | None = None,
@@ -1731,6 +1758,7 @@ class RewardsService:
         normalized_query = query.strip()
         normalized_market = market_code.strip().upper()
         normalized_surface = attribution_surface.strip().upper()
+        normalized_attribution_state = attribution_state.strip().upper()
         normalized_country = geo_country.strip().upper()
         if normalized_query:
             clauses.append(
@@ -1746,6 +1774,13 @@ class RewardsService:
                 raise ServiceError(2312, "归因面仅支持 A 或 B", 422)
             clauses.append("u.attribution_surface = %s")
             params.append(normalized_surface)
+        if normalized_attribution_state:
+            if normalized_attribution_state == "PENDING":
+                clauses.append("COALESCE(BTRIM(u.attribution_status), '') = ''")
+            elif normalized_attribution_state == "RECORDED":
+                clauses.append("COALESCE(BTRIM(u.attribution_status), '') <> ''")
+            else:
+                raise ServiceError(2325, "归因状态仅支持 PENDING 或 RECORDED", 422)
         if normalized_country:
             clauses.append("u.geo_country = %s")
             params.append(normalized_country[:2])
@@ -1840,6 +1875,7 @@ class RewardsService:
         query: str = "",
         market_code: str = "",
         attribution_surface: str = "",
+        attribution_state: str = "",
         geo_country: str = "",
         start_date: date | None = None,
         end_date: date | None = None,
@@ -1867,6 +1903,7 @@ class RewardsService:
         normalized_query = query.strip()
         normalized_market = market_code.strip().upper()
         normalized_surface = attribution_surface.strip().upper()
+        normalized_attribution_state = attribution_state.strip().upper()
         normalized_country = geo_country.strip().upper()
         if normalized_query:
             clauses.append(
@@ -1882,6 +1919,13 @@ class RewardsService:
                 raise ServiceError(2312, "归因面仅支持 A 或 B", 422)
             clauses.append("u.attribution_surface = %s")
             params.append(normalized_surface)
+        if normalized_attribution_state:
+            if normalized_attribution_state == "PENDING":
+                clauses.append("COALESCE(BTRIM(u.attribution_status), '') = ''")
+            elif normalized_attribution_state == "RECORDED":
+                clauses.append("COALESCE(BTRIM(u.attribution_status), '') <> ''")
+            else:
+                raise ServiceError(2325, "归因状态仅支持 PENDING 或 RECORDED", 422)
         if normalized_country:
             clauses.append("u.geo_country = %s")
             params.append(normalized_country[:2])

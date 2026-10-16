@@ -64,6 +64,7 @@ def apply_runtime_migrations(settings: Settings) -> None:
         ("048_v1719_persistent_episode_unlocks", sql_directory / "048_v1719_persistent_episode_unlocks.sql"),
         ("049_v1720_user_behavior_events", sql_directory / "049_v1720_user_behavior_events.sql"),
         ("050_v1721_sensitive_telemetry_audit", sql_directory / "050_v1721_sensitive_telemetry_audit.sql"),
+        ("051_v1722_user_interface_behavior_events", sql_directory / "051_v1722_user_interface_behavior_events.sql"),
     )
     with psycopg.connect(settings.database_url, autocommit=True) as connection:
         with connection.cursor() as cursor:

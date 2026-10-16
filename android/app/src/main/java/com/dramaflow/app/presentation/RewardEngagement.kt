@@ -326,17 +326,22 @@ internal fun DramaAppActivity.showEpisodeRewardClaimDialog() {
         val snapshot = rewardsSnapshot ?: return
         val ring = snapshot.ring
         if (!ring.claimable || ring.rewardCoins <= 0) { toast(t("no_pending_cash_reward")); return }
+        recordUiAction("REWARDS_EPISODE_CLAIM_DIALOG_SHOWN")
         showBrandedChoiceDialog(
             title = t("claim_episode_rewards"),
             message = t("claim_episode_rewards_message"),
             primaryLabel = t("watch_ad_claim"),
-            onPrimary = { requestRewardedClaimAllEpisodeRewards() },
+            onPrimary = {
+                recordUiAction("REWARDS_EPISODE_CLAIM_AD_CLICKED")
+                requestRewardedClaimAllEpisodeRewards()
+            },
             secondaryLabel = t("later"),
         )
     }
 
 /** Tapping the boost starts the rewarded request immediately; successful settlement removes the control. */
 internal fun DramaAppActivity.requestEpisodeRewardBoost(episodeId: String) {
+        recordUiAction("REWARDS_EPISODE_BOOST_CLICKED", mapOf("episode_id" to episodeId))
         requestRewardedAction("rv_episode_reward_boost", targetId = episodeId, onSettled = { action ->
             resumeAfterFullscreenAdIfNeeded()
             toast(t("reward_double_activated"))
@@ -389,7 +394,12 @@ internal fun DramaAppActivity.createCheckinCard(): View {
                 setTextColor(if (snapshot?.checkinSignedToday == true) COLOR_TEXT_PRIMARY else COLOR_REWARD_ACTION_TEXT)
                 background = if (snapshot?.checkinSignedToday == true) roundedDrawable(COLOR_SURFACE, 13) else rewardActionDrawable()
                 setPadding(dp(16), dp(10), dp(16), dp(10))
-                setOnClickListener { if (snapshot?.checkinSignedToday != true) completeDailyCheckin() }
+                setOnClickListener {
+                    if (snapshot?.checkinSignedToday != true) {
+                        recordUiAction("REWARDS_CHECKIN_AD_CLICKED")
+                        completeDailyCheckin()
+                    }
+                }
                 isClickable = snapshot != null && snapshot.checkinSignedToday != true
             }, LinearLayout.LayoutParams(0, dp(42), 1f))
             addView(row)
@@ -411,7 +421,10 @@ internal fun DramaAppActivity.createWelcomeRewardCard(snapshot: RewardsApiClient
             background = rewardActionDrawable(); setPadding(dp(14), dp(10), dp(14), dp(10)); isClickable = true
             // The user is already in Reward Center. A successful claim refreshes this page in
             // place, so do not schedule the redundant "go to Reward Center" guide dialog.
-            setOnClickListener { claimWelcomeBonus(showRewardCenterGuide = false) }
+            setOnClickListener {
+                recordUiAction("ONBOARDING_WELCOME_REWARD_AD_CLICKED")
+                claimWelcomeBonus(showRewardCenterGuide = false)
+            }
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)))
     }
 
@@ -467,7 +480,10 @@ internal fun DramaAppActivity.createRewardsWalletSummary(): View {
             val actions = LinearLayout(this@createRewardsWalletSummary).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(14), 0, 0) }
             actions.addView(TextView(this@createRewardsWalletSummary).apply {
                 text = t("withdraw"); textSize = 14f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_TEXT_PRIMARY)
-                background = roundedDrawable(COLOR_SURFACE, 14); setOnClickListener { showWithdrawalPage(wallet) }; isClickable = true
+                background = roundedDrawable(COLOR_SURFACE, 14); setOnClickListener {
+                    recordUiAction("WALLET_WITHDRAWAL_OPENED")
+                    showWithdrawalPage(wallet)
+                }; isClickable = true
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)))
             addView(actions)
         }
@@ -490,10 +506,12 @@ internal fun DramaAppActivity.showWalletReleaseBoostDialog() {
             toast(t("wallet_boost_already_settled"))
             return
         }
+        recordUiAction("WALLET_RELEASE_BOOST_DIALOG_SHOWN")
         showBrandedChoiceDialog(t("ad_boost"), t("wallet_boost_description"), t("wallet_boost_action"), { requestWalletReleaseBoost() }, t("not_now"))
 }
 
 internal fun DramaAppActivity.requestWalletReleaseBoost() {
+        recordUiAction("WALLET_RELEASE_BOOST_AD_CLICKED")
         requestRewardedAction("rv_release_boost", onSettled = { action ->
             resumeAfterFullscreenAdIfNeeded()
             if (action.idempotent) {

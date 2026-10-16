@@ -74,7 +74,7 @@ internal class UserBehaviorEventReporter private constructor(context: Context) {
         flushPending()
     }
 
-    /** Records only the first observed start for each of a user's first five distinct videos. */
+    /** Records only the first observed start for each of a user's first twenty distinct videos. */
     fun recordEarlyVideoStarted(
         contentKey: String,
         provider: String,
@@ -296,7 +296,7 @@ internal class UserBehaviorEventReporter private constructor(context: Context) {
 
     companion object {
         val JSON = "application/json; charset=utf-8".toMediaType()
-        val EVENT_CATEGORIES = setOf("APP", "SDK", "ONBOARDING", "PLAYBACK", "AD", "NETWORK", "REWARDS")
+        val EVENT_CATEGORIES = setOf("APP", "SDK", "ONBOARDING", "PLAYBACK", "AD", "NETWORK", "REWARDS", "UI")
         val EVENT_NAME = Regex("^[A-Z][A-Z0-9_]{1,79}$")
         val RETRY_DELAYS_MS = longArrayOf(2_000L, 10_000L, 60_000L, 300_000L)
         const val QUEUE_DIRECTORY = "user_behavior_events"
@@ -305,7 +305,7 @@ internal class UserBehaviorEventReporter private constructor(context: Context) {
         const val MAX_PROPERTIES = 16
         const val MAX_PROPERTY_KEY_LENGTH = 40
         const val MAX_PROPERTY_VALUE_LENGTH = 512
-        const val MAX_EARLY_VIDEOS = 5
+        const val MAX_EARLY_VIDEOS = 20
         const val EARLY_VIDEO_RANKS = "behavior_early_video_ranks"
         const val EARLY_VIDEO_STARTED_KEYS = "behavior_early_video_started_keys"
         const val EARLY_VIDEO_COMPLETED_KEYS = "behavior_early_video_completed_keys"

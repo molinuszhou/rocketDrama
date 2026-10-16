@@ -277,7 +277,7 @@ class UserBehaviorEventRequest(BaseModel):
     user_id: str = Field(min_length=1, max_length=128)
     event_id: str = Field(min_length=8, max_length=160)
     session_id: str = Field(min_length=8, max_length=80)
-    event_category: Literal["APP", "SDK", "ONBOARDING", "PLAYBACK", "AD", "NETWORK", "REWARDS"]
+    event_category: Literal["APP", "SDK", "ONBOARDING", "PLAYBACK", "AD", "NETWORK", "REWARDS", "UI"]
     event_name: str = Field(min_length=2, max_length=80, pattern=r"^[A-Z][A-Z0-9_]{1,79}$")
     properties: dict[str, Any] = Field(default_factory=dict, max_length=16)
     app_version: str = Field(min_length=1, max_length=64)

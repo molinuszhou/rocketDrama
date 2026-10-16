@@ -272,7 +272,10 @@ internal fun DramaAppActivity.createPlayerChrome(): View {
             visibility = View.GONE
             contentDescription = t("resume_playback")
             isClickable = true
-            setOnClickListener { resumePlaybackFromPauseOverlay() }
+            setOnClickListener {
+                recordUiAction("PLAYER_RESUME_OVERLAY_CLICKED")
+                resumePlaybackFromPauseOverlay()
+            }
         }
         chrome.addView(playerPauseOverlay, FrameLayout.LayoutParams(dp(104), dp(104), Gravity.CENTER))
         chrome.addView(createPlayerTopBar(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.TOP))
@@ -353,7 +356,10 @@ internal fun DramaAppActivity.createPlayerTopBar(): View {
             background = roundedDrawable(0x720D0B12, 17)
             contentDescription = t("back")
             isClickable = true
-            setOnClickListener { showCatalog() }
+            setOnClickListener {
+                recordUiAction("PLAYER_BACK_TO_CATALOG_CLICKED")
+                showCatalog()
+            }
         }
         val assets = createPlayerAssetStrip()
         // Both controls share the true system safe inset. This avoids the fixed 14dp
@@ -404,12 +410,15 @@ internal fun DramaAppActivity.createPlayerGestureLayer(): View {
 
 internal fun DramaAppActivity.triggerSwipeNextEpisode() {
         val now = System.currentTimeMillis(); if (now - lastSwipeNextAtMillis < 700L) return
-        lastSwipeNextAtMillis = now; startNextEpisodeAutomatically(currentEpisodeIndex, userInitiated = true)
+        lastSwipeNextAtMillis = now
+        recordUiAction("PLAYER_SWIPE_NEXT_EPISODE", mapOf("episode_index" to currentEpisodeIndex + 1))
+        startNextEpisodeAutomatically(currentEpisodeIndex, userInitiated = true)
     }
 
 internal fun DramaAppActivity.triggerSwipePreviousEpisode() {
         val now = System.currentTimeMillis(); if (now - lastSwipeNextAtMillis < 700L) return
         lastSwipeNextAtMillis = now
+        recordUiAction("PLAYER_SWIPE_PREVIOUS_EPISODE", mapOf("episode_index" to currentEpisodeIndex + 1))
         if (currentEpisodeIndex <= 0) switchDramaBySwipe(forward = false) else selectEpisode(currentEpisodeIndex - 1)
     }
 
@@ -423,6 +432,7 @@ internal fun DramaAppActivity.switchDramaBySwipe(
 ) {
         if (catalogItems.size < 2 || fullscreenAdInProgress || fullscreenAdRequestInFlight) return
         val current = selectedDrama ?: return
+        recordUiAction("PLAYER_DRAMA_SWIPE", mapOf("direction" to if (forward) "forward" else "backward", "drama_id" to current.id))
         val currentIndex = catalogItems.indexOfFirst { it.id == current.id }.takeIf { it >= 0 } ?: return
         val nextDrama = catalogItems[(currentIndex + if (forward) 1 else catalogItems.lastIndex) % catalogItems.size]
         if (countTowardInterstitial) dramaSwitchSwipeCount += 1
@@ -546,6 +556,7 @@ internal fun DramaAppActivity.createPlayerProgressControls(): View = LinearLayou
                 override fun onStartTrackingTouch(seekBar: SeekBar?) { playerIsSeeking = true }
                 override fun onStopTrackingTouch(seekBar: SeekBar?) {
                     val targetSeconds = seekBar?.progress ?: return
+                    recordUiAction("PLAYER_SEEK_COMPLETED", mapOf("target_seconds" to targetSeconds))
                     // Seeking must be immediate. Interstitials are now requested only from
                     // measured real playback time, never from a progress-bar interaction.
                     completeSeekAndResume(targetSeconds)
@@ -582,6 +593,7 @@ internal fun DramaAppActivity.createPlayerActionRow(): View = LinearLayout(this)
 
 internal fun DramaAppActivity.togglePlayerDescription() {
         playerDescriptionExpanded = !playerDescriptionExpanded
+        recordUiAction("PLAYER_DESCRIPTION_TOGGLED", mapOf("expanded" to playerDescriptionExpanded))
         playerDescriptionContainer?.visibility = if (playerDescriptionExpanded) View.VISIBLE else View.GONE
     }
 
@@ -607,11 +619,13 @@ internal fun DramaAppActivity.setPlayerControlsVisible(visible: Boolean) {
     }
 
 internal fun DramaAppActivity.showPlayerControlsFromUser() {
+        recordUiAction("PLAYER_CONTROLS_SHOWN")
         playerControlsPinnedByUser = true
         setPlayerControlsVisible(true)
     }
 
 internal fun DramaAppActivity.hidePlayerControlsFromUser() {
+        recordUiAction("PLAYER_CONTROLS_HIDDEN")
         playerControlsPinnedByUser = false
         setPlayerControlsVisible(false)
     }
@@ -627,6 +641,7 @@ internal fun DramaAppActivity.updatePauseOverlayVisibility(visible: Boolean) {
     }
 
 internal fun DramaAppActivity.resumePlaybackFromPauseOverlay() {
+        recordUiAction("PLAYER_PLAYBACK_RESUMED")
         if (sdkPlayerShown) {
             currentSdkPlayerFragment()?.startPlay()
             playerIsPaused = false
@@ -646,6 +661,7 @@ internal fun DramaAppActivity.resumePlaybackFromPauseOverlay() {
     }
 
 internal fun DramaAppActivity.togglePlaybackFromVideoTap() {
+        recordUiAction("PLAYER_VIDEO_TAPPED", mapOf("was_paused" to playerIsPaused))
         if (sdkPlayerShown) {
             if (playerIsPaused) {
                 currentSdkPlayerFragment()?.startPlay()
@@ -688,12 +704,14 @@ internal fun DramaAppActivity.transparentPlayerIcon(label: String, description: 
     }
 
 internal fun DramaAppActivity.showPlaybackSpeedPicker() {
+        recordUiAction("PLAYER_SPEED_PICKER_OPENED")
         val speeds = floatArrayOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
         val labels = speeds.map { "${it}x" }
         val selected = speeds.indexOfFirst { it == playerSpeed }.coerceAtLeast(0)
         showBrandedOptionsDialog(t("playback_speed"), labels, selected) { which ->
             val applySpeed = {
                 playerSpeed = speeds[which]
+                recordUiAction("PLAYER_SPEED_SELECTED", mapOf("speed" to labels[which]))
                 if (sdkPlayerShown) currentSdkPlayerFragment()?.setVideoSpeed(playerSpeed)
                 else exoPlayer?.setPlaybackSpeed(playerSpeed)
                 speedButton?.text = labels[which]
@@ -705,9 +723,11 @@ internal fun DramaAppActivity.showPlaybackSpeedPicker() {
     }
 
 internal fun DramaAppActivity.showPlaybackMoreControls() {
+        recordUiAction("PLAYER_MORE_CONTROLS_OPENED")
         val muteLabel = if (playerMuted) t("restore_sound") else t("mute")
         val options = listOf(muteLabel, t("increase_brightness"), t("restore_brightness"), t("immersive_mode"), t("reload_episode"))
         showBrandedOptionsDialog(t("playback_settings"), options) { which ->
+            recordUiAction("PLAYER_MORE_ACTION_SELECTED", mapOf("action_index" to which))
             when (which) {
                 0 -> {
                     playerMuted = !playerMuted

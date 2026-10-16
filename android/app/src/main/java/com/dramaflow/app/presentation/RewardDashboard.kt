@@ -292,8 +292,14 @@ internal fun DramaAppActivity.createEpisodeTaskLine(snapshot: RewardsApiClient.S
             setPadding(dp(14), dp(10), dp(14), dp(10)); isClickable = true
             setOnClickListener {
                 val claimTarget = claimableTasks.firstOrNull()?.target
-                if (claimTarget != null) claimEpisodeTaskCash(claimTarget)
-                else { activeTab = MainTab.HOME; renderActiveTab() }
+                if (claimTarget != null) {
+                    recordUiAction("REWARDS_EPISODE_TASK_CLAIM_CLICKED", mapOf("milestone" to claimTarget))
+                    claimEpisodeTaskCash(claimTarget)
+                } else {
+                    recordUiAction("REWARDS_TASK_GO_WATCH_CLICKED")
+                    activeTab = MainTab.HOME
+                    renderActiveTab()
+                }
             }
         })
         addView(actionRow)
