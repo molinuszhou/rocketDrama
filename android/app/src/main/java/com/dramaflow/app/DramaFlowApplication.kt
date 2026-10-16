@@ -29,19 +29,16 @@ class DramaFlowApplication : Application() {
             onSessionTokenReceived = { token -> getSharedPreferences(PREFERENCES, MODE_PRIVATE).edit().putString(SESSION_TOKEN_KEY, token).apply() },
         )
         val engagementAnalytics = EngagementAnalytics.get(this)
-        engagementAnalytics.apply {
-            setAttributionSyncListener { attribution ->
-                if (rewardsApi.isConfigured) {
-                    rewardsApi.syncAttribution(anonymousInstallationId(), attribution) { error ->
-                        Log.w(TAG, "AppsFlyer attribution sync will retry on the next Rewards bootstrap: $error")
-                    }
+        engagementAnalytics.setAttributionSyncListener { attribution ->
+            if (rewardsApi.isConfigured) {
+                rewardsApi.syncAttribution(anonymousInstallationId(), attribution) { error ->
+                    Log.w(TAG, "AppsFlyer attribution sync will retry on the next Rewards bootstrap: $error")
                 }
             }
-            initialize()
         }
-        // Register this anonymous installation as soon as the process is created, alongside
-        // AppsFlyer initialization. The request is asynchronous and idempotent; Activity still
-        // refreshes the snapshot later for UI state, so this never blocks the launch surface.
+        // Start anonymous registration before AppsFlyer, but never wait for a network response:
+        // blocking here could delay first-launch attribution. Activity still refreshes the snapshot
+        // later for UI state, while the persisted attribution listener backfills its result.
         if (rewardsApi.isConfigured) {
             rewardsApi.bootstrap(
                 userId = anonymousInstallationId(),
@@ -53,6 +50,9 @@ class DramaFlowApplication : Application() {
         } else {
             Log.w(TAG, "Rewards API is not configured; early user bootstrap is skipped")
         }
+        // The request above is already enqueued. AppsFlyer remains in Application.onCreate so its
+        // first-launch attribution starts immediately and cannot be delayed by cross-region I/O.
+        engagementAnalytics.initialize()
         val settings = TopOnSettings.fromBuildConfig()
         if (settings.isConfigured) {
             val mode = if (settings.isDemoMode) "official-demo" else "configured-network"
