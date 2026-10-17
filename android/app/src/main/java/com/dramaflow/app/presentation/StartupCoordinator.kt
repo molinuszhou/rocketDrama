@@ -132,15 +132,25 @@ internal fun DramaAppActivity.resumeFromExternalAdReturn() {
 /** Restores the exact local catalogue model only after the current PSSDK feed is available. */
 internal fun DramaAppActivity.restoreExternalAdReturnPlayerIfPossible(): Boolean {
     if (!restoringExternalAdReturn || !restorePlayerAfterCatalog) return false
+    return restorePendingPlayerAfterCatalogIfPossible()
+}
+
+/** Uses persisted metadata when the cold-start discovery page does not contain the saved title. */
+internal fun DramaAppActivity.restorePendingPlayerAfterCatalogIfPossible(): Boolean {
     val restoredId = restoredDramaId ?: return false
-    val drama = catalogItems.firstOrNull { it.id == restoredId } ?: return false
+    val drama = findRestorableDrama(restoredId) ?: return false
     restorePlayerAfterCatalog = false
-    restoringExternalAdReturn = false
     // Keep the durable checkpoint until PSSDK reports progress at the requested seek position.
     // Some provider versions invoke the episode-start callback at 0 before their initial seek.
-    pendingExternalAdRestoreEpisodeIndex = restoredEpisodeIndex
-    pendingExternalAdRestorePositionSeconds = restoredPositionSeconds
-    logStatus("广告外跳返回：直接恢复播放器 $restoredId #${restoredEpisodeIndex + 1}")
+    if (restoringExternalAdReturn) {
+        pendingExternalAdRestoreEpisodeIndex = restoredEpisodeIndex
+        pendingExternalAdRestorePositionSeconds = restoredPositionSeconds
+        logStatus("广告外跳返回：恢复播放器 $restoredId #${restoredEpisodeIndex + 1}")
+    } else {
+        logStatus("后台返回：恢复播放器 $restoredId #${restoredEpisodeIndex + 1}")
+    }
+    restoringExternalAdReturn = false
+    restoringBackgroundReturn = false
     showPlayer(drama, restoredEpisodeIndex, restoredPositionSeconds)
     return true
 }
@@ -206,8 +216,8 @@ private fun DramaAppActivity.preloadShortDramaSdkCatalog() {
                 ShortDramaSdkManager.Initialization.Disabled -> "Short-drama SDK is disabled in this build"
                 ShortDramaSdkManager.Initialization.Ready -> error("unreachable")
             }
-            if (restoringExternalAdReturn || restorePlayerAfterCatalog) {
-                abandonExternalAdReturn("PSSDK 初始化未就绪")
+            if (restoringExternalAdReturn && !restorePlayerAfterCatalog) {
+                renderRecoveredExternalAdReturnSurface()
             }
             if (startupContentInitializationStarted) renderActiveTab() else completeStartupWhenReady()
             queueShortDramaCatalogDiagnostic(startupCatalogFailure.orEmpty())
@@ -224,8 +234,11 @@ private fun DramaAppActivity.preloadShortDramaSdkCatalog() {
                 if (cards.isEmpty()) {
                     startupCatalogFailure = t("catalog_empty")
                     startupPosterPreloadFinished = true
-                    if (restoringExternalAdReturn || restorePlayerAfterCatalog) {
-                        abandonExternalAdReturn("恢复剧集未出现在当前目录")
+                    if (restorePendingPlayerAfterCatalogIfPossible()) {
+                        return@runOnUiThread
+                    }
+                    if (restoringExternalAdReturn && !restorePlayerAfterCatalog) {
+                        renderRecoveredExternalAdReturnSurface()
                     }
                     if (startupContentInitializationStarted) renderActiveTab() else completeStartupWhenReady()
                     queueShortDramaCatalogDiagnostic(startupCatalogFailure.orEmpty())
@@ -243,7 +256,7 @@ private fun DramaAppActivity.preloadShortDramaSdkCatalog() {
                 catalogPageLoadInFlight = false
                 refreshSdkCategories()
                 updateStartupProgress(30, t("startup_content_ready"))
-                if (restoreExternalAdReturnPlayerIfPossible()) return@runOnUiThread
+                if (restorePendingPlayerAfterCatalogIfPossible()) return@runOnUiThread
                 if (restoringExternalAdReturn) {
                     // Non-player ad click-out: return to the exact captured route without
                     // replaying app-open, welcome or check-in onboarding on this session.
@@ -276,8 +289,11 @@ private fun DramaAppActivity.preloadShortDramaSdkCatalog() {
                 startupContentHandoffFinished = true
                 startupPosterPreloadFinished = true
                 startupCatalogFailure = t("catalog_load_failed", message)
-                if (restoringExternalAdReturn || restorePlayerAfterCatalog) {
-                    abandonExternalAdReturn("恢复目录请求失败")
+                if (restorePendingPlayerAfterCatalogIfPossible()) {
+                    return@runOnUiThread
+                }
+                if (restoringExternalAdReturn && !restorePlayerAfterCatalog) {
+                    renderRecoveredExternalAdReturnSurface()
                 }
                 if (startupContentInitializationStarted) renderActiveTab() else completeStartupWhenReady()
                 queueShortDramaCatalogDiagnostic(message)
@@ -424,24 +440,11 @@ internal fun DramaAppActivity.completeStartupWhenReady() {
         if (startupContentInitializationStarted || !startupAdFinished || !startupMinimumVisualFinished || !startupContentHandoffFinished || isFinishing || isDestroyed) return
         startupContentInitializationStarted = true
         updateStartupProgress(100, t("startup_ready"))
-        if (restorePlayerAfterCatalog) {
-            val drama = catalogItems.firstOrNull { it.id == restoredDramaId }
-            if (drama != null) {
-                restorePlayerAfterCatalog = false
-                if (restoringExternalAdReturn) {
-                    // Keep the click-out checkpoint until the provider player reports the
-                    // requested episode/position. A callback may still be pending while Play
-                    // returns through a fresh launcher route.
-                    pendingExternalAdRestoreEpisodeIndex = restoredEpisodeIndex
-                    pendingExternalAdRestorePositionSeconds = restoredPositionSeconds
-                }
-                restoringExternalAdReturn = false
-                restoringBackgroundReturn = false
-                showPlayer(drama, restoredEpisodeIndex, restoredPositionSeconds)
-                return
-            }
-            restorePlayerAfterCatalog = false
-        }
+        if (restorePendingPlayerAfterCatalogIfPossible()) return
+        // Do not discard a durable player checkpoint simply because the first provider request is
+        // temporarily unavailable. Later catalogue retries or a fresh process can still use the
+        // persisted title metadata and the existing ID-search fallback.
+        if (restorePlayerAfterCatalog) return
         renderActiveTab()
         if (!restoringBackgroundReturn) showStartupCheckinWhenReady()
         restoringBackgroundReturn = false

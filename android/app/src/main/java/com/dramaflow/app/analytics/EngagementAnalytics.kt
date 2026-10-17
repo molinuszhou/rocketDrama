@@ -68,7 +68,9 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
     @Volatile
     private var latestRawConversionPayload: Map<String, Any?>? = null
 
-    fun initialize() {
+    fun initialize() = safely("initialize external reporting") { initializeInternal() }
+
+    private fun initializeInternal() {
         if (initialized) return
         initialized = true
         if (!BuildConfig.EXTERNAL_REPORTING_ENABLED) {
@@ -86,7 +88,7 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
             appsFlyer.setDebugLog(BuildConfig.ANALYTICS_DEBUG)
             appsFlyer.init(BuildConfig.APPSFLYER_DEV_KEY, attributionConversionListener(), appContext)
             appsFlyer.start(appContext, BuildConfig.APPSFLYER_DEV_KEY, object : AppsFlyerRequestListener {
-                override fun onSuccess() {
+                override fun onSuccess() = safely("record AppsFlyer initialization") {
                     reportingAudit.recordProvider(
                         APPSFLYER,
                         "sdk_initialization",
@@ -96,7 +98,7 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
                     UserBehaviorEventReporter.get(appContext).record("SDK", "APPSFLYER_INITIALIZED")
                 }
 
-                override fun onError(errorCode: Int, errorDescription: String) {
+                override fun onError(errorCode: Int, errorDescription: String) = safely("record AppsFlyer initialization failure") {
                     reportingAudit.recordProvider(
                         APPSFLYER,
                         "sdk_initialization",
@@ -113,8 +115,10 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
                 }
             })
         }
-        reportingAudit.recordProvider(FIREBASE, "sdk_initialization", ReportingStatus.SUCCESS, detail = "firebase_lazy_init")
-        reportingAudit.recordProvider(XUANYU, "sdk_initialization", ReportingStatus.SUCCESS, detail = "http_client_ready")
+        // getInstance() and OkHttp construction prove only that a local client object exists. Neither
+        // SDK exposes a remote initialization acknowledgement here, so do not claim delivery success.
+        reportingAudit.recordProvider(FIREBASE, "sdk_initialization", ReportingStatus.STARTED, detail = "firebase_lazy_unverified; remote_delivery_unconfirmed")
+        reportingAudit.recordProvider(XUANYU, "sdk_initialization", ReportingStatus.STARTED, detail = "http_client_created; awaiting_actual_http_response")
         Log.i(TAG, "AppsFlyer initialization requested")
     }
 
@@ -123,18 +127,21 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
         ?.trim()
         ?.takeIf(String::isNotBlank)
 
-    fun currentAttributionForRewards(): RewardsApiClient.AttributionPayload? =
+    fun currentAttributionForRewards(): RewardsApiClient.AttributionPayload? = runCatching {
         attributionExperience.currentRecord()?.toRewardsPayload()
+    }.onFailure { Log.w(TAG, "Attribution snapshot is unavailable", it) }.getOrNull()
 
     fun setAttributionSyncListener(listener: ((RewardsApiClient.AttributionPayload) -> Unit)?) {
-        attributionSyncListener = listener
-        currentAttributionForRewards()?.let { payload ->
-            listener?.invoke(payload.copy(rawConversionPayload = latestRawConversionPayload))
+        safely("set attribution listener") {
+            attributionSyncListener = listener
+            currentAttributionForRewards()?.let { payload ->
+                listener?.invoke(payload.copy(rawConversionPayload = latestRawConversionPayload))
+            }
         }
     }
 
     private fun attributionConversionListener(): AppsFlyerConversionListener = object : AppsFlyerConversionListener {
-        override fun onConversionDataSuccess(conversionData: MutableMap<String, Any>?) {
+        override fun onConversionDataSuccess(conversionData: MutableMap<String, Any>?) = safely("process AppsFlyer conversion") {
             val experience = attributionExperience.applyConversionData(conversionData)
             // Keep the SDK map in memory only. It is delivered to the server's separately
             // encrypted, retention-bounded audit channel and is never written to preferences.
@@ -156,7 +163,7 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
             Log.i(TAG, "AppsFlyer attribution selected release surface ${experience.wireValue}")
         }
 
-        override fun onConversionDataFail(errorMessage: String?) {
+        override fun onConversionDataFail(errorMessage: String?) = safely("process AppsFlyer conversion failure") {
             reportingAudit.recordProvider(
                 APPSFLYER,
                 "attribution_surface",
@@ -173,7 +180,7 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
 
         override fun onAppOpenAttribution(attributionData: MutableMap<String, String>?) = Unit
 
-        override fun onAttributionFailure(errorMessage: String?) {
+        override fun onAttributionFailure(errorMessage: String?) = safely("process AppsFlyer app-open attribution failure") {
             reportingAudit.recordProvider(
                 APPSFLYER,
                 "app_open_attribution",
@@ -184,7 +191,10 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
     }
 
     /** 广告真实展示：炫羽展示上报使用此时机；收入事件等待 paid impression 回调。 */
-    fun reportTopOnImpression(logicalPlacement: String, adUnitId: String, adInfo: ATAdInfo) {
+    fun reportTopOnImpression(logicalPlacement: String, adUnitId: String, adInfo: ATAdInfo) =
+        safely("report TopOn impression") { reportTopOnImpressionInternal(logicalPlacement, adUnitId, adInfo) }
+
+    private fun reportTopOnImpressionInternal(logicalPlacement: String, adUnitId: String, adInfo: ATAdInfo) {
         if (!BuildConfig.EXTERNAL_REPORTING_ENABLED) {
             recordAllDisabled("ad_impression", logicalPlacement, adUnitId)
             debug("外部上报已关闭：跳过展示事件 $logicalPlacement")
@@ -201,7 +211,10 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
      * 发送；既有合作方自定义累计事件仍仅以 USD 口径参与。
      */
     @Synchronized
-    fun reportTopOnRevenue(logicalPlacement: String, adUnitId: String, adInfo: ATAdInfo) {
+    fun reportTopOnRevenue(logicalPlacement: String, adUnitId: String, adInfo: ATAdInfo) =
+        safely("report TopOn revenue") { reportTopOnRevenueInternal(logicalPlacement, adUnitId, adInfo) }
+
+    private fun reportTopOnRevenueInternal(logicalPlacement: String, adUnitId: String, adInfo: ATAdInfo) {
         if (!BuildConfig.EXTERNAL_REPORTING_ENABLED) {
             recordAllDisabled("ad_revenue", logicalPlacement, adUnitId)
             debug("外部上报已关闭：跳过收入事件 $logicalPlacement")
@@ -247,7 +260,10 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
     }
 
     /** Firebase 的唯一自定义事件：只在激励广告完整回调后发送。 */
-    fun reportRewardedCompleted(logicalPlacement: String, adUnitId: String, adInfo: ATAdInfo?) {
+    fun reportRewardedCompleted(logicalPlacement: String, adUnitId: String, adInfo: ATAdInfo?) =
+        safely("report rewarded completion") { reportRewardedCompletedInternal(logicalPlacement, adUnitId, adInfo) }
+
+    private fun reportRewardedCompletedInternal(logicalPlacement: String, adUnitId: String, adInfo: ATAdInfo?) {
         if (!BuildConfig.EXTERNAL_REPORTING_ENABLED) {
             reportingAudit.recordProvider(FIREBASE, BuildConfig.FIREBASE_REWARDED_EVENT_NAME, ReportingStatus.SKIPPED_DISABLED, logicalPlacement, adUnitId)
             debug("外部上报已关闭：跳过激励完成事件 $logicalPlacement")
@@ -332,12 +348,12 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
     ) {
         reportingAudit.recordProvider(APPSFLYER, eventName, ReportingStatus.QUEUED, values["ad_placement"]?.toString().orEmpty(), values["ad_unit_id"]?.toString().orEmpty(), revenue = revenueAudit)
         appsFlyer.logEvent(appContext, eventName, values, object : AppsFlyerRequestListener {
-            override fun onSuccess() {
+            override fun onSuccess() = safely("record AppsFlyer event delivery") {
                 reportingAudit.recordProvider(APPSFLYER, eventName, ReportingStatus.SUCCESS, values["ad_placement"]?.toString().orEmpty(), values["ad_unit_id"]?.toString().orEmpty(), revenue = revenueAudit, detail = "sdk_callback_success; $auditDetail")
                 debug("AppsFlyer $eventName submitted: $values")
             }
 
-            override fun onError(errorCode: Int, errorDescription: String) {
+            override fun onError(errorCode: Int, errorDescription: String) = safely("record AppsFlyer event failure") {
                 reportingAudit.recordProvider(
                     APPSFLYER,
                     eventName,
@@ -391,7 +407,10 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
         debug("Firebase $eventName: cumulative_value=${revenueUsd.toPlainString()}")
     }
 
-    private fun reportXuanyuAdShow(payload: AdPayload, uidAttempt: Int = 0, networkAttempt: Int = 0) {
+    private fun reportXuanyuAdShow(payload: AdPayload, uidAttempt: Int = 0, networkAttempt: Int = 0) =
+        safely("report Xuanyu ad show") { reportXuanyuAdShowInternal(payload, uidAttempt, networkAttempt) }
+
+    private fun reportXuanyuAdShowInternal(payload: AdPayload, uidAttempt: Int, networkAttempt: Int) {
         val revenueAudit = payload.revenueAuditValues()
         if (!BuildConfig.EXTERNAL_REPORTING_ENABLED) {
             reportingAudit.recordProvider(XUANYU, "w_ad_show", ReportingStatus.SKIPPED_DISABLED, payload.logicalPlacement, payload.adUnitId, revenue = revenueAudit)
@@ -430,7 +449,7 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
             .build()
         reportingAudit.recordProvider(XUANYU, "w_ad_show", ReportingStatus.STARTED, payload.logicalPlacement, payload.adUnitId, revenue = revenueAudit, detail = "http_request_ecpm")
         httpClient.newCall(Request.Builder().url(url).get().build()).enqueue(object : Callback {
-            override fun onFailure(call: Call, error: IOException) {
+            override fun onFailure(call: Call, error: IOException) = safely("handle Xuanyu HTTP failure") {
                 if (networkAttempt < XUANYU_NETWORK_RETRY_COUNT) {
                     val nextAttempt = networkAttempt + 1
                     reportingAudit.recordProvider(XUANYU, "w_ad_show", ReportingStatus.RETRYING, payload.logicalPlacement, payload.adUnitId, revenue = revenueAudit, detail = "attempt=$nextAttempt")
@@ -445,7 +464,7 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
                 }
             }
 
-            override fun onResponse(call: Call, response: Response) {
+            override fun onResponse(call: Call, response: Response) = safely("handle Xuanyu HTTP response") {
                 response.use {
                     if (it.isSuccessful) {
                         reportingAudit.recordProvider(XUANYU, "w_ad_show", ReportingStatus.SUCCESS, payload.logicalPlacement, payload.adUnitId, revenue = revenueAudit, detail = "http_${it.code}; sent_ecpm; derived_value")
@@ -471,6 +490,12 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
 
     private fun AdPayload.revenueAuditValues(): AdRevenueAuditValues =
         AdRevenueAuditValues.fromPaidImpression(currency, ecpm, publisherRevenue)
+
+    private fun safely(operation: String, block: () -> Unit) {
+        runCatching(block).onFailure { error ->
+            Log.w(TAG, "Analytics telemetry skipped: $operation", error)
+        }
+    }
 
     private fun debug(message: String) {
         if (BuildConfig.DEBUG || BuildConfig.ANALYTICS_DEBUG) Log.d(TAG, message)

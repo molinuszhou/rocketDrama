@@ -21,6 +21,8 @@ import java.util.UUID
 class DramaFlowApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        // Publish the install identity before asynchronous telemetry can read or create it.
+        val installationId = anonymousInstallationId()
         val behaviorReporter = UserBehaviorEventReporter.get(this)
         behaviorReporter.record("APP", "PROCESS_CREATED")
         // Attribution and analytics are reporting services rather than TopOn SDK initialization.
@@ -41,10 +43,19 @@ class DramaFlowApplication : Application() {
                 )
             },
         )
+        behaviorReporter.setSessionRefreshHook { failedToken ->
+            rewardsApi.recoverSession(
+                userId = installationId,
+                region = Locale.getDefault().country.trim().uppercase(Locale.ROOT).ifBlank { "US" },
+                failedToken = failedToken,
+                onReady = { behaviorReporter.flushPending() },
+                onFailure = { Log.w(TAG, "Behavior session renewal deferred: $it") },
+            )
+        }
         val engagementAnalytics = EngagementAnalytics.get(this)
         engagementAnalytics.setAttributionSyncListener { attribution ->
             if (rewardsApi.isConfigured) {
-                rewardsApi.syncAttribution(anonymousInstallationId(), attribution) { error ->
+                rewardsApi.syncAttribution(installationId, attribution) { error ->
                     Log.w(TAG, "AppsFlyer attribution sync will retry on the next Rewards bootstrap: $error")
                 }
             }
@@ -54,7 +65,7 @@ class DramaFlowApplication : Application() {
         // later for UI state, while the persisted attribution listener backfills its result.
         if (rewardsApi.isConfigured) {
             rewardsApi.bootstrap(
-                userId = anonymousInstallationId(),
+                userId = installationId,
                 region = Locale.getDefault().country.trim().uppercase(Locale.ROOT).ifBlank { "US" },
                 attribution = engagementAnalytics.currentAttributionForRewards(),
                 onSuccess = {

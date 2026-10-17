@@ -105,6 +105,8 @@ class DramaAppActivity : FragmentActivity() {
     internal var rewardsSnapshotGeneration = 0L
     /** Keeps reward settlement single-flight after an ad closes but before the server replies. */
     internal var rewardSettlementInFlight = false
+    /** Prevents a synchronous player callback from recursively consuming a pending unlock. */
+    internal var settledEpisodeTargetReleaseInFlight = false
     internal var exoPlayer: ExoPlayer? = null
     internal var playerView: PlayerView? = null
     internal val progressHandler = Handler(Looper.getMainLooper())
@@ -333,7 +335,17 @@ class DramaAppActivity : FragmentActivity() {
                     mapOf("endpoint" to path, "status_code" to (statusCode ?: 0)),
                 )
             },
-        )
+        ).also { api ->
+            userBehaviorReporter.setSessionRefreshHook { failedToken ->
+                api.recoverSession(
+                    userId = anonymousInstallationId(),
+                    region = rewardsMarketCode(),
+                    failedToken = failedToken,
+                    onReady = { userBehaviorReporter.flushPending() },
+                    onFailure = { message -> runOnUiThread { logStatus("行为记录会话恢复等待重试：$message") } },
+                )
+            }
+        }
     }
     internal val shortDramaSdk by lazy { ShortDramaSdkManager.get(applicationContext) }
 
@@ -1053,6 +1065,17 @@ class DramaAppActivity : FragmentActivity() {
         )
     }
 
+    /**
+     * A return checkpoint stores a provider ID, not a transient discovery-page position. Prefer a
+     * fresh provider card, then reuse the display metadata kept for History/Favorites so showPlayer
+     * can invoke its existing provider-ID resolution path.
+     */
+    internal fun findRestorableDrama(dramaId: String): LocalDrama? =
+        catalogItems.firstOrNull { it.id == dramaId }
+            ?: PersistedDramaLibrary.snapshots(persistedDramaLibrary)
+                .firstOrNull { it.id == dramaId }
+                ?.toLocalDrama()
+
     internal fun savedResumeEpisodeIndex(drama: LocalDrama): Int = playbackHistory
         .getInt(resumePreferenceKey(drama.id, "episode"), 0)
         .coerceIn(0, drama.episodes.lastIndex.coerceAtLeast(0))
@@ -1298,8 +1321,8 @@ class DramaAppActivity : FragmentActivity() {
             .apply()
     }
 
-    /** Writes the only durable record needed to retry an already-completed rewarded action. */
-    internal fun createPendingRewardedSettlement(
+    /** Reserves a stable ID before the rewarded SDK can report a verification callback. */
+    internal fun preparePendingRewardedSettlement(
         placementId: String,
         targetId: String?,
         episodeIndex: Int?,
@@ -1311,7 +1334,28 @@ class DramaAppActivity : FragmentActivity() {
             targetId = targetId?.takeIf(String::isNotBlank),
             episodeIndex = episodeIndex,
             savedAtMillis = System.currentTimeMillis(),
+            stage = RewardedSettlementStage.PREPARED,
+            dramaId = selectedDrama?.id,
         )
+        writePendingRewardedSettlement(checkpoint)
+        return checkpoint
+    }
+
+    /** The TopOn verification callback is made durable on its callback thread before UI dispatch. */
+    internal fun markPendingRewardedSettlementVerified(
+        checkpoint: PendingRewardedSettlement,
+    ): PendingRewardedSettlement? = updatePendingRewardedSettlement(checkpoint.eventId) {
+        it.copy(stage = RewardedSettlementStage.VERIFIED, savedAtMillis = System.currentTimeMillis())
+    }
+
+    /** Preserve a server-confirmed episode target until the restored PSSDK player consumes it once. */
+    internal fun markPendingRewardedSettlementTargetPending(
+        checkpoint: PendingRewardedSettlement,
+    ): PendingRewardedSettlement? = updatePendingRewardedSettlement(checkpoint.eventId) {
+        it.copy(stage = RewardedSettlementStage.SETTLED_TARGET_PENDING, savedAtMillis = System.currentTimeMillis())
+    }
+
+    private fun writePendingRewardedSettlement(checkpoint: PendingRewardedSettlement) {
         playbackHistory.edit()
             .putString(PENDING_REWARDED_EVENT_ID, checkpoint.eventId)
             .putString(PENDING_REWARDED_USER_ID, checkpoint.userId)
@@ -1319,12 +1363,35 @@ class DramaAppActivity : FragmentActivity() {
             .putString(PENDING_REWARDED_TARGET_ID, checkpoint.targetId)
             .putInt(PENDING_REWARDED_EPISODE_INDEX, checkpoint.episodeIndex ?: -1)
             .putLong(PENDING_REWARDED_SAVED_AT_MILLIS, checkpoint.savedAtMillis)
+            .putString(PENDING_REWARDED_STAGE, checkpoint.stage.name)
+            .putString(PENDING_REWARDED_DRAMA_ID, checkpoint.dramaId)
             .commit()
-        return checkpoint
     }
 
     internal fun readPendingRewardedSettlement(): PendingRewardedSettlement? {
+        val checkpoint = readStoredPendingRewardedSettlement() ?: return null
+        if (checkpoint.stage == RewardedSettlementStage.PREPARED) {
+            // The process died before TopOn supplied a verifiable reward callback. A reserved
+            // event ID, presentation, or close callback is not reward evidence and must not be
+            // replayed as a completion on the next launch.
+            clearPendingRewardedSettlement(checkpoint.eventId)
+            logStatus("已丢弃未验证激励预分配：缺少可追溯的奖励回调证据")
+            return null
+        }
+        return checkpoint.takeIf { it.stage == RewardedSettlementStage.VERIFIED }
+    }
+
+    internal fun readSettledRewardedTarget(): PendingRewardedSettlement? {
+        return readStoredPendingRewardedSettlement()?.takeIf(PendingRewardedSettlement::requiresTargetRelease)
+    }
+
+    private fun readStoredPendingRewardedSettlement(): PendingRewardedSettlement? {
         val storedEpisodeIndex = playbackHistory.getInt(PENDING_REWARDED_EPISODE_INDEX, -1)
+        // Existing installs stored only verified callbacks. Treat an absent stage as that legacy
+        // verified state; a preallocated ID is never upgraded without the callback below.
+        val stage = playbackHistory.getString(PENDING_REWARDED_STAGE, null)
+            ?.let { runCatching { RewardedSettlementStage.valueOf(it) }.getOrNull() }
+            ?: RewardedSettlementStage.VERIFIED
         val checkpoint = PendingRewardedSettlement(
             eventId = playbackHistory.getString(PENDING_REWARDED_EVENT_ID, null).orEmpty(),
             userId = playbackHistory.getString(PENDING_REWARDED_USER_ID, null).orEmpty(),
@@ -1332,10 +1399,28 @@ class DramaAppActivity : FragmentActivity() {
             targetId = playbackHistory.getString(PENDING_REWARDED_TARGET_ID, null)?.takeIf(String::isNotBlank),
             episodeIndex = storedEpisodeIndex.takeIf { it > 0 },
             savedAtMillis = playbackHistory.getLong(PENDING_REWARDED_SAVED_AT_MILLIS, 0L),
+            stage = stage,
+            dramaId = playbackHistory.getString(PENDING_REWARDED_DRAMA_ID, null)?.takeIf(String::isNotBlank),
         )
         return checkpoint.takeIf { it.isFresh(System.currentTimeMillis()) }.also {
             if (it == null) clearPendingRewardedSettlement()
         }
+    }
+
+    internal fun clearPreparedPendingRewardedSettlement(eventId: String) {
+        val checkpoint = readStoredPendingRewardedSettlement() ?: return
+        if (checkpoint.eventId == eventId && checkpoint.stage == RewardedSettlementStage.PREPARED) {
+            clearPendingRewardedSettlement(eventId)
+        }
+    }
+
+    private fun updatePendingRewardedSettlement(
+        eventId: String,
+        transform: (PendingRewardedSettlement) -> PendingRewardedSettlement,
+    ): PendingRewardedSettlement? {
+        val checkpoint = readStoredPendingRewardedSettlement() ?: return null
+        if (checkpoint.eventId != eventId) return null
+        return transform(checkpoint).also(::writePendingRewardedSettlement)
     }
 
     internal fun clearPendingRewardedSettlement(eventId: String? = null) {
@@ -1347,7 +1432,24 @@ class DramaAppActivity : FragmentActivity() {
             .remove(PENDING_REWARDED_TARGET_ID)
             .remove(PENDING_REWARDED_EPISODE_INDEX)
             .remove(PENDING_REWARDED_SAVED_AT_MILLIS)
-            .apply()
+            .remove(PENDING_REWARDED_STAGE)
+            .remove(PENDING_REWARDED_DRAMA_ID)
+            .commit()
+    }
+
+    /**
+     * Server settlement and PSSDK's block listener can arrive in either order after process death.
+     * Once bootstrap has restored the server entitlement, select the original target exactly once.
+     */
+    internal fun releaseSettledRewardedTargetIfPossible(): Boolean {
+        val checkpoint = readSettledRewardedTarget() ?: return false
+        val targetDramaId = checkpoint.dramaId ?: return false
+        val drama = selectedDrama ?: return false
+        val targetIndex = (checkpoint.episodeIndex ?: return false) - 1
+        if (!resumeSettledEpisodeTargetIfReady(targetDramaId, targetIndex)) return false
+        clearPendingRewardedSettlement(checkpoint.eventId)
+        logStatus("已恢复服务端确认的广告解锁：${drama.id} #${targetIndex + 1}")
+        return true
     }
 
     internal fun persistNextEpisodeResume(completedIndex: Int) {

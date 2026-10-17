@@ -67,6 +67,7 @@ import com.dramaflow.app.rewards.RewardsApiClient
 import java.text.NumberFormat
 import java.util.Locale
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.random.Random
 
 internal fun DramaAppActivity.requestRewardedAction(
@@ -79,8 +80,16 @@ internal fun DramaAppActivity.requestRewardedAction(
         fallbackToInterstitialWhenUnavailable: Boolean = true,
         deferCashAnimation: Boolean = true,
     ) {
+        if (readSettledRewardedTarget() != null ||
+            readPendingInterstitialIncentive()?.requiresTargetRelease() == true
+        ) {
+            releaseSettledRewardedTargetIfPossible()
+            releasePendingInterstitialIncentiveTargetIfPossible()
+            toast(t("reward_settlement_pending"))
+            return
+        }
         if (readPendingRewardedSettlement() != null) {
-            retryPendingRewardedSettlement()
+            retryPendingRewardedSettlement(onSettled)
             toast(t("reward_settlement_pending"))
             return
         }
@@ -104,10 +113,14 @@ internal fun DramaAppActivity.requestRewardedAction(
             )
             return
         }
+        // This reservation is not a completion record. It supplies the stable ID that the
+        // verification callback upgrades synchronously before any main-thread work can be lost.
+        val preparedRewardedSettlement = preparePendingRewardedSettlement(placementId, targetId, episodeIndex)
         val behaviorInteraction = beginAdBehaviorInteraction(placementId, "rewarded")
         fullscreenAdRequestInFlight = true
         var rewardedWasPresented = false
         var rewardSettlementStarted = false
+        val verifiedRewardedSettlement = AtomicReference<PendingRewardedSettlement?>(null)
         val wasPlayingBeforeRewarded = wasPlaybackActiveForAd()
         // Full-screen ad loading is modal: pause the episode and prevent duplicate interaction
         // while mediation resolves its waterfall, then resume if no creative becomes available.
@@ -115,10 +128,9 @@ internal fun DramaAppActivity.requestRewardedAction(
         pauseForFullscreenAd()
         resumeAfterFullscreenAd = wasPlayingBeforeRewarded
         showFullscreenAdLoadingOverlay()
-        fun settleVerifiedReward() {
+        fun settleVerifiedReward(checkpoint: PendingRewardedSettlement) {
             if (rewardSettlementStarted) return
             rewardSettlementStarted = true
-            val checkpoint = createPendingRewardedSettlement(placementId, targetId, episodeIndex)
             rewardSettlementInFlight = true
             rewardsApi.completeRewarded(
                 userId = checkpoint.userId,
@@ -127,13 +139,24 @@ internal fun DramaAppActivity.requestRewardedAction(
                 episodeIndex = checkpoint.episodeIndex,
                 proof = "",
                 adEventId = checkpoint.eventId,
-                onSuccess = { action -> runOnUiThread {
-                    clearPendingRewardedSettlement(checkpoint.eventId)
+                onSuccess = { action ->
+                    val targetReleasePending = if (checkpoint.isEpisodeUnlockTarget()) {
+                        markPendingRewardedSettlementTargetPending(checkpoint) != null
+                    } else {
+                        false
+                    }
+                    runOnUiThread {
                     fullscreenAdInProgress = false
                     rewardSettlementInFlight = false
                     playbackInterstitialShownAtElapsedMillis.clear()
                     playbackInterstitialShownAtElapsedMillis.add(SystemClock.elapsedRealtime())
-                    handleSettledRewardAction(action, onSettled, deferCashAnimation)
+                    finishVerifiedRewardedSettlement(
+                        checkpoint = checkpoint,
+                        targetReleasePending = targetReleasePending,
+                        action = action,
+                        onSettled = onSettled,
+                        deferCashAnimation = deferCashAnimation,
+                    )
                 } },
                 onFailure = { message -> runOnUiThread {
                     // Preserve the checkpoint and event ID. A later bootstrap can retry exactly
@@ -162,8 +185,16 @@ internal fun DramaAppActivity.requestRewardedAction(
             },
             onAdClicked = { recordAdClickAndCheckpoint(behaviorInteraction) },
             onRewardVerified = {
+                // TopOn may invoke this off-main. commit() must finish before a click-out or
+                // process reclaim can win the race with runOnUiThread.
+                val checkpoint = markPendingRewardedSettlementVerified(preparedRewardedSettlement)
                 recordAdBehavior(behaviorInteraction, "AD_REWARD_VERIFIED")
-                runOnUiThread { settleVerifiedReward() }
+                if (checkpoint == null) {
+                    logStatus("激励验证回调未能持久化，不能安全结算")
+                } else {
+                    verifiedRewardedSettlement.set(checkpoint)
+                    runOnUiThread { settleVerifiedReward(checkpoint) }
+                }
             },
         ) { result -> runFullscreenResultWhenForeground {
             fullscreenAdRequestInFlight = false
@@ -173,18 +204,36 @@ internal fun DramaAppActivity.requestRewardedAction(
                     recordAdBehavior(behaviorInteraction, "AD_COMPLETED")
                     fullscreenAdInProgress = false
                     if (rewardedWasPresented && wasPlayingBeforeRewarded) { resumeAfterFullscreenAd = true; resumeAfterFullscreenAdIfNeeded() }
-                    // Normal paths also reach this close callback. If the click-out removed it,
-                    // onRewardVerified already created the durable settlement above.
-                    settleVerifiedReward()
+                    val checkpoint = verifiedRewardedSettlement.get()
+                    if (checkpoint != null) {
+                        settleVerifiedReward(checkpoint)
+                    } else {
+                        // A close/result callback is not proof of a verified reward. There is no
+                        // SDK/SSV evidence to replay, so retain no false entitlement and record
+                        // the operational limitation for diagnosis.
+                        clearPreparedPendingRewardedSettlement(preparedRewardedSettlement.eventId)
+                        recordAdBehavior(behaviorInteraction, "AD_REWARD_UNVERIFIED")
+                        logStatus("激励广告已关闭但未收到可验证奖励回调，无法追溯结算")
+                        val message = t("reward_settlement_pending")
+                        if (onSettlementUnavailable != null) onSettlementUnavailable.invoke(message)
+                        else showRewardedUnavailableNotice(
+                            wasPlayingBeforeRewarded,
+                            message,
+                            preserveEpisodeUnlockTransition = placementId == "rv_episode_pass",
+                        )
+                    }
                 }
                 TopOnAdsManager.RewardedResult.Cancelled -> {
                     recordAdBehavior(behaviorInteraction, "AD_CANCELLED")
                     if (deferCashAnimation) deferNextCashFlight = false
                     fullscreenAdInProgress = false
-                    recordRewardedSkipThenMaybeShowInterstitial(
-                        shouldResume = wasPlayingBeforeRewarded,
-                        preserveEpisodeUnlockTransition = placementId == "rv_episode_pass",
-                    )
+                    verifiedRewardedSettlement.get()?.let(::settleVerifiedReward) ?: run {
+                        clearPreparedPendingRewardedSettlement(preparedRewardedSettlement.eventId)
+                        recordRewardedSkipThenMaybeShowInterstitial(
+                            shouldResume = wasPlayingBeforeRewarded,
+                            preserveEpisodeUnlockTransition = placementId == "rv_episode_pass",
+                        )
+                    }
                 }
                 is TopOnAdsManager.RewardedResult.Unavailable -> {
                     recordAdBehavior(behaviorInteraction, "AD_UNAVAILABLE", mapOf("outcome" to "unavailable"))
@@ -192,8 +241,11 @@ internal fun DramaAppActivity.requestRewardedAction(
                     fullscreenAdInProgress = false
                     if (rewardedWasPresented) resumeAfterFullscreenAdIfNeeded()
                     val message = t("ad_loading_failed") + " ${result.reason}"
-                    if (fallbackToInterstitialWhenUnavailable) showRewardedFallbackInterstitial(wasPlayingBeforeRewarded, message, placementId, targetId, episodeIndex, onSettled, deferCashAnimation, onAdUnavailable)
-                    else if (onAdUnavailable != null) onAdUnavailable.invoke(message) else showRewardedUnavailableNotice(wasPlayingBeforeRewarded, message)
+                    verifiedRewardedSettlement.get()?.let(::settleVerifiedReward) ?: run {
+                        clearPreparedPendingRewardedSettlement(preparedRewardedSettlement.eventId)
+                        if (fallbackToInterstitialWhenUnavailable) showRewardedFallbackInterstitial(wasPlayingBeforeRewarded, message, placementId, targetId, episodeIndex, onSettled, deferCashAnimation, onAdUnavailable)
+                        else if (onAdUnavailable != null) onAdUnavailable.invoke(message) else showRewardedUnavailableNotice(wasPlayingBeforeRewarded, message)
+                    }
                 }
                 is TopOnAdsManager.RewardedResult.Failed -> {
                     recordAdBehavior(behaviorInteraction, "AD_LOAD_FAILED", mapOf("error_code" to result.code))
@@ -201,16 +253,24 @@ internal fun DramaAppActivity.requestRewardedAction(
                     fullscreenAdInProgress = false
                     if (rewardedWasPresented) resumeAfterFullscreenAdIfNeeded()
                     val message = t("ad_loading_failed") + " (${result.code})"
-                    if (fallbackToInterstitialWhenUnavailable) showRewardedFallbackInterstitial(wasPlayingBeforeRewarded, message, placementId, targetId, episodeIndex, onSettled, deferCashAnimation, onAdUnavailable)
-                    else if (onAdUnavailable != null) onAdUnavailable.invoke(message) else showRewardedUnavailableNotice(wasPlayingBeforeRewarded, message)
+                    verifiedRewardedSettlement.get()?.let(::settleVerifiedReward) ?: run {
+                        clearPreparedPendingRewardedSettlement(preparedRewardedSettlement.eventId)
+                        if (fallbackToInterstitialWhenUnavailable) showRewardedFallbackInterstitial(wasPlayingBeforeRewarded, message, placementId, targetId, episodeIndex, onSettled, deferCashAnimation, onAdUnavailable)
+                        else if (onAdUnavailable != null) onAdUnavailable.invoke(message) else showRewardedUnavailableNotice(wasPlayingBeforeRewarded, message)
+                    }
                 }
             }
         } }
     }
 
 /** Replays a reward completion that TopOn confirmed before an external store/browser hand-off. */
-internal fun DramaAppActivity.retryPendingRewardedSettlement() {
-    val checkpoint = readPendingRewardedSettlement() ?: return
+internal fun DramaAppActivity.retryPendingRewardedSettlement(
+    onSettled: ((RewardsApiClient.RewardAction) -> Unit)? = null,
+) {
+    val checkpoint = readPendingRewardedSettlement() ?: run {
+        releaseSettledRewardedTargetIfPossible()
+        return
+    }
     if (!rewardsApi.isConfigured || rewardSettlementInFlight) return
     rewardSettlementInFlight = true
     logStatus("重试已完成广告奖励结算：${checkpoint.placementId}")
@@ -221,17 +281,58 @@ internal fun DramaAppActivity.retryPendingRewardedSettlement() {
         episodeIndex = checkpoint.episodeIndex,
         proof = "",
         adEventId = checkpoint.eventId,
-        onSuccess = { action -> runOnUiThread {
-            clearPendingRewardedSettlement(checkpoint.eventId)
+        onSuccess = { action ->
+            val targetReleasePending = if (checkpoint.isEpisodeUnlockTarget()) {
+                markPendingRewardedSettlementTargetPending(checkpoint) != null
+            } else {
+                false
+            }
+            runOnUiThread {
             rewardSettlementInFlight = false
             playbackInterstitialShownAtElapsedMillis.clear()
             playbackInterstitialShownAtElapsedMillis.add(SystemClock.elapsedRealtime())
-            handleSettledRewardAction(action, onSettled = null)
+            finishVerifiedRewardedSettlement(
+                checkpoint = checkpoint,
+                targetReleasePending = targetReleasePending,
+                action = action,
+                onSettled = onSettled,
+                deferCashAnimation = true,
+            )
         } },
         onFailure = { message -> runOnUiThread {
             rewardSettlementInFlight = false
             logStatus("广告奖励重试仍未完成：$message")
         } },
+    )
+}
+
+private fun PendingRewardedSettlement.isEpisodeUnlockTarget(): Boolean =
+    placementId == "rv_episode_pass" && !dramaId.isNullOrBlank() && episodeIndex != null
+
+/** Applies a server-confirmed action, retaining an unlock target until its original player consumes it. */
+private fun DramaAppActivity.finishVerifiedRewardedSettlement(
+    checkpoint: PendingRewardedSettlement,
+    targetReleasePending: Boolean,
+    action: RewardsApiClient.RewardAction,
+    onSettled: ((RewardsApiClient.RewardAction) -> Unit)?,
+    deferCashAnimation: Boolean,
+) {
+    if (!targetReleasePending) {
+        clearPendingRewardedSettlement(checkpoint.eventId)
+        handleSettledRewardAction(action, onSettled, deferCashAnimation)
+        return
+    }
+    handleSettledRewardAction(
+        action = action,
+        onSettled = { settledAction ->
+            if (onSettled != null) {
+                onSettled.invoke(settledAction)
+                clearPendingRewardedSettlement(checkpoint.eventId)
+            } else {
+                releaseSettledRewardedTargetIfPossible()
+            }
+        },
+        deferCashAnimation = deferCashAnimation,
     )
 }
 
@@ -246,6 +347,14 @@ internal fun DramaAppActivity.requestOrganicInterstitialIncentive(
 ) {
     if (fullscreenAdInProgress || fullscreenAdRequestInFlight) { toast(t("ad_loading")); return }
     val shouldResume = exoPlayer?.isPlaying == true
+    val pendingIncentive = preparePendingInterstitialIncentive(
+        kind = InterstitialIncentiveKind.ORGANIC_INTERSTITIAL,
+        interstitialPlacementId = "int_incentive_action",
+        originalPlacementId = placementId,
+        targetId = targetId,
+        episodeIndex = episodeIndex,
+        episodeId = selectedEpisode()?.id,
+    )
     showPlaybackActionInterstitial(
         placementId = "int_incentive_action",
         episodeId = selectedEpisode()?.id,
@@ -258,27 +367,149 @@ internal fun DramaAppActivity.requestOrganicInterstitialIncentive(
             if (onSettlementUnavailable != null) onSettlementUnavailable.invoke(reason)
             else showRewardedUnavailableNotice(shouldResume, reason)
         },
-            onRecorded = { interstitialEventId ->
-                rewardSettlementInFlight = true
-                rewardsApi.settleInterstitialIncentive(
-                userId = anonymousInstallationId(),
-                interstitialEventId = interstitialEventId,
-                originalPlacementId = placementId,
-                targetId = targetId,
-                episodeIndex = episodeIndex,
-                    onSuccess = { action -> runOnUiThread {
-                        rewardSettlementInFlight = false
-                        handleSettledRewardAction(action, onSettled, deferCashAnimation)
-                    } },
-                    onFailure = { reason -> runOnUiThread {
-                        rewardSettlementInFlight = false
-                        if (deferCashAnimation) deferNextCashFlight = false
+        pendingIncentive = pendingIncentive,
+        onRecorded = {
+            settlePendingInterstitialIncentive(
+                pending = pendingIncentive,
+                onSettled = onSettled,
+                deferCashAnimation = deferCashAnimation,
+                onFailure = { reason ->
+                    if (deferCashAnimation) deferNextCashFlight = false
                     logStatus("A 面插屏奖励结算失败：$reason")
                     if (onSettlementUnavailable != null) onSettlementUnavailable.invoke(reason)
                     else showRewardedUnavailableNotice(shouldResume, reason)
-                } },
+                },
             )
         },
+        onRecordFailed = { reason ->
+            if (deferCashAnimation) deferNextCashFlight = false
+            logStatus("A 面插屏展示记录待恢复：$reason")
+            if (onSettlementUnavailable != null) onSettlementUnavailable.invoke(reason)
+            else showRewardedUnavailableNotice(shouldResume, reason)
+        },
+    )
+}
+
+/** Replays a shown incentive in strict display-record -> settlement order with its original ID. */
+internal fun DramaAppActivity.retryPendingInterstitialIncentive() {
+    val pending = readPendingInterstitialIncentive() ?: return
+    if (!rewardsApi.isConfigured || rewardSettlementInFlight) return
+    when {
+        pending.requiresTargetRelease() -> releasePendingInterstitialIncentiveTargetIfPossible()
+        pending.requiresSettlementRecovery() -> settlePendingInterstitialIncentive(
+            pending = pending,
+            onSettled = null,
+            deferCashAnimation = true,
+            onFailure = { reason -> logStatus("插屏奖励结算重试仍未完成：$reason") },
+        )
+        pending.requiresRecordRecovery() -> {
+            rewardSettlementInFlight = true
+            logStatus("重试插屏展示记录：${pending.interstitialPlacementId}")
+            rewardsApi.recordInterstitial(
+                userId = pending.userId,
+                placementId = pending.interstitialPlacementId,
+                episodeId = pending.episodeId,
+                eventId = pending.eventId,
+                onSuccess = { snapshot ->
+                    val recorded = markPendingInterstitialRecorded(pending)
+                    runOnUiThread {
+                        rewardSettlementInFlight = false
+                        applyRewardsSnapshot(snapshot)
+                        if (recorded != null) retryPendingInterstitialIncentive()
+                    }
+                },
+                onFailure = { reason -> runOnUiThread {
+                    rewardSettlementInFlight = false
+                    logStatus("插屏展示记录重试仍未完成：$reason")
+                } },
+            )
+        }
+        else -> {
+            // PREPARED means that no creative was confirmed shown. Without a verified callback
+            // or server record there is deliberately no reward to reconstruct.
+            logStatus("插屏激励未确认展示，缺少可追溯证据，已放弃未完成预分配")
+            clearPendingInterstitialIncentive(pending.eventId)
+        }
+    }
+}
+
+private fun PendingInterstitialIncentive.isEpisodeUnlockTarget(): Boolean =
+    originalPlacementId == "rv_episode_pass" && !dramaId.isNullOrBlank() && episodeIndex != null
+
+private fun DramaAppActivity.settlePendingInterstitialIncentive(
+    pending: PendingInterstitialIncentive,
+    onSettled: ((RewardsApiClient.RewardAction) -> Unit)?,
+    deferCashAnimation: Boolean,
+    onFailure: (String) -> Unit,
+) {
+    if (rewardSettlementInFlight || !rewardsApi.isConfigured) return
+    rewardSettlementInFlight = true
+    val onSuccess: (RewardsApiClient.RewardAction) -> Unit = { action ->
+        val targetReleasePending = if (pending.isEpisodeUnlockTarget()) {
+            markPendingInterstitialSettled(pending) != null
+        } else {
+            false
+        }
+        runOnUiThread {
+            rewardSettlementInFlight = false
+            finishPendingInterstitialIncentiveSettlement(
+                pending = pending,
+                targetReleasePending = targetReleasePending,
+                action = action,
+                onSettled = onSettled,
+                deferCashAnimation = deferCashAnimation,
+            )
+        }
+    }
+    val onNetworkFailure: (String) -> Unit = { reason -> runOnUiThread {
+        rewardSettlementInFlight = false
+        onFailure(reason)
+    } }
+    when (pending.kind) {
+        InterstitialIncentiveKind.ORGANIC_INTERSTITIAL -> rewardsApi.settleInterstitialIncentive(
+            userId = pending.userId,
+            interstitialEventId = pending.eventId,
+            originalPlacementId = pending.originalPlacementId,
+            targetId = pending.targetId,
+            episodeIndex = pending.episodeIndex,
+            onSuccess = onSuccess,
+            onFailure = onNetworkFailure,
+        )
+        InterstitialIncentiveKind.REWARDED_FALLBACK -> rewardsApi.settleRewardedFallback(
+            userId = pending.userId,
+            interstitialEventId = pending.eventId,
+            originalPlacementId = pending.originalPlacementId,
+            targetId = pending.targetId,
+            episodeIndex = pending.episodeIndex,
+            onSuccess = onSuccess,
+            onFailure = onNetworkFailure,
+        )
+    }
+}
+
+private fun DramaAppActivity.finishPendingInterstitialIncentiveSettlement(
+    pending: PendingInterstitialIncentive,
+    targetReleasePending: Boolean,
+    action: RewardsApiClient.RewardAction,
+    onSettled: ((RewardsApiClient.RewardAction) -> Unit)?,
+    deferCashAnimation: Boolean,
+) {
+    if (!targetReleasePending) {
+        clearPendingInterstitialIncentive(pending.eventId)
+        handleSettledRewardAction(action, onSettled, deferCashAnimation)
+        return
+    }
+    handleSettledRewardAction(
+        action = action,
+        onSettled = { settledAction ->
+            if (onSettled != null) {
+                onSettled.invoke(settledAction)
+                clearPendingInterstitialIncentive(pending.eventId)
+            } else {
+                releasePendingInterstitialIncentiveTargetIfPossible()
+            }
+        },
+        deferCashAnimation = deferCashAnimation,
     )
 }
 
@@ -402,6 +633,16 @@ internal fun DramaAppActivity.showRewardedFallbackInterstitial(
         // 失败回退是一条独立的例外插屏。只有该插屏实际展示并记录成功后，
         // 服务端才会按一次性账本结算原激励权益；加载失败绝不授予权益。
         resumeAfterFullscreenAd = shouldResume
+        val pendingIncentive = originalPlacementId?.let { originalPlacement ->
+            preparePendingInterstitialIncentive(
+                kind = InterstitialIncentiveKind.REWARDED_FALLBACK,
+                interstitialPlacementId = "int_rewarded_fallback",
+                originalPlacementId = originalPlacement,
+                targetId = targetId,
+                episodeIndex = episodeIndex,
+                episodeId = selectedEpisode()?.id,
+            )
+        }
         showPlaybackActionInterstitial(
             placementId = "int_rewarded_fallback", episodeId = selectedEpisode()?.id,
             countTowardEpisodeLimit = false,
@@ -419,7 +660,8 @@ internal fun DramaAppActivity.showRewardedFallbackInterstitial(
                     toast(message)
                 }
             },
-            onRecorded = { interstitialEventId ->
+            pendingIncentive = pendingIncentive,
+            onRecorded = {
                 if (originalPlacementId == null) {
                     // A user-cancelled reward attempt does not grant the original reward.
                     // The PSSDK resume callback has already been absorbed by the retained
@@ -428,27 +670,26 @@ internal fun DramaAppActivity.showRewardedFallbackInterstitial(
                     toast(message)
                     return@showPlaybackActionInterstitial
                 }
-                rewardSettlementInFlight = true
-                rewardsApi.settleRewardedFallback(
-                    userId = anonymousInstallationId(),
-                    interstitialEventId = interstitialEventId,
-                    originalPlacementId = originalPlacementId,
-                    targetId = targetId,
-                    episodeIndex = episodeIndex,
-                    onSuccess = { action -> runOnUiThread {
-                        rewardSettlementInFlight = false
-                        handleSettledRewardAction(action, onOriginalSettled, deferCashAnimation)
-                    } },
-                    onFailure = { reason -> runOnUiThread {
-                        rewardSettlementInFlight = false
-                        // The fallback creative was shown but its server settlement did not
-                        // complete. Do not grant an unlock locally; release the guard so the
-                        // user can retry deliberately instead of leaving PSSDK permanently busy.
+                val pending = pendingIncentive ?: return@showPlaybackActionInterstitial
+                settlePendingInterstitialIncentive(
+                    pending = pending,
+                    onSettled = onOriginalSettled,
+                    deferCashAnimation = deferCashAnimation,
+                    onFailure = { reason ->
+                        // The shown creative has no confirmed server settlement yet. Preserve the
+                        // journal for bootstrap recovery but do not grant an unlock locally.
                         if (retainEpisodeUnlockTransition) episodeTransitionInProgress = false
                         logStatus("回退插屏奖励结算失败：$reason")
-                        toast(message)
-                    } },
+                        toast(t("reward_settlement_pending"))
+                    },
                 )
+            },
+            onRecordFailed = { reason ->
+                // Do not route this through ad-unavailable authorization: a creative was shown,
+                // but the mandatory display record is not yet server-confirmed.
+                if (retainEpisodeUnlockTransition) episodeTransitionInProgress = false
+                logStatus("回退插屏展示记录待恢复：$reason")
+                toast(t("reward_settlement_pending"))
             },
         )
     }
@@ -563,23 +804,29 @@ internal fun DramaAppActivity.showPlaybackActionInterstitial(
         resumePlaybackAfter: Boolean? = null,
         onShown: () -> Unit,
         onUnavailable: (String) -> Unit,
+        pendingIncentive: PendingInterstitialIncentive? = null,
         onRecorded: ((String) -> Unit)? = null,
+        onRecordFailed: ((String) -> Unit)? = null,
     ) {
         val policy = rewardsSnapshot?.interstitial
         val episodeKey = episodeId?.let { "${selectedDrama?.id}:$it" }
         val now = SystemClock.elapsedRealtime()
+        fun unavailable(reason: String) {
+            pendingIncentive?.let { clearPreparedInterstitialIncentive(it.eventId) }
+            onUnavailable(reason)
+        }
         playbackInterstitialShownAtElapsedMillis.removeAll { now - it >= 60 * 60 * 1_000L }
         if (!bypassSharedFrequencyCaps && policy != null && policy.cooldownSeconds > 0 && playbackInterstitialShownAtElapsedMillis.lastOrNull()?.let { now - it < policy.cooldownSeconds * 1_000L } == true) {
-            onUnavailable("插屏冷却期未结束"); return
+            unavailable("插屏冷却期未结束"); return
         }
         if (!bypassSharedFrequencyCaps && policy != null && policy.globalHourlyLimit > 0 && playbackInterstitialShownAtElapsedMillis.size >= policy.globalHourlyLimit) {
-            onUnavailable("本小时插屏展示已达总上限"); return
+            unavailable("本小时插屏展示已达总上限"); return
         }
         if (!bypassSharedFrequencyCaps && countTowardEpisodeLimit && policy != null && policy.episodeInterstitialLimit > 0 && episodeKey != null && (interstitialCountByEpisodeKey[episodeKey] ?: 0) >= policy.episodeInterstitialLimit) {
-            onUnavailable("本集插屏次数已达上限"); return
+            unavailable("本集插屏次数已达上限"); return
         }
-        if (fullscreenAdInProgress || fullscreenAdRequestInFlight) { onUnavailable("广告正在展示"); return }
-        if (consentStore.read() != AdConsent.GRANTED) { onUnavailable("请先在广告与隐私中启用广告"); return }
+        if (fullscreenAdInProgress || fullscreenAdRequestInFlight) { unavailable("广告正在展示"); return }
+        if (consentStore.read() != AdConsent.GRANTED) { unavailable("请先在广告与隐私中启用广告"); return }
         val shouldResume = resumePlaybackAfter ?: wasPlaybackActiveForAd()
         val behaviorInteraction = beginAdBehaviorInteraction(placementId, "interstitial")
         fullscreenAdRequestInFlight = true
@@ -607,19 +854,44 @@ internal fun DramaAppActivity.showPlaybackActionInterstitial(
                 TopOnAdsManager.FullscreenResult.Shown -> {
                     recordAdBehavior(behaviorInteraction, "AD_CLOSED")
                     resumeAfterFullscreenAdIfNeeded()
-                    val interstitialEventId = "int-${UUID.randomUUID()}"
+                    val persistedShown = pendingIncentive?.let(::markPendingInterstitialShown)
+                    if (pendingIncentive != null && persistedShown == null) {
+                        logStatus("插屏激励展示阶段未能持久化，不能安全结算")
+                        onRecordFailed?.invoke("插屏展示记录未能持久化")
+                        return@runFullscreenResultWhenForeground
+                    }
+                    val interstitialEventId = pendingIncentive?.eventId ?: "int-${UUID.randomUUID()}"
                     val settled = {
                         playbackInterstitialShownAtElapsedMillis.add(SystemClock.elapsedRealtime())
                         if (countTowardEpisodeLimit && episodeKey != null) interstitialCountByEpisodeKey[episodeKey] = (interstitialCountByEpisodeKey[episodeKey] ?: 0) + 1
                         onShown()
                     }
                     if (rewardsApi.isConfigured) {
-                        rewardsApi.recordInterstitial(anonymousInstallationId(), placementId, episodeId,
-                            onSuccess = { snapshot -> runOnUiThread { applyRewardsSnapshot(snapshot); settled(); onRecorded?.invoke(interstitialEventId) } },
-                            // A fallback creative has already been shown. Continue with the same
-                            // event ID so the server can persist a recovery audit record while
-                            // granting the original reward rather than silently losing it.
-                            onFailure = { message -> runOnUiThread { logStatus("插屏展示记录未同步：$message"); settled(); onRecorded?.invoke(interstitialEventId) } },
+                        rewardsApi.recordInterstitial(pendingIncentive?.userId ?: anonymousInstallationId(), placementId, episodeId,
+                            onSuccess = { snapshot ->
+                                val recorded = pendingIncentive?.let(::markPendingInterstitialRecorded)
+                                runOnUiThread {
+                                    applyRewardsSnapshot(snapshot)
+                                    if (pendingIncentive == null || recorded != null) {
+                                        settled()
+                                        onRecorded?.invoke(interstitialEventId)
+                                    } else {
+                                        logStatus("插屏展示记录阶段未能持久化，已保留原始事件等待恢复")
+                                        onRecordFailed?.invoke("插屏展示记录阶段未能持久化")
+                                    }
+                                }
+                            },
+                            onFailure = { message -> runOnUiThread {
+                                logStatus("插屏展示记录未同步：$message")
+                                if (pendingIncentive != null) {
+                                    // A shown incentive may recover only by replaying this exact
+                                    // record. It must not fall through to settlement on failure.
+                                    onRecordFailed?.invoke(message)
+                                } else {
+                                    settled()
+                                    onRecorded?.invoke(interstitialEventId)
+                                }
+                            } },
                             eventId = interstitialEventId,
                         )
                     } else settled()
@@ -627,11 +899,13 @@ internal fun DramaAppActivity.showPlaybackActionInterstitial(
                 is TopOnAdsManager.FullscreenResult.Skipped -> {
                     recordAdBehavior(behaviorInteraction, "AD_UNAVAILABLE", mapOf("outcome" to "skipped"))
                     resumeAfterFullscreenAdIfNeeded()
+                    pendingIncentive?.let { clearPreparedInterstitialIncentive(it.eventId) }
                     onUnavailable(result.reason)
                 }
                 is TopOnAdsManager.FullscreenResult.Failed -> {
                     recordAdBehavior(behaviorInteraction, "AD_LOAD_FAILED", mapOf("error_code" to result.code))
                     resumeAfterFullscreenAdIfNeeded()
+                    pendingIncentive?.let { clearPreparedInterstitialIncentive(it.eventId) }
                     onUnavailable("加载失败（${result.code}）")
                 }
             }

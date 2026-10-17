@@ -72,7 +72,7 @@ class RewardsService:
     ) -> dict[str, Any]:
         with self._transaction() as connection:
             # Bootstrap is also the session renewal endpoint. Requiring the old token here would
-            # create a permanent 401 loop after its 30-day expiry or a signing-secret rotation:
+            # create a permanent 401 loop after expiry or a signing-secret rotation:
             # the client could not obtain the very token required to refresh itself.
             self._ensure_user(connection, user_id, region, geo_country)
             self._record_bootstrap_ip_audit(connection, user_id, client_ip)
@@ -83,10 +83,12 @@ class RewardsService:
             snapshot["session_token"] = self.issue_user_session(user_id)
             return snapshot
 
-    def issue_user_session(self, user_id: str, ttl_seconds: int = 30 * 24 * 60 * 60) -> str:
+    def issue_user_session(self, user_id: str, ttl_seconds: int | None = None) -> str:
         secret = self.settings.session_signing_secret
         if not secret:
             raise ServiceError(1903, "服务端未配置 SESSION_SIGNING_SECRET", 503)
+        if ttl_seconds is None:
+            ttl_seconds = self.settings.user_session_ttl_days * 24 * 60 * 60
         expires = int(self._now().timestamp()) + ttl_seconds
         subject = self._b64encode(user_id)
         nonce = secrets.token_urlsafe(18)
@@ -1290,6 +1292,13 @@ class RewardsService:
                            COALESCE(SUM(revenue_value), 0) AS revenue_value
                     FROM ad_mediation_daily_metrics {summary_where}
                 """, tuple(summary_params)) or {}
+            revenue_currency_rows = self._all(connection, f"""
+                SELECT currency, COALESCE(SUM(revenue_value), 0) AS revenue_value
+                FROM {summary_source}
+                {summary_where}
+                GROUP BY currency
+                ORDER BY currency ASC
+            """, tuple(summary_params))
             raw_total = self._one(connection, f"SELECT COUNT(*) AS count FROM ad_mediation_events {raw_where}", tuple(raw_params)) or {}
             raw_events = self._all(connection, f"""
                 SELECT client_event_id, event_type, logical_placement, topon_placement_id,
@@ -1299,6 +1308,8 @@ class RewardsService:
                 ORDER BY client_occurred_at DESC, accepted_at DESC
                 LIMIT %s OFFSET %s
             """, tuple(raw_params + [raw_page_size, (raw_page - 1) * raw_page_size]))
+
+        revenue_totals = self._revenue_by_currency(revenue_currency_rows)
 
         def serialize(row: dict[str, Any]) -> dict[str, Any]:
             return {
@@ -1334,11 +1345,13 @@ class RewardsService:
             "totals": {
                 "shown_count": int(totals.get("shown_count", 0)),
                 "paid_revenue_count": int(totals.get("paid_revenue_count", 0)),
-                "revenue_value": format(Decimal(str(totals.get("revenue_value", 0))), "f"),
+                "revenue_value": revenue_totals["revenue_value"],
+                "revenue_currency": revenue_totals["revenue_currency"],
+                "revenue_by_currency": revenue_totals["revenue_by_currency"],
             },
             "rows": [serialize(row) for row in rows],
             "raw_events": [serialize_event(row) for row in raw_events],
-            "disclaimer": "每次展示只保留一条客户端广告运营记录；eCPM/1000 仅为运营估算，TopOn/MAX 后台结算报表为财务事实来源" + target_note,
+            "disclaimer": "每次展示只保留一条客户端广告运营记录；收入仅按同币种汇总，跨币种不提供标量总额；eCPM/1000 仅为运营估算，TopOn/MAX 后台结算报表为财务事实来源" + target_note,
         }
 
     def record_reporting_delivery_event(
@@ -1477,6 +1490,75 @@ class RewardsService:
                 break
         return clean
 
+    @staticmethod
+    def _build_early_video_metrics(
+        date_window_rows: list[dict[str, Any]],
+        cohort_rows: list[dict[str, Any]],
+        observation_until: datetime,
+    ) -> list[dict[str, Any]]:
+        """Combine independently named event-window and STARTED-cohort metrics.
+
+        ``date_window_*`` values describe events observed in the selected UTC
+        reporting window. They are retained for event-volume diagnostics only.
+        Completion and drop-off rates are calculated exclusively from the
+        user/rank STARTED cohort, so a completion before the window cannot make
+        the cohort numerator exceed its denominator.
+        """
+
+        date_window_by_rank = {int(row["early_video_rank"]): row for row in date_window_rows}
+        cohort_by_rank = {int(row["early_video_rank"]): row for row in cohort_rows}
+        metrics: list[dict[str, Any]] = []
+        for rank in range(1, 21):
+            date_window = date_window_by_rank.get(rank, {})
+            cohort = cohort_by_rank.get(rank, {})
+            cohort_size = int(cohort.get("cohort_size", 0))
+            cohort_completed_users = min(
+                int(cohort.get("cohort_completed_users", 0)),
+                cohort_size,
+            )
+            cohort_dropoff_users = cohort_size - cohort_completed_users
+            metrics.append({
+                "early_video_rank": rank,
+                # Existing fields remain for dashboard compatibility. They retain
+                # their original independent date-window meaning and must not be
+                # divided to obtain a completion rate.
+                "started_users": int(date_window.get("started_users", 0)),
+                "completed_users": int(date_window.get("completed_users", 0)),
+                "failure_events": int(date_window.get("failure_events", 0)),
+                "date_window_started_event_count": int(date_window.get("started_event_count", 0)),
+                "date_window_completed_event_count": int(date_window.get("completed_event_count", 0)),
+                "date_window_failure_event_count": int(date_window.get("failure_events", 0)),
+                "date_window_started_users": int(date_window.get("started_users", 0)),
+                "date_window_completed_users": int(date_window.get("completed_users", 0)),
+                "cohort_size": cohort_size,
+                "cohort_completed_users": cohort_completed_users,
+                "cohort_completion_rate": round(cohort_completed_users / cohort_size, 6) if cohort_size else 0.0,
+                "cohort_dropoff_users": cohort_dropoff_users,
+                "cohort_dropoff_rate": round(cohort_dropoff_users / cohort_size, 6) if cohort_size else 0.0,
+                "observation_until": observation_until.isoformat(),
+            })
+        return metrics
+
+    @staticmethod
+    def _revenue_by_currency(rows: list[dict[str, Any]]) -> dict[str, Any]:
+        """Return currency-labelled revenue without manufacturing a mixed-currency total."""
+
+        values: dict[str, Decimal] = {}
+        for row in rows:
+            currency = str(row.get("currency") or "").strip().upper() or "UNSPECIFIED"
+            values[currency] = values.get(currency, Decimal("0")) + Decimal(str(row.get("revenue_value", 0)))
+        revenue_by_currency = [
+            {"currency": currency, "revenue_value": format(value, "f")}
+            for currency, value in sorted(values.items())
+        ]
+        scalar_currency = revenue_by_currency[0]["currency"] if len(revenue_by_currency) == 1 else None
+        scalar_value = revenue_by_currency[0]["revenue_value"] if scalar_currency and scalar_currency != "UNSPECIFIED" else None
+        return {
+            "revenue_by_currency": revenue_by_currency,
+            "revenue_currency": scalar_currency if scalar_value is not None else None,
+            "revenue_value": scalar_value,
+        }
+
     def admin_behavior_flow_metrics(
         self,
         authorization: str | None,
@@ -1510,10 +1592,16 @@ class RewardsService:
         actual_page = max(int(page), 1)
         actual_limit = min(max(int(page_size), 1), 10_000 if allow_export else 500)
         actual_offset = (actual_page - 1) * actual_limit
+        observation_until = datetime.now(UTC)
+        date_window_start = self._utc_start_of_day(actual_start)
+        date_window_until = min(
+            self._utc_start_of_day(actual_end + timedelta(days=1)),
+            observation_until,
+        )
         base_filters = ["client_occurred_at >= %s", "client_occurred_at < %s"]
         base_params: list[Any] = [
-            self._utc_start_of_day(actual_start),
-            self._utc_start_of_day(actual_end + timedelta(days=1)),
+            date_window_start,
+            date_window_until,
         ]
         if normalized_user_id:
             base_filters.append("user_id = %s")
@@ -1560,18 +1648,22 @@ class RewardsService:
                     COUNT(DISTINCT user_id) FILTER (WHERE event_category = 'UI') AS ui_action_users,
                     COUNT(DISTINCT properties ->> 'ad_interaction_id') FILTER (WHERE event_name = 'AD_SHOWN') AS ad_shown_count,
                     COUNT(DISTINCT properties ->> 'ad_interaction_id') FILTER (WHERE event_name = 'AD_CLICKED') AS ad_clicked_count,
-                    COUNT(DISTINCT properties ->> 'ad_interaction_id') FILTER (WHERE event_name = 'AD_RETURNED_TO_APP') AS ad_returned_count,
-                    COUNT(DISTINCT properties ->> 'ad_interaction_id') FILTER (WHERE event_name = 'PLAYBACK_RESUMED_AFTER_AD_CLICK') AS playback_resumed_after_ad_click_count
+                    COUNT(DISTINCT properties ->> 'ad_interaction_id') FILTER (WHERE event_name = 'AD_RETURNED_TO_APP') AS legacy_ad_returned_to_app_unverified_count,
+                    COUNT(DISTINCT properties ->> 'ad_interaction_id') FILTER (WHERE event_name = 'PLAYBACK_RESUMED_AFTER_AD_CLICK') AS legacy_playback_resumed_after_ad_click_unverified_count,
+                    COUNT(DISTINCT properties ->> 'ad_interaction_id') FILTER (WHERE event_name = 'AD_HOST_RESUMED') AS ad_host_resumed_count,
+                    COUNT(DISTINCT properties ->> 'ad_interaction_id') FILTER (WHERE event_name = 'AD_EXTERNAL_RETURNED') AS ad_external_returned_count
                 FROM user_behavior_events
                 {where_base}
                 """,
                 tuple(base_params),
             ) or {}
-            early_videos = self._all(
+            date_window_early_videos = self._all(
                 connection,
                 f"""
                 SELECT
                     (properties ->> 'early_video_rank')::INTEGER AS early_video_rank,
+                    COUNT(*) FILTER (WHERE event_name = 'EARLY_VIDEO_STARTED') AS started_event_count,
+                    COUNT(*) FILTER (WHERE event_name = 'EARLY_VIDEO_COMPLETED') AS completed_event_count,
                     COUNT(DISTINCT user_id) FILTER (WHERE event_name = 'EARLY_VIDEO_STARTED') AS started_users,
                     COUNT(DISTINCT user_id) FILTER (WHERE event_name = 'EARLY_VIDEO_COMPLETED') AS completed_users,
                     COUNT(*) FILTER (WHERE event_name = 'EARLY_VIDEO_PLAYBACK_FAILED') AS failure_events
@@ -1584,6 +1676,49 @@ class RewardsService:
                 ORDER BY early_video_rank ASC
                 """,
                 tuple(base_params),
+            )
+            early_video_cohorts = self._all(
+                connection,
+                f"""
+                WITH started AS (
+                    SELECT b.user_id,
+                           (b.properties ->> 'early_video_rank')::INTEGER AS early_video_rank,
+                           MIN(b.client_occurred_at) AS started_at
+                    FROM user_behavior_events b
+                    {where_base}
+                      AND b.event_category = 'PLAYBACK'
+                      AND b.event_name = 'EARLY_VIDEO_STARTED'
+                      AND (b.properties ->> 'early_video_rank') ~ '^(?:[1-9]|1[0-9]|20)$'
+                    GROUP BY b.user_id, (b.properties ->> 'early_video_rank')::INTEGER
+                ), completed_candidates AS (
+                    SELECT c.user_id,
+                           (c.properties ->> 'early_video_rank')::INTEGER AS early_video_rank,
+                           c.client_occurred_at
+                    FROM user_behavior_events c
+                    WHERE c.client_occurred_at >= %s
+                      AND c.client_occurred_at < %s
+                      AND c.event_category = 'PLAYBACK'
+                      AND c.event_name = 'EARLY_VIDEO_COMPLETED'
+                      AND (c.properties ->> 'early_video_rank') ~ '^(?:[1-9]|1[0-9]|20)$'
+                ), matched AS (
+                    SELECT DISTINCT s.user_id, s.early_video_rank
+                    FROM started s
+                    JOIN completed_candidates c
+                      ON c.user_id = s.user_id
+                     AND c.early_video_rank = s.early_video_rank
+                     AND c.client_occurred_at >= s.started_at
+                )
+                SELECT s.early_video_rank,
+                       COUNT(*) AS cohort_size,
+                       COUNT(m.user_id) AS cohort_completed_users
+                FROM started s
+                LEFT JOIN matched m
+                  ON m.user_id = s.user_id
+                 AND m.early_video_rank = s.early_video_rank
+                GROUP BY s.early_video_rank
+                ORDER BY s.early_video_rank ASC
+                """,
+                tuple(base_params + [date_window_start, observation_until]),
             )
             rows = self._all(
                 connection,
@@ -1598,20 +1733,17 @@ class RewardsService:
                 tuple(event_params + [actual_limit, actual_offset]),
             )
 
-        early_by_rank = {int(item["early_video_rank"]): item for item in early_videos}
-        early_rows: list[dict[str, int]] = []
-        for rank in range(1, 21):
-            row = early_by_rank.get(rank, {})
-            early_rows.append({
-                "early_video_rank": rank,
-                "started_users": int(row.get("started_users", 0)),
-                "completed_users": int(row.get("completed_users", 0)),
-                "failure_events": int(row.get("failure_events", 0)),
-            })
+        early_rows = self._build_early_video_metrics(
+            date_window_early_videos,
+            early_video_cohorts,
+            observation_until,
+        )
 
         return {
             "start_date": actual_start.isoformat(),
             "end_date": actual_end.isoformat(),
+            "observation_until": observation_until.isoformat(),
+            "date_window_observation_until": date_window_until.isoformat(),
             "page": actual_page,
             "page_size": actual_limit,
             "offset": actual_offset,
@@ -1623,8 +1755,12 @@ class RewardsService:
                 "ui_action_users": int(journey.get("ui_action_users", 0)),
                 "ad_shown_count": int(journey.get("ad_shown_count", 0)),
                 "ad_clicked_count": int(journey.get("ad_clicked_count", 0)),
-                "ad_returned_count": int(journey.get("ad_returned_count", 0)),
-                "playback_resumed_after_ad_click_count": int(journey.get("playback_resumed_after_ad_click_count", 0)),
+                "ad_returned_count": int(journey.get("ad_external_returned_count", 0)),
+                "playback_resumed_after_ad_click_count": int(journey.get("legacy_playback_resumed_after_ad_click_unverified_count", 0)),
+                "legacy_ad_returned_to_app_unverified_count": int(journey.get("legacy_ad_returned_to_app_unverified_count", 0)),
+                "legacy_playback_resumed_after_ad_click_unverified_count": int(journey.get("legacy_playback_resumed_after_ad_click_unverified_count", 0)),
+                "ad_host_resumed_count": int(journey.get("ad_host_resumed_count", 0)),
+                "ad_external_returned_count": int(journey.get("ad_external_returned_count", 0)),
             },
             "filters": {
                 "user_id": normalized_user_id,
@@ -1650,8 +1786,11 @@ class RewardsService:
                 for item in rows
             ],
             "definition": (
-                "按客户端事件发生时间的 UTC+0 自然日统计。仅保留匿名用户、有限事件名称及最小化标量属性；"
-                "首二十视频从安装了此埋点版本后首次观察到的不同视频开始计数，不追溯历史版本。"
+                "按客户端事件发生时间的 UTC+0 自然日统计。date_window_* 为所选窗内事件量和独立用户量，"
+                "不得直接相除作为完成率；cohort_* 仅以窗内 STARTED 的 (匿名用户、rank) 为分母，"
+                "只匹配开始后且截至 observation_until 的 COMPLETED。AD_HOST_RESUMED 仅表示点击后宿主恢复，"
+                "不证明外跳；只有 AD_EXTERNAL_RETURNED 才可用于确认的外部回流。旧 AD_RETURNED_TO_APP 和"
+                "PLAYBACK_RESUMED_AFTER_AD_CLICK 仅为未经外跳证据验证的兼容计数。"
             ),
         }
 
@@ -1880,12 +2019,12 @@ class RewardsService:
         start_date: date | None = None,
         end_date: date | None = None,
     ) -> dict[str, Any]:
-        """Return operator-facing registration and daily active-user metrics.
+        """Return registration plus UTC-bounded, verifiable activity metrics.
 
-        A daily counter is created during every authenticated bootstrap and is
-        subsequently updated by viewing, advertising and reward actions. It is
-        therefore the durable active-day source instead of a volatile browser
-        session or the mutable ``users.updated_at`` timestamp.
+        ``daily_counters.business_date`` follows the configured reward-business
+        timezone and is intentionally not repurposed as a UTC DAU source. UTC
+        activity is therefore aggregated from retained client behaviour events;
+        it is labelled as telemetry coverage rather than invented historical DAU.
         """
 
         self._verify_admin_token(authorization)
@@ -1934,11 +2073,16 @@ class RewardsService:
         registration_end = self._utc_start_of_day(actual_end + timedelta(days=1))
         registration_filters = list(clauses) + ["u.created_at >= %s", "u.created_at < %s"]
         registration_where = " WHERE " + " AND ".join(registration_filters)
-        active_filters = ["dc.business_date BETWEEN %s AND %s"] + list(clauses)
-        active_where = " WHERE " + " AND ".join(active_filters)
+        telemetry_active_filters = ["b.client_occurred_at >= %s", "b.client_occurred_at < %s"] + list(clauses)
+        telemetry_active_where = " WHERE " + " AND ".join(telemetry_active_filters)
 
         with self._transaction() as connection:
             total = self._one(
+                connection,
+                f"SELECT COUNT(*) AS count FROM users u{registration_where}",
+                tuple(params + [registration_start, registration_end]),
+            ) or {"count": 0}
+            global_matching_total = self._one(
                 connection,
                 f"SELECT COUNT(*) AS count FROM users u{user_where}",
                 tuple(params),
@@ -1956,14 +2100,26 @@ class RewardsService:
             active_users = self._all(
                 connection,
                 f"""
-                SELECT dc.business_date AS metric_date, COUNT(DISTINCT dc.user_id) AS daily_active_users
-                FROM daily_counters dc
-                JOIN users u ON u.user_id = dc.user_id
-                {active_where}
-                GROUP BY dc.business_date
+                SELECT (b.client_occurred_at AT TIME ZONE 'UTC')::date AS metric_date,
+                       COUNT(DISTINCT b.user_id) AS verified_behavior_active_users
+                FROM user_behavior_events b
+                JOIN users u ON u.user_id = b.user_id
+                {telemetry_active_where}
+                GROUP BY (b.client_occurred_at AT TIME ZONE 'UTC')::date
                 """,
-                tuple([actual_start, actual_end] + params),
+                tuple([registration_start, registration_end] + params),
             )
+            telemetry_coverage = self._one(
+                connection,
+                f"""
+                SELECT MIN(b.client_occurred_at) AS earliest_observed_at,
+                       MAX(b.client_occurred_at) AS latest_observed_at
+                FROM user_behavior_events b
+                JOIN users u ON u.user_id = b.user_id
+                {user_where}
+                """,
+                tuple(params),
+            ) or {}
             funnel = self._one(
                 connection,
                 f"""
@@ -1971,6 +2127,33 @@ class RewardsService:
                     SELECT u.user_id, u.attribution_status, u.attribution_surface
                     FROM users u
                     {registration_where}
+                ), rewarded AS (
+                    SELECT r.user_id,
+                           COUNT(*) FILTER (
+                               WHERE r.verification_method IN ('client_reward_callback', 'debug_test_callback')
+                           ) AS completed_count,
+                           COUNT(*) FILTER (
+                               WHERE r.placement_id = 'rv_welcome_bonus'
+                                 AND r.verification_method IN ('client_reward_callback', 'debug_test_callback')
+                           ) AS welcome_count
+                    FROM rewarded_ad_events r
+                    JOIN cohort c ON c.user_id = r.user_id
+                    GROUP BY r.user_id
+                ), watched AS (
+                    SELECT w.user_id, COUNT(*) AS watch_count
+                    FROM watch_events w
+                    JOIN cohort c ON c.user_id = w.user_id
+                    GROUP BY w.user_id
+                ), interstitial AS (
+                    SELECT i.user_id, COUNT(*) AS interstitial_count
+                    FROM interstitial_events i
+                    JOIN cohort c ON c.user_id = i.user_id
+                    GROUP BY i.user_id
+                ), checkin_activity AS (
+                    SELECT ci.user_id, COUNT(*) AS checkin_count
+                    FROM checkins ci
+                    JOIN cohort c ON c.user_id = ci.user_id
+                    GROUP BY ci.user_id
                 ), behaviour AS (
                     SELECT
                         c.user_id,
@@ -1980,35 +2163,12 @@ class RewardsService:
                         COALESCE(rewarded.welcome_count, 0) AS welcome_reward_count,
                         COALESCE(watched.watch_count, 0) AS watch_count,
                         COALESCE(interstitial.interstitial_count, 0) AS interstitial_count,
-                        COALESCE(checkin.checkin_count, 0) AS checkin_count
+                        COALESCE(checkin_activity.checkin_count, 0) AS checkin_count
                     FROM cohort c
-                    LEFT JOIN LATERAL (
-                        SELECT
-                            COUNT(*) FILTER (
-                                WHERE verification_method IN ('client_reward_callback', 'debug_test_callback')
-                            ) AS completed_count,
-                            COUNT(*) FILTER (
-                                WHERE placement_id = 'rv_welcome_bonus'
-                                  AND verification_method IN ('client_reward_callback', 'debug_test_callback')
-                            ) AS welcome_count
-                        FROM rewarded_ad_events r
-                        WHERE r.user_id = c.user_id
-                    ) rewarded ON TRUE
-                    LEFT JOIN LATERAL (
-                        SELECT COUNT(*) AS watch_count
-                        FROM watch_events w
-                        WHERE w.user_id = c.user_id
-                    ) watched ON TRUE
-                    LEFT JOIN LATERAL (
-                        SELECT COUNT(*) AS interstitial_count
-                        FROM interstitial_events i
-                        WHERE i.user_id = c.user_id
-                    ) interstitial ON TRUE
-                    LEFT JOIN LATERAL (
-                        SELECT COUNT(*) AS checkin_count
-                        FROM checkins ci
-                        WHERE ci.user_id = c.user_id
-                    ) checkin ON TRUE
+                    LEFT JOIN rewarded ON rewarded.user_id = c.user_id
+                    LEFT JOIN watched ON watched.user_id = c.user_id
+                    LEFT JOIN interstitial ON interstitial.user_id = c.user_id
+                    LEFT JOIN checkin_activity ON checkin_activity.user_id = c.user_id
                 )
                 SELECT
                     COUNT(*) AS cohort_users,
@@ -2037,22 +2197,40 @@ class RewardsService:
             ) or {}
 
         registration_by_day = {row["metric_date"]: int(row["registration_count"]) for row in registrations}
-        active_by_day = {row["metric_date"]: int(row["daily_active_users"]) for row in active_users}
+        active_by_day = {
+            row["metric_date"]: int(row["verified_behavior_active_users"])
+            for row in active_users
+        }
         daily: list[dict[str, Any]] = []
         cursor = actual_start
         while cursor <= actual_end:
+            verified_behavior_active_users = active_by_day.get(cursor, 0)
             daily.append({
                 "metric_date": cursor.isoformat(),
                 "registration_count": registration_by_day.get(cursor, 0),
-                "daily_active_users": active_by_day.get(cursor, 0),
+                # Kept as an additive-compatible alias. It is deliberately a
+                # UTC event-telemetry measure, not a daily_counters business-day
+                # measure or a claim of complete historical DAU coverage.
+                "daily_active_users": verified_behavior_active_users,
+                "verified_behavior_active_users": verified_behavior_active_users,
             })
             cursor += timedelta(days=1)
         return {
             "total_users": int(total["count"]),
+            "filtered_registration_users": int(total["count"]),
+            "matching_users_all_registration_dates": int(global_matching_total["count"]),
             "start_date": actual_start.isoformat(),
             "end_date": actual_end.isoformat(),
             "daily": daily,
-            "definition": "注册、日活和 cohort 统计均按 UTC+0 自然日；日活用户指当日已创建或更新 Rewards 每日计数器的匿名用户。",
+            "data_coverage": {
+                "daily_active_source": "user_behavior_events",
+                "earliest_observed_at": telemetry_coverage["earliest_observed_at"].isoformat() if telemetry_coverage.get("earliest_observed_at") else None,
+                "latest_observed_at": telemetry_coverage["latest_observed_at"].isoformat() if telemetry_coverage.get("latest_observed_at") else None,
+                "retention_days": 90,
+                "coverage": "PARTIAL_TELEMETRY_ONLY",
+                "caveat": "行为遥测仅在已部署并成功送达的客户端版本中可核实，且保留期为 90 天；没有可用于精确重建更早 UTC DAU 的事件，不以奖励业务日 daily_counters 推断。",
+            },
+            "definition": "注册和 cohort 均按 UTC+0 注册日期筛选；daily_active_users 为 UTC 客户端行为事件聚合的兼容别名，准确口径见 verified_behavior_active_users 与 data_coverage，非完整历史 DAU 声明。",
             "funnel": {
                 "cohort_users": int(funnel.get("cohort_users", 0)),
                 "attribution_recorded_users": int(funnel.get("attribution_recorded_users", 0)),
@@ -2071,7 +2249,7 @@ class RewardsService:
                     "twice": int(funnel.get("rewarded_twice_users", 0)),
                     "three_or_more": int(funnel.get("rewarded_three_or_more_users", 0)),
                 },
-                "definition": "以所选 UTC+0 注册日期内创建的用户为 cohort，行为为该 cohort 截至查询时已成功写入 Rewards 的累计业务记录；不等同于客户端页面曝光、广告请求或未成功送达服务端的行为。",
+                "definition": "以所选 UTC+0 注册日期内创建的 filtered_registration_users 为 cohort，行为为该 cohort 截至查询时已成功写入 Rewards 的累计业务记录；不等同于客户端页面曝光、广告请求或未成功送达服务端的行为。matching_users_all_registration_dates 是相同非日期筛选下的全注册期累计人数，不能替代 cohort 分母。",
             },
         }
 

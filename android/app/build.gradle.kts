@@ -144,9 +144,10 @@ android {
         applicationId = formalApplicationId
         minSdk = 26
         targetSdk = 36
-        // Android 客户端每次代码改动递增补丁版本；服务端/文档单独改动不变更此版本。
-        versionCode = 97
-        versionName = "1.7.3.0"
+        // 1.7.4.beta contains the current retention, settlement and session recovery fixes.
+        // Keep the monotonically increasing versionCode for Android package upgrades.
+        versionCode = 98
+        versionName = "1.7.4.beta"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }

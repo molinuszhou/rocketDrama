@@ -141,6 +141,14 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
     supportFragmentManager.beginTransaction()
         .replace(container.id, fragment, SDK_PLAYER_FRAGMENT_TAG)
         .commitNowAllowingStateLoss()
+    // Bootstrap can settle an unlock before, during, or after this Fragment is recreated. The
+    // durable target is consumed only after the public player controls are available.
+    root.post {
+        if (sdkPlayerShown && supportFragmentManager.findFragmentByTag(SDK_PLAYER_FRAGMENT_TAG) === fragment) {
+            releaseSettledRewardedTargetIfPossible()
+            releasePendingInterstitialIncentiveTargetIfPossible()
+        }
+    }
     // The provider view can restore system navigation during its own asynchronous initialization.
     // Re-apply the host window policy after that work settles so the gesture handle does not sit
     // beneath JoyeDrama's bottom dock.

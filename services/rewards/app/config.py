@@ -20,6 +20,7 @@ class Settings:
     timezone: str
     geoip_db_path: str | None
     telemetry_encryption_key: str | None
+    user_session_ttl_days: int = 180
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -34,6 +35,9 @@ class Settings:
         session_secret = os.getenv("SESSION_SIGNING_SECRET", "").strip()
         if environment != "development" and len(session_secret) < 32:
             raise RuntimeError("生产环境必须设置至少 32 位 SESSION_SIGNING_SECRET")
+        user_session_ttl_days = int(os.getenv("USER_SESSION_TTL_DAYS", "180").strip() or "180")
+        if not 1 <= user_session_ttl_days <= 730:
+            raise RuntimeError("USER_SESSION_TTL_DAYS 必须在 1 至 730 天之间")
         return cls(
             database_url=database_url,
             environment=environment,
@@ -54,4 +58,7 @@ class Settings:
             # If omitted, ordinary Rewards behavior remains available but sensitive values are
             # intentionally not persisted in plaintext or via a fallback cipher.
             telemetry_encryption_key=os.getenv("TELEMETRY_ENCRYPTION_KEY", "").strip() or None,
+            # User sessions renew on bootstrap and transparently after an authentication failure.
+            # Keep this independent of the shorter, revocable administrator session lifetime.
+            user_session_ttl_days=user_session_ttl_days,
         )

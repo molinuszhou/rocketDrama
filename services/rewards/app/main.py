@@ -10,6 +10,15 @@ from fastapi import FastAPI, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
+from app.admin_auth import (
+    ADMIN_SESSION_COOKIE,
+    csv_safe_cell,
+    has_cross_origin_browser_metadata,
+    is_https_request,
+    is_same_origin_browser_request,
+    request_public_origin,
+    select_admin_authorization,
+)
 from app.admin_dashboard import DASHBOARD_HTML
 from app.config import Settings
 from app.migrations import apply_runtime_migrations
@@ -62,8 +71,8 @@ def _csv_response(filename: str, header: list[str], rows: list[list[object]]) ->
 
     output = io.StringIO(newline="")
     writer = csv.writer(output)
-    writer.writerow(header)
-    writer.writerows(rows)
+    writer.writerow([csv_safe_cell(value) for value in header])
+    writer.writerows([[csv_safe_cell(value) for value in row] for row in rows])
     content = ("\ufeff" + output.getvalue()).encode("utf-8")
     return Response(
         content=content,
@@ -91,6 +100,52 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT"],
     allow_headers=["Content-Type", "Authorization", "X-Device-Id", "X-Rewards-Session"],
 )
+
+
+
+
+def _admin_public_origin(request: Request) -> str:
+    """Return the browser-visible origin from Nginx-sanitised forwarding headers."""
+
+    return request_public_origin(
+        request.headers,
+        request.url.scheme,
+        request.headers.get("host", request.url.netloc),
+    )
+
+
+@app.middleware("http")
+async def require_admin_cookie_session(request: Request, call_next):
+    """Adapt the dashboard's HttpOnly cookie while preserving Bearer admin clients."""
+
+    path = request.url.path
+    if not path.startswith("/v2/admin/"):
+        return await call_next(request)
+
+    cookie_value = request.cookies.get(ADMIN_SESSION_COOKIE)
+    authorization, uses_cookie = select_admin_authorization(request.headers.get("authorization"), cookie_value)
+    expected_origin = _admin_public_origin(request)
+    if path == "/v2/admin/login":
+        # This endpoint sets a browser cookie; reject explicit cross-origin browser attempts.
+        if has_cross_origin_browser_metadata(request.headers, expected_origin):
+            return JSONResponse(status_code=403, content={"code": 1908, "msg": "管理登录请求必须来自同源页面"})
+    elif request.method in {"POST", "PUT", "PATCH", "DELETE"} and cookie_value:
+        # A Bearer-only client remains compatible. Any request carrying the browser
+        # cookie must prove same origin, even if it also includes a Bearer header.
+        if not is_same_origin_browser_request(request.headers, expected_origin):
+            return JSONResponse(status_code=403, content={"code": 1908, "msg": "Cookie 管理会话的写操作必须来自同源页面"})
+
+    if uses_cookie and authorization:
+        try:
+            encoded_authorization = authorization.encode("ascii")
+        except UnicodeEncodeError:
+            return JSONResponse(status_code=401, content={"code": 1902, "msg": "管理员会话无效或已过期"})
+        request.scope["headers"] = list(request.scope["headers"]) + [(b"authorization", encoded_authorization)]
+        # Starlette caches ``request.headers`` on first access. Rebuild it after
+        # adapting the HttpOnly cookie so downstream endpoints see the token.
+        if hasattr(request, "_headers"):
+            del request._headers
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -145,8 +200,34 @@ def bootstrap(payload: BootstrapRequest, request: Request) -> dict:
 
 
 @app.post("/v2/admin/login", response_model=ApiEnvelope)
-def admin_login(payload: AdminLoginRequest) -> dict:
-    return {"code": 0, "data": service.admin_login(payload.username, payload.password)}
+def admin_login(payload: AdminLoginRequest, request: Request) -> JSONResponse:
+    data = service.admin_login(payload.username, payload.password)
+    response = JSONResponse(content={"code": 0, "data": data})
+    response.set_cookie(
+        key=ADMIN_SESSION_COOKIE,
+        value=data["session_token"],
+        max_age=int(data["expires_in"]),
+        path="/",
+        secure=is_https_request(request.headers, request.url.scheme),
+        httponly=True,
+        samesite="lax",
+    )
+    return response
+
+
+@app.post("/v2/admin/logout", response_model=ApiEnvelope)
+def admin_logout(request: Request) -> JSONResponse:
+    """Remove the browser session even when its signed token has already expired."""
+
+    response = JSONResponse(content={"code": 0, "data": {"logged_out": True}})
+    response.delete_cookie(
+        key=ADMIN_SESSION_COOKIE,
+        path="/",
+        secure=is_https_request(request.headers, request.url.scheme),
+        httponly=True,
+        samesite="lax",
+    )
+    return response
 
 
 @app.post("/v2/attribution", response_model=ApiEnvelope)

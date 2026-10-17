@@ -92,6 +92,9 @@ internal fun DramaAppActivity.refreshRewardsSnapshot() {
                 }
                 applyRewardsSnapshot(snapshot)
                 retryPendingRewardedSettlement()
+                retryPendingInterstitialIncentive()
+                releaseSettledRewardedTargetIfPossible()
+                releasePendingInterstitialIncentiveTargetIfPossible()
                 if (!startupContentInitializationStarted) completeStartupWhenReady()
                 else showStartupCheckinWhenReady()
             }

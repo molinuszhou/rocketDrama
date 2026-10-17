@@ -30,4 +30,21 @@ class PendingRewardedSettlementTest {
         assertFalse(PendingRewardedSettlement("topon-event-123", "install-123", "", null, null, now - 1L).isFresh(now))
         assertFalse(PendingRewardedSettlement("topon-event-123", "install-123", "rv_crown_upgrade", null, 0, now - 1L).isFresh(now))
     }
+
+    @Test
+    fun `reserved ID is not a verified completion and settled episode target remains identifiable`() {
+        val reserved = PendingRewardedSettlement(
+            eventId = "topon-event-123",
+            userId = "install-123",
+            placementId = "rv_episode_pass",
+            targetId = "pssdk-9:4",
+            episodeIndex = 4,
+            savedAtMillis = 1_000L,
+            stage = RewardedSettlementStage.PREPARED,
+            dramaId = "pssdk-9",
+        )
+
+        assertFalse(reserved.requiresTargetRelease())
+        assertTrue(reserved.copy(stage = RewardedSettlementStage.SETTLED_TARGET_PENDING).requiresTargetRelease())
+    }
 }

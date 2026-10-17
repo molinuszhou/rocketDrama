@@ -60,7 +60,8 @@ class RewardsApiClient(
     @Volatile
     private var inMemorySessionToken: String? = null
 
-    private var pendingAttributionSync: PendingAttributionSync? = null
+    private val pendingAttributionSyncs = mutableMapOf<RewardsSessionCoordinator.Key, PendingAttributionSync>()
+    private val pendingAttributionListeners = mutableMapOf<RewardsSessionCoordinator.Key, (String) -> Unit>()
 
     data class EpisodeReward(
         val episodeId: String,
@@ -347,15 +348,11 @@ class RewardsApiClient(
         onSuccess: (Snapshot) -> Unit,
         onFailure: (String) -> Unit,
     ) {
-        post("/v2/bootstrap", JSONObject().put("user_id", userId).put("region", region).also { payload ->
-            attribution?.let { payload.put("attribution", it.toJson()) }
-        }, { data ->
+        val key = sessionKey(userId)
+        key?.let { RewardsSessionCoordinator.cacheRegion(it, region) }
+        requestBootstrap(userId, region, attribution, { data ->
             data.optString("session_token").takeIf { it.isNotBlank() }?.let { sessionToken ->
-                // Do not rely solely on SharedPreferences.apply() becoming visible before an
-                // AppsFlyer callback. The in-memory copy closes the first-launch race.
-                inMemorySessionToken = sessionToken
-                onSessionTokenReceived(sessionToken)
-                flushPendingAttributionSync(sessionToken)
+                acceptSessionToken(key, sessionToken)
             }
             onSuccess(parseSnapshot(data))
         }, onFailure)
@@ -364,13 +361,47 @@ class RewardsApiClient(
     /** Best-effort out-of-band sync immediately after AppsFlyer resolves install attribution. */
     fun syncAttribution(userId: String, attribution: AttributionPayload, onFailure: (String) -> Unit = {}) {
         val pending = PendingAttributionSync(userId, attribution, onFailure)
-        currentSessionToken()?.let { sessionToken ->
-            sendAttributionSync(pending, sessionToken)
+        queuePendingAttribution(pending, useCurrentSession = true)
+    }
+
+    /**
+     * Gets a current signed session without blocking the caller. Queue owners such as telemetry
+     * and ad-operations delivery can use this before a protected retry when they have no response
+     * yet; a cached process-wide token is returned without issuing another bootstrap.
+     */
+    fun ensureSession(
+        userId: String,
+        region: String? = null,
+        onReady: (String) -> Unit,
+        onFailure: (String) -> Unit,
+    ) {
+        val key = sessionKey(userId)
+        if (key == null) {
+            onFailure("独立积分服务尚未配置")
             return
         }
-        synchronized(attributionSyncLock) {
-            pendingAttributionSync = pending
+        RewardsSessionCoordinator.cacheRegion(key, region)
+        currentSessionToken(key)?.let(onReady) ?: recoverSessionForKey(key, currentSessionToken(), onReady, onFailure)
+    }
+
+    /**
+     * Recovers after a protected request reports an expired/invalid session. The failed token is
+     * compared with the shared latest token so a delayed old 401 cannot replace a newer session.
+     */
+    fun recoverSession(
+        userId: String,
+        region: String? = null,
+        failedToken: String? = currentSessionToken(),
+        onReady: (String) -> Unit,
+        onFailure: (String) -> Unit,
+    ) {
+        val key = sessionKey(userId)
+        if (key == null) {
+            onFailure("独立积分服务尚未配置")
+            return
         }
+        RewardsSessionCoordinator.cacheRegion(key, region)
+        recoverSessionForKey(key, failedToken, onReady, onFailure)
     }
 
     fun saveWithdrawalAccount(userId: String, provider: String, accountIdentifier: String, onSuccess: (WithdrawalAccount) -> Unit, onFailure: (String) -> Unit) = post(
@@ -577,27 +608,120 @@ class RewardsApiClient(
         { data -> onSuccess(parseSnapshot(data.getJSONObject("snapshot"))) }, onFailure,
     )
 
-    private fun currentSessionToken(): String? = inMemorySessionToken
-        ?.takeIf { it.isNotBlank() }
-        ?: sessionTokenProvider()?.takeIf { it.isNotBlank() }
-
-    private fun flushPendingAttributionSync(sessionToken: String) {
-        val pending = synchronized(attributionSyncLock) {
-            pendingAttributionSync.also { pendingAttributionSync = null }
-        } ?: return
-        sendAttributionSync(pending, sessionToken)
+    private fun sessionKey(userId: String): RewardsSessionCoordinator.Key? {
+        val baseUrl = normalisedBaseUrl() ?: return null
+        val normalizedUserId = userId.trim().takeIf { it.isNotBlank() } ?: return null
+        return RewardsSessionCoordinator.Key(baseUrl, normalizedUserId)
     }
 
-    private fun sendAttributionSync(pending: PendingAttributionSync, sessionToken: String) = post(
+    private fun currentSessionToken(key: RewardsSessionCoordinator.Key? = null): String? {
+        key?.let { RewardsSessionCoordinator.tokenFor(it) }?.let { return it }
+        return inMemorySessionToken
+            ?.takeIf { it.isNotBlank() }
+            ?: sessionTokenProvider()?.takeIf { it.isNotBlank() }
+    }
+
+    private fun acceptSessionToken(key: RewardsSessionCoordinator.Key?, sessionToken: String) {
+        // Persist before publishing so other clients and queues never observe an unpersisted token.
+        inMemorySessionToken = sessionToken
+        onSessionTokenReceived(sessionToken)
+        key?.let { RewardsSessionCoordinator.publishToken(it, sessionToken) }
+    }
+
+    private fun requestBootstrap(
+        userId: String,
+        region: String?,
+        attribution: AttributionPayload?,
+        onSuccess: (JSONObject) -> Unit,
+        onFailure: (String) -> Unit,
+    ) {
+        val body = JSONObject().put("user_id", userId).also { payload ->
+            region?.trim()?.takeIf { it.isNotBlank() }?.let { payload.put("region", it) }
+            attribution?.let { payload.put("attribution", it.toJson()) }
+        }
+        // Bootstrap is intentionally bare: it must renew an expired or rotated token.
+        post(
+            path = "/v2/bootstrap",
+            body = body,
+            onSuccess = onSuccess,
+            onFailure = onFailure,
+            includeSession = false,
+            allowSessionRecovery = false,
+        )
+    }
+
+    private fun recoverSessionForKey(
+        key: RewardsSessionCoordinator.Key,
+        failedToken: String?,
+        onReady: (String) -> Unit,
+        onFailure: (String) -> Unit,
+    ) {
+        RewardsSessionCoordinator.recover(
+            key = key,
+            failedToken = failedToken,
+            startBootstrap = {
+                requestBootstrap(
+                    userId = key.userId,
+                    region = RewardsSessionCoordinator.cachedRegion(key),
+                    attribution = null,
+                    onSuccess = { data ->
+                        val sessionToken = data.optString("session_token").takeIf { it.isNotBlank() }
+                        if (sessionToken == null) {
+                            RewardsSessionCoordinator.failRecovery(key, "会话续签未返回令牌")
+                        } else {
+                            acceptSessionToken(key, sessionToken)
+                        }
+                    },
+                    onFailure = { message -> RewardsSessionCoordinator.failRecovery(key, message) },
+                )
+            },
+            onReady = onReady,
+            onFailure = onFailure,
+        )
+    }
+
+    private fun queuePendingAttribution(pending: PendingAttributionSync, useCurrentSession: Boolean) {
+        val key = sessionKey(pending.userId)
+        if (key == null) {
+            pending.onFailure("独立积分服务尚未配置")
+            return
+        }
+        synchronized(attributionSyncLock) {
+            pendingAttributionSyncs[key] = pending
+            if (!pendingAttributionListeners.containsKey(key)) {
+                val created: (String) -> Unit = { sessionToken ->
+                    flushPendingAttributionSync(key, sessionToken)
+                }
+                pendingAttributionListeners[key] = created
+                RewardsSessionCoordinator.addTokenListener(key, created)
+            }
+        }
+        if (useCurrentSession) currentSessionToken(key)?.let { flushPendingAttributionSync(key, it) }
+    }
+
+    private fun flushPendingAttributionSync(key: RewardsSessionCoordinator.Key, sessionToken: String) {
+        val pending: PendingAttributionSync?
+        val listener: ((String) -> Unit)?
+        synchronized(attributionSyncLock) {
+            pending = pendingAttributionSyncs.remove(key)
+            listener = pendingAttributionListeners.remove(key)
+        }
+        listener?.let { RewardsSessionCoordinator.removeTokenListener(key, it) }
+        pending?.let { sendAttributionSync(key, it, sessionToken) }
+    }
+
+    private fun sendAttributionSync(
+        key: RewardsSessionCoordinator.Key,
+        pending: PendingAttributionSync,
+        sessionToken: String,
+    ) = post(
         "/v2/attribution",
         pending.attribution.toJson().put("user_id", pending.userId),
         onSuccess = {},
         onFailure = { message ->
-            // A stale persisted token may be rejected while bootstrap refreshes it. Retain the
-            // latest record for that refresh or for the next process start.
-            synchronized(attributionSyncLock) {
-                pendingAttributionSync = pending
-            }
+            // After a failed attempt, wait for a future signed token rather than spinning on the
+            // same one. A 401 has already consumed this request's single authentication replay.
+            queuePendingAttribution(pending, useCurrentSession = false)
             pending.onFailure(message)
         },
         sessionTokenOverride = sessionToken,
@@ -610,15 +734,57 @@ class RewardsApiClient(
         onFailure: (String) -> Unit,
         sessionTokenOverride: String? = null,
         retryable: Boolean = true,
+        includeSession: Boolean = true,
+        allowSessionRecovery: Boolean = true,
+        authReplayRemaining: Int = 1,
     ) {
         val baseUrl = normalisedBaseUrl()
         if (baseUrl == null) { onFailure("独立积分服务尚未配置"); return }
+        val sessionKey = body.optString("user_id").trim().takeIf { it.isNotBlank() }
+            ?.let { RewardsSessionCoordinator.Key(baseUrl, it) }
+        val providerToken = sessionTokenOverride ?: currentSessionToken()
+        sessionKey?.let { RewardsSessionCoordinator.adoptTokenIfAbsent(it, providerToken) }
+        val sessionToken = if (includeSession) {
+            sessionKey?.let(::currentSessionToken) ?: providerToken
+        } else {
+            null
+        }
         val builder = Request.Builder().url(baseUrl + path)
             .post(body.toString().toRequestBody(JSON)).header("Content-Type", "application/json")
-            .header("X-Rewards-Session", "v1")
-        (sessionTokenOverride ?: currentSessionToken())?.let { builder.header("Authorization", "Bearer $it") }
+        if (includeSession) builder.header("X-Rewards-Session", "v1")
+        sessionToken?.let { builder.header("Authorization", "Bearer $it") }
         val request = builder.build()
-        postRequest(request, onSuccess, onFailure, retryable, attempt = 0)
+        val onSessionInvalid: ((String) -> Unit)? = if (
+            includeSession &&
+            allowSessionRecovery &&
+            sessionKey != null &&
+            RewardsSessionRecoveryPolicy.canReplayAfterSessionRecovery(authReplayRemaining)
+        ) {
+            { _ ->
+                recoverSessionForKey(
+                    key = sessionKey,
+                    failedToken = sessionToken,
+                    onReady = { renewedToken ->
+                        // The body (including stable event_id/reference_id) is reused unchanged.
+                        post(
+                            path = path,
+                            body = body,
+                            onSuccess = onSuccess,
+                            onFailure = onFailure,
+                            sessionTokenOverride = renewedToken,
+                            retryable = retryable,
+                            includeSession = true,
+                            allowSessionRecovery = true,
+                            authReplayRemaining = authReplayRemaining - 1,
+                        )
+                    },
+                    onFailure = onFailure,
+                )
+            }
+        } else {
+            null
+        }
+        postRequest(request, onSuccess, onFailure, retryable, attempt = 0, onSessionInvalid = onSessionInvalid)
     }
 
     private fun postRequest(
@@ -627,13 +793,14 @@ class RewardsApiClient(
         onFailure: (String) -> Unit,
         retryable: Boolean,
         attempt: Int,
+        onSessionInvalid: ((String) -> Unit)? = null,
     ) {
         httpClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, error: IOException) {
                 if (retryable && attempt < RETRY_DELAYS_MS.size) {
                     runCatching { onNetworkRetryScheduled(request.url.encodedPath, null) }
                     retryHandler.postDelayed(
-                        { postRequest(request, onSuccess, onFailure, retryable, attempt + 1) },
+                        { postRequest(request, onSuccess, onFailure, retryable, attempt + 1, onSessionInvalid) },
                         RETRY_DELAYS_MS[attempt],
                     )
                 } else {
@@ -645,24 +812,40 @@ class RewardsApiClient(
                 response.use {
                     val json = runCatching { JSONObject(it.body?.string().orEmpty()) }.getOrNull()
                     if (!it.isSuccessful) {
-                        if (retryable && it.code in RETRYABLE_HTTP_CODES && attempt < RETRY_DELAYS_MS.size) {
+                        val message = json?.optString("msg")?.takeIf(String::isNotBlank)
+                            ?: "积分服务请求失败（HTTP ${it.code}）"
+                        if (onSessionInvalid != null && isSessionInvalid(it.code, json)) {
+                            onSessionInvalid(message)
+                        } else if (retryable && it.code in RETRYABLE_HTTP_CODES && attempt < RETRY_DELAYS_MS.size) {
                             runCatching { onNetworkRetryScheduled(request.url.encodedPath, it.code) }
                             retryHandler.postDelayed(
-                                { postRequest(request, onSuccess, onFailure, retryable, attempt + 1) },
+                                { postRequest(request, onSuccess, onFailure, retryable, attempt + 1, onSessionInvalid) },
                                 RETRY_DELAYS_MS[attempt],
                             )
                         } else {
-                            onFailure(json?.optString("msg")?.takeIf(String::isNotBlank) ?: "积分服务请求失败（HTTP ${it.code}）")
+                            onFailure(message)
                         }
                         return
                     }
                     val data = json?.optJSONObject("data")
-                    if (json?.optInt("code", -1) != 0 || data == null) { onFailure(json?.optString("msg")?.takeIf(String::isNotBlank) ?: "积分服务响应无效"); return }
+                    if (json?.optInt("code", -1) != 0 || data == null) {
+                        val message = json?.optString("msg")?.takeIf(String::isNotBlank) ?: "积分服务响应无效"
+                        if (onSessionInvalid != null && isSessionInvalid(it.code, json)) onSessionInvalid(message)
+                        else onFailure(message)
+                        return
+                    }
                     runCatching { onSuccess(data) }.onFailure { onFailure("积分服务响应解析失败：${it.message}") }
                 }
             }
         })
     }
+
+    private fun isSessionInvalid(statusCode: Int, json: JSONObject?): Boolean = RewardsSessionRecoveryPolicy.isSessionInvalid(
+        statusCode = statusCode,
+        apiCode = json?.optInt("code", Int.MIN_VALUE),
+        apiCodeText = json?.opt("code")?.toString(),
+        message = json?.optString("msg"),
+    )
 
     private fun normalisedBaseUrl(): String? = baseUrlProvider().trim().trimEnd('/').takeIf { it.startsWith("http://") || it.startsWith("https://") }
 

@@ -129,11 +129,19 @@ internal fun DramaAppActivity.recordAdClickAndCheckpoint(interaction: AdBehavior
     markExternalAdReturnCheckpoint()
 }
 
-/** Records a store/browser return even if Android recreated the host process during click-out. */
+/**
+ * Android foregrounding is evidence only that this host resumed after an ad click. It does not
+ * prove a browser/store was opened or that an external surface returned, so the durable recovery
+ * checkpoint remains intact while telemetry records the weaker, directly observed fact.
+ */
 internal fun DramaAppActivity.recordExternalAdReturnIfPending() {
     val interaction = lastClickedAdBehaviorInteraction ?: return
     if (adClickReturnRecorded) return
-    recordAdBehavior(interaction, "AD_RETURNED_TO_APP")
+    recordAdBehavior(
+        interaction,
+        "AD_HOST_RESUMED",
+        mapOf("external_return_confirmed" to false),
+    )
     adClickReturnRecorded = true
 }
 

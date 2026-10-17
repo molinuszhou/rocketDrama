@@ -102,6 +102,8 @@ class TopOnAdsManager(
     private var topOnInitializationInFlight = false
     private val pendingInitializationCallbacks = mutableListOf<(Initialization) -> Unit>()
     private val initializationLock = Any()
+    private var initializationGeneration = 0L
+    private var initializationTimeout: Runnable? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     /** Keeps TopOn ads out of edge-to-edge host mode; creative close controls remain ad-network owned. */
     private val safeAdWindows = mutableMapOf<Activity, SafeAdWindowState>()
@@ -130,14 +132,15 @@ class TopOnAdsManager(
      * 否则冷启动时可能在配置尚未就绪前出现无填充或不展示。
      */
     fun initialize(onResult: (Initialization) -> Unit) {
-        adNetworkAudit.recordConfiguration(settings)
+        runCatching { adNetworkAudit.recordConfiguration(settings) }
         if (!settings.isConfigured) {
-            auditEvent("INITIALIZATION", "sdk", "", "sdk", result = "NOT_CONFIGURED")
+            runCatching { auditEvent("INITIALIZATION", "sdk", "", "sdk", result = "NOT_CONFIGURED") }
             onResult(Initialization.NotConfigured)
             return
         }
 
         var startInitialization = false
+        var attempt = 0L
         synchronized(initializationLock) {
             if (topOnInitialized) {
                 mainHandler.post { onResult(Initialization.Ready) }
@@ -146,11 +149,18 @@ class TopOnAdsManager(
             pendingInitializationCallbacks += onResult
             if (!topOnInitializationInFlight) {
                 topOnInitializationInFlight = true
+                initializationGeneration += 1L
+                attempt = initializationGeneration
                 startInitialization = true
             }
         }
         if (!startInitialization) return
 
+        val timeout = Runnable {
+            completeInitialization(attempt, Initialization.Failed(-408, "TopOn initialization timed out"))
+        }
+        synchronized(initializationLock) { initializationTimeout = timeout }
+        mainHandler.postDelayed(timeout, 8_000L)
         runCatching {
             auditEvent("INITIALIZATION", "sdk", "", "sdk", result = "STARTED")
             ATSDK.setNetworkLogDebug(settings.enableNetworkDebug)
@@ -160,41 +170,52 @@ class TopOnAdsManager(
                 settings.appKey,
                 ATNetworkConfig(),
                 object : ATSDKInitListener {
-                    override fun onSuccess() = completeInitialization(Initialization.Ready)
+                    override fun onSuccess() = completeInitialization(attempt, Initialization.Ready)
 
                     override fun onFail(errorMessage: String) =
-                        completeInitialization(Initialization.Failed(-1, errorMessage))
+                        completeInitialization(attempt, Initialization.Failed(-1, errorMessage))
                 },
             )
         }.onFailure {
             Log.w(TAG, "TopOn initialization invocation failed", it)
-            auditEvent("INITIALIZATION", "sdk", "", "sdk", result = "FAILED", errorCode = -1, detail = "initialization_exception")
-            completeInitialization(Initialization.Failed(-1, it.message.orEmpty()))
+            runCatching { auditEvent("INITIALIZATION", "sdk", "", "sdk", result = "FAILED", errorCode = -1, detail = "initialization_exception") }
+            completeInitialization(attempt, Initialization.Failed(-1, it.message.orEmpty()))
         }
     }
 
-    private fun completeInitialization(result: Initialization) {
-        when (result) {
-            Initialization.Ready -> {
-                auditEvent("INITIALIZATION", "sdk", "", "sdk", result = "READY")
-                UserBehaviorEventReporter.get(applicationContext).record("SDK", "TOPON_INITIALIZED")
-            }
-            Initialization.NotConfigured -> Unit
-            is Initialization.Failed -> {
-                auditEvent("INITIALIZATION", "sdk", "", "sdk", result = "FAILED", errorCode = result.code, detail = "sdk_initialization_failed")
-                UserBehaviorEventReporter.get(applicationContext).record(
-                    "SDK",
-                    "TOPON_INITIALIZATION_FAILED",
-                    mapOf("error_code" to result.code),
-                )
-            }
-        }
+    private fun completeInitialization(attempt: Long, result: Initialization) {
         val callbacks = synchronized(initializationLock) {
+            // Only the current attempt may release waiters. A late SDK callback must not
+            // consume callbacks belonging to a retry or revive an already timed-out request.
+            if (!topOnInitializationInFlight || attempt != initializationGeneration) return
             topOnInitialized = result is Initialization.Ready
             topOnInitializationInFlight = false
+            initializationTimeout?.let { mainHandler.removeCallbacks(it) }
+            initializationTimeout = null
             pendingInitializationCallbacks.toList().also { pendingInitializationCallbacks.clear() }
         }
-        mainHandler.post { callbacks.forEach { it(result) } }
+        runCatching {
+            when (result) {
+                Initialization.Ready -> {
+                    auditEvent("INITIALIZATION", "sdk", "", "sdk", result = "READY")
+                    UserBehaviorEventReporter.get(applicationContext).record("SDK", "TOPON_INITIALIZED")
+                }
+                Initialization.NotConfigured -> Unit
+                is Initialization.Failed -> {
+                    auditEvent("INITIALIZATION", "sdk", "", "sdk", result = "FAILED", errorCode = result.code, detail = "sdk_initialization_failed")
+                    UserBehaviorEventReporter.get(applicationContext).record(
+                        "SDK",
+                        "TOPON_INITIALIZATION_FAILED",
+                        mapOf("error_code" to result.code),
+                    )
+                }
+            }
+        }.onFailure { Log.w(TAG, "TopOn initialization audit failed", it) }
+        mainHandler.post {
+            callbacks.forEach { callback ->
+                runCatching { callback(result) }.onFailure { Log.w(TAG, "TopOn initialization consumer failed", it) }
+            }
+        }
     }
 
     fun showRewarded(
