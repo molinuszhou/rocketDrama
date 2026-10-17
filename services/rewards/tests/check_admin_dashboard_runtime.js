@@ -33,7 +33,26 @@ const context = vm.createContext({
   setTimeout() { return 1; }, clearTimeout() {},
   fetch: async (url, options = {}) => {
     requests.push({ url, options });
-    return { ok: true, status: 200, text: async () => JSON.stringify({ code: 0, data: {} }) };
+    let data = {};
+    if (url.includes('/v2/admin/users/metrics')) {
+      data = {
+        total_users: 87,
+        filtered_registration_users: 54,
+        matching_users_all_registration_dates: 87,
+        start_date: '2026-10-15',
+        end_date: '2026-10-15',
+        daily: [{
+          metric_date: '2026-10-15', registration_count: 54,
+          daily_active_users: 41, verified_behavior_active_users: 3,
+        }],
+        definition: 'fixture metric definition',
+        data_coverage: { caveat: 'fixture metric coverage' },
+        funnel: { rewarded_distribution: {} },
+      };
+    } else if (url.includes('/v2/admin/users?')) {
+      data = { total: 54, limit: 50, rows: [] };
+    }
+    return { ok: true, status: 200, text: async () => JSON.stringify({ code: 0, data }) };
   },
 });
 (async () => {
@@ -49,6 +68,11 @@ const context = vm.createContext({
   assert.ok(save, 'save button must call the real operating route');
   assert.equal(save.options.method, 'PUT', 'use api(path, method, body), not an options object as method');
   assert.ok(JSON.parse(save.options.body), 'save payload is JSON');
+  await vm.runInContext('loadUsers()', context);
+  assert.equal(node('usersTotal').textContent, '87', 'headline must remain the all-registration-date cumulative count');
+  assert.equal(node('usersRegistrationTotal').textContent, '54', 'selected registration cohort must remain separately visible');
+  assert.match(node('userDailyRows').innerHTML, /<td>41<\/td><td>3<\/td>/, 'legacy Rewards activity and new behavior activity must be separate columns');
+  assert.ok(requests.some(({ url }) => url.includes('/v2/admin/users/metrics')), 'user metrics request must be made');
   for (const { options } of requests) {
     assert.equal(options.credentials, 'same-origin');
     assert.ok(!Object.keys(options.headers || {}).some(key => key.toLowerCase() === 'authorization'), 'browser must not read/store bearer token');

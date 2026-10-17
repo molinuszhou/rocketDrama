@@ -2019,12 +2019,12 @@ class RewardsService:
         start_date: date | None = None,
         end_date: date | None = None,
     ) -> dict[str, Any]:
-        """Return registration plus UTC-bounded, verifiable activity metrics.
+        """Return cumulative users, registration cohorts, and complementary activity metrics.
 
-        ``daily_counters.business_date`` follows the configured reward-business
-        timezone and is intentionally not repurposed as a UTC DAU source. UTC
-        activity is therefore aggregated from retained client behaviour events;
-        it is labelled as telemetry coverage rather than invented historical DAU.
+        ``daily_counters`` remains the durable Rewards active-user source for both
+        historical and current clients. Retained behaviour telemetry is additive:
+        it gives UTC event coverage for newer clients, but never replaces the
+        established Rewards activity series or the cumulative user count.
         """
 
         self._verify_admin_token(authorization)
@@ -2073,6 +2073,8 @@ class RewardsService:
         registration_end = self._utc_start_of_day(actual_end + timedelta(days=1))
         registration_filters = list(clauses) + ["u.created_at >= %s", "u.created_at < %s"]
         registration_where = " WHERE " + " AND ".join(registration_filters)
+        rewards_active_filters = ["dc.business_date BETWEEN %s AND %s"] + list(clauses)
+        rewards_active_where = " WHERE " + " AND ".join(rewards_active_filters)
         telemetry_active_filters = ["b.client_occurred_at >= %s", "b.client_occurred_at < %s"] + list(clauses)
         telemetry_active_where = " WHERE " + " AND ".join(telemetry_active_filters)
 
@@ -2097,7 +2099,19 @@ class RewardsService:
                 """,
                 tuple(params + [registration_start, registration_end]),
             )
-            active_users = self._all(
+            rewards_active_users = self._all(
+                connection,
+                f"""
+                SELECT dc.business_date AS metric_date,
+                       COUNT(DISTINCT dc.user_id) AS daily_active_users
+                FROM daily_counters dc
+                JOIN users u ON u.user_id = dc.user_id
+                {rewards_active_where}
+                GROUP BY dc.business_date
+                """,
+                tuple([actual_start, actual_end] + params),
+            )
+            behavior_active_users = self._all(
                 connection,
                 f"""
                 SELECT (b.client_occurred_at AT TIME ZONE 'UTC')::date AS metric_date,
@@ -2197,40 +2211,46 @@ class RewardsService:
             ) or {}
 
         registration_by_day = {row["metric_date"]: int(row["registration_count"]) for row in registrations}
-        active_by_day = {
+        rewards_active_by_day = {
+            row["metric_date"]: int(row["daily_active_users"])
+            for row in rewards_active_users
+        }
+        behavior_active_by_day = {
             row["metric_date"]: int(row["verified_behavior_active_users"])
-            for row in active_users
+            for row in behavior_active_users
         }
         daily: list[dict[str, Any]] = []
         cursor = actual_start
         while cursor <= actual_end:
-            verified_behavior_active_users = active_by_day.get(cursor, 0)
+            verified_behavior_active_users = behavior_active_by_day.get(cursor, 0)
             daily.append({
                 "metric_date": cursor.isoformat(),
                 "registration_count": registration_by_day.get(cursor, 0),
-                # Kept as an additive-compatible alias. It is deliberately a
-                # UTC event-telemetry measure, not a daily_counters business-day
-                # measure or a claim of complete historical DAU coverage.
-                "daily_active_users": verified_behavior_active_users,
+                "daily_active_users": rewards_active_by_day.get(cursor, 0),
                 "verified_behavior_active_users": verified_behavior_active_users,
             })
             cursor += timedelta(days=1)
         return {
-            "total_users": int(total["count"]),
+            # The headline remains the same non-date-filtered cumulative count
+            # used by the original dashboard. The registration range is a cohort,
+            # not a replacement definition of the entire selected population.
+            "total_users": int(global_matching_total["count"]),
             "filtered_registration_users": int(total["count"]),
             "matching_users_all_registration_dates": int(global_matching_total["count"]),
             "start_date": actual_start.isoformat(),
             "end_date": actual_end.isoformat(),
             "daily": daily,
             "data_coverage": {
-                "daily_active_source": "user_behavior_events",
+                "daily_active_source": "daily_counters",
+                "daily_active_timezone": self.settings.timezone,
+                "verified_behavior_active_source": "user_behavior_events",
                 "earliest_observed_at": telemetry_coverage["earliest_observed_at"].isoformat() if telemetry_coverage.get("earliest_observed_at") else None,
                 "latest_observed_at": telemetry_coverage["latest_observed_at"].isoformat() if telemetry_coverage.get("latest_observed_at") else None,
                 "retention_days": 90,
                 "coverage": "PARTIAL_TELEMETRY_ONLY",
-                "caveat": "行为遥测仅在已部署并成功送达的客户端版本中可核实，且保留期为 90 天；没有可用于精确重建更早 UTC DAU 的事件，不以奖励业务日 daily_counters 推断。",
+                "caveat": "Rewards 日活来自每日计数器，覆盖旧版与新版客户端；行为埋点活跃仅覆盖已部署并成功送达的新版客户端，保留 90 天，不能替代历史日活。",
             },
-            "definition": "注册和 cohort 均按 UTC+0 注册日期筛选；daily_active_users 为 UTC 客户端行为事件聚合的兼容别名，准确口径见 verified_behavior_active_users 与 data_coverage，非完整历史 DAU 声明。",
+            "definition": "累计匹配用户不受注册日期范围限制；新注册和 cohort 按 UTC+0 注册日期筛选。daily_active_users 为 Rewards 每日计数器口径（按服务端 TIMEZONE）；verified_behavior_active_users 为新版客户端行为埋点的 UTC+0 辅助指标。",
             "funnel": {
                 "cohort_users": int(funnel.get("cohort_users", 0)),
                 "attribution_recorded_users": int(funnel.get("attribution_recorded_users", 0)),
