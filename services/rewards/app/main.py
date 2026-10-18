@@ -548,6 +548,7 @@ def admin_behavior_flow(
     user_id: str = "",
     event_category: str = "",
     event_name: str = "",
+    app_version: str = "",
     page: int = 1,
     page_size: int = 100,
 ) -> dict:
@@ -560,6 +561,7 @@ def admin_behavior_flow(
             user_id=user_id,
             event_category=event_category,
             event_name=event_name,
+            app_version=app_version,
             page=page,
             page_size=page_size,
         ),
@@ -574,6 +576,7 @@ def admin_behavior_flow_export(
     user_id: str = "",
     event_category: str = "",
     event_name: str = "",
+    app_version: str = "",
 ) -> Response:
     data = service.admin_behavior_flow_metrics(
         authorization,
@@ -582,6 +585,7 @@ def admin_behavior_flow_export(
         user_id=user_id,
         event_category=event_category,
         event_name=event_name,
+        app_version=app_version,
         page=1,
         page_size=10_001,
         allow_export=True,

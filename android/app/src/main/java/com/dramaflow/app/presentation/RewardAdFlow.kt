@@ -834,16 +834,73 @@ internal fun DramaAppActivity.showPlaybackActionInterstitial(
         pauseForFullscreenAd()
         resumeAfterFullscreenAd = shouldResume
         showFullscreenAdLoadingOverlay()
+        var interstitialActuallyShown = false
+        var confirmedShowRecorded = false
+        fun recordConfirmedShow() {
+            if (confirmedShowRecorded) return
+            confirmedShowRecorded = true
+            val persistedShown = pendingIncentive?.let(::markPendingInterstitialShown)
+            if (pendingIncentive != null && persistedShown == null) {
+                logStatus("插屏激励展示阶段未能持久化，不能安全结算")
+                onRecordFailed?.invoke("插屏展示记录未能持久化")
+                return
+            }
+            val interstitialEventId = pendingIncentive?.eventId ?: "int-${UUID.randomUUID()}"
+            val settled = {
+                playbackInterstitialShownAtElapsedMillis.add(SystemClock.elapsedRealtime())
+                if (countTowardEpisodeLimit && episodeKey != null) interstitialCountByEpisodeKey[episodeKey] = (interstitialCountByEpisodeKey[episodeKey] ?: 0) + 1
+                onShown()
+            }
+            if (rewardsApi.isConfigured) {
+                rewardsApi.recordInterstitial(pendingIncentive?.userId ?: anonymousInstallationId(), placementId, episodeId,
+                    onSuccess = { snapshot ->
+                        val recorded = pendingIncentive?.let(::markPendingInterstitialRecorded)
+                        runOnUiThread {
+                            applyRewardsSnapshot(snapshot)
+                            if (pendingIncentive == null || recorded != null) {
+                                settled()
+                                onRecorded?.invoke(interstitialEventId)
+                            } else {
+                                logStatus("插屏展示记录阶段未能持久化，已保留原始事件等待恢复")
+                                onRecordFailed?.invoke("插屏展示记录阶段未能持久化")
+                            }
+                        }
+                    },
+                    onFailure = { message -> runOnUiThread {
+                        logStatus("插屏展示记录未同步：$message")
+                        if (pendingIncentive != null) {
+                            // A shown incentive may recover only by replaying this exact
+                            // record. It must not fall through to settlement on failure.
+                            onRecordFailed?.invoke(message)
+                        } else {
+                            settled()
+                            onRecorded?.invoke(interstitialEventId)
+                        }
+                    } },
+                    eventId = interstitialEventId,
+                )
+            } else settled()
+        }
         topOnAds.showInterstitialForPlaybackAction(
             activity = this,
             logicalPlacement = placementId,
             bypassGlobalFrequencyCap = bypassSharedFrequencyCaps,
             onWillShow = {
-                recordAdBehavior(behaviorInteraction, "AD_SHOWN")
                 fullscreenAdRequestInFlight = false
                 fullscreenAdInProgress = true
                 resumeAfterFullscreenAd = shouldResume
                 runOnUiThread { hideFullscreenAdLoadingOverlay() }
+            },
+            onShown = {
+                interstitialActuallyShown = true
+                recordAdBehavior(behaviorInteraction, "AD_SHOWN")
+                // Persist the only evidence that survives a click-out or process reclaim. The
+                // normal close path still performs the display-record -> settlement sequence.
+                pendingIncentive?.let { pending ->
+                    if (markPendingInterstitialShown(pending) == null) {
+                        logStatus("插屏激励展示阶段未能持久化，等待关闭时重试")
+                    }
+                }
             },
             onAdClicked = { recordAdClickAndCheckpoint(behaviorInteraction) },
         ) { result -> runFullscreenResultWhenForeground {
@@ -854,55 +911,32 @@ internal fun DramaAppActivity.showPlaybackActionInterstitial(
                 TopOnAdsManager.FullscreenResult.Shown -> {
                     recordAdBehavior(behaviorInteraction, "AD_CLOSED")
                     resumeAfterFullscreenAdIfNeeded()
-                    val persistedShown = pendingIncentive?.let(::markPendingInterstitialShown)
-                    if (pendingIncentive != null && persistedShown == null) {
-                        logStatus("插屏激励展示阶段未能持久化，不能安全结算")
-                        onRecordFailed?.invoke("插屏展示记录未能持久化")
-                        return@runFullscreenResultWhenForeground
+                    if (pendingIncentive == null || interstitialActuallyShown) {
+                        recordConfirmedShow()
+                    } else {
+                        logStatus("插屏关闭未携带展示确认，不能安全结算激励")
+                        onRecordFailed?.invoke("插屏展示未确认")
                     }
-                    val interstitialEventId = pendingIncentive?.eventId ?: "int-${UUID.randomUUID()}"
-                    val settled = {
-                        playbackInterstitialShownAtElapsedMillis.add(SystemClock.elapsedRealtime())
-                        if (countTowardEpisodeLimit && episodeKey != null) interstitialCountByEpisodeKey[episodeKey] = (interstitialCountByEpisodeKey[episodeKey] ?: 0) + 1
-                        onShown()
-                    }
-                    if (rewardsApi.isConfigured) {
-                        rewardsApi.recordInterstitial(pendingIncentive?.userId ?: anonymousInstallationId(), placementId, episodeId,
-                            onSuccess = { snapshot ->
-                                val recorded = pendingIncentive?.let(::markPendingInterstitialRecorded)
-                                runOnUiThread {
-                                    applyRewardsSnapshot(snapshot)
-                                    if (pendingIncentive == null || recorded != null) {
-                                        settled()
-                                        onRecorded?.invoke(interstitialEventId)
-                                    } else {
-                                        logStatus("插屏展示记录阶段未能持久化，已保留原始事件等待恢复")
-                                        onRecordFailed?.invoke("插屏展示记录阶段未能持久化")
-                                    }
-                                }
-                            },
-                            onFailure = { message -> runOnUiThread {
-                                logStatus("插屏展示记录未同步：$message")
-                                if (pendingIncentive != null) {
-                                    // A shown incentive may recover only by replaying this exact
-                                    // record. It must not fall through to settlement on failure.
-                                    onRecordFailed?.invoke(message)
-                                } else {
-                                    settled()
-                                    onRecorded?.invoke(interstitialEventId)
-                                }
-                            } },
-                            eventId = interstitialEventId,
-                        )
-                    } else settled()
                 }
                 is TopOnAdsManager.FullscreenResult.Skipped -> {
+                    if (pendingIncentive != null && interstitialActuallyShown) {
+                        recordAdBehavior(behaviorInteraction, "AD_POST_SHOW_CALLBACK_SKIPPED", mapOf("reason" to result.reason))
+                        resumeAfterFullscreenAdIfNeeded()
+                        recordConfirmedShow()
+                        return@runFullscreenResultWhenForeground
+                    }
                     recordAdBehavior(behaviorInteraction, "AD_UNAVAILABLE", mapOf("outcome" to "skipped"))
                     resumeAfterFullscreenAdIfNeeded()
                     pendingIncentive?.let { clearPreparedInterstitialIncentive(it.eventId) }
                     onUnavailable(result.reason)
                 }
                 is TopOnAdsManager.FullscreenResult.Failed -> {
+                    if (pendingIncentive != null && interstitialActuallyShown) {
+                        recordAdBehavior(behaviorInteraction, "AD_POST_SHOW_CALLBACK_FAILED", mapOf("error_code" to result.code))
+                        resumeAfterFullscreenAdIfNeeded()
+                        recordConfirmedShow()
+                        return@runFullscreenResultWhenForeground
+                    }
                     recordAdBehavior(behaviorInteraction, "AD_LOAD_FAILED", mapOf("error_code" to result.code))
                     resumeAfterFullscreenAdIfNeeded()
                     pendingIncentive?.let { clearPreparedInterstitialIncentive(it.eventId) }

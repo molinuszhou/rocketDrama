@@ -1568,6 +1568,7 @@ class RewardsService:
         user_id: str = "",
         event_category: str = "",
         event_name: str = "",
+        app_version: str = "",
         page: int = 1,
         page_size: int = 100,
         allow_export: bool = False,
@@ -1589,6 +1590,7 @@ class RewardsService:
         if normalized_event and (len(normalized_event) > 80 or not normalized_event.replace("_", "").isalnum()):
             raise ServiceError(2323, "行为事件名称格式无效", 422)
         normalized_user_id = user_id.strip()[:128]
+        normalized_app_version = app_version.strip()[:64]
         actual_page = max(int(page), 1)
         actual_limit = min(max(int(page_size), 1), 10_000 if allow_export else 500)
         actual_offset = (actual_page - 1) * actual_limit
@@ -1606,6 +1608,9 @@ class RewardsService:
         if normalized_user_id:
             base_filters.append("user_id = %s")
             base_params.append(normalized_user_id)
+        if normalized_app_version:
+            base_filters.append("app_version = %s")
+            base_params.append(normalized_app_version)
         where_base = " WHERE " + " AND ".join(base_filters)
         event_filters = list(base_filters)
         event_params = list(base_params)
@@ -1636,6 +1641,25 @@ class RewardsService:
                 {where_events}
                 GROUP BY event_category, event_name
                 ORDER BY event_category ASC, event_name ASC
+                """,
+                tuple(event_params),
+            )
+            version_breakdown = self._all(
+                connection,
+                f"""
+                SELECT app_version,
+                       COUNT(*) AS event_count,
+                       COUNT(DISTINCT user_id) AS user_count,
+                       COUNT(DISTINCT session_id) AS session_count,
+                       COUNT(*) FILTER (WHERE event_category = 'UI') AS ui_action_count,
+                       COUNT(*) FILTER (WHERE event_category = 'AD') AS ad_event_count,
+                       MIN(client_occurred_at) AS first_event_at,
+                       MAX(client_occurred_at) AS last_event_at
+                FROM user_behavior_events
+                {where_events}
+                GROUP BY app_version
+                ORDER BY last_event_at DESC, app_version ASC
+                LIMIT 100
                 """,
                 tuple(event_params),
             )
@@ -1720,6 +1744,44 @@ class RewardsService:
                 """,
                 tuple(base_params + [date_window_start, observation_until]),
             )
+            user_total = self._one(
+                connection,
+                f"SELECT COUNT(DISTINCT user_id) AS count FROM user_behavior_events {where_events}",
+                tuple(event_params),
+            ) or {"count": 0}
+            user_rows = self._all(
+                connection,
+                f"""
+                SELECT
+                    user_id,
+                    COUNT(*) AS event_count,
+                    COUNT(DISTINCT session_id) AS session_count,
+                    MIN(client_occurred_at) AS first_event_at,
+                    MAX(client_occurred_at) AS last_event_at,
+                    (ARRAY_AGG(app_version ORDER BY client_occurred_at DESC, accepted_at DESC))[1] AS latest_app_version,
+                    (ARRAY_AGG(event_name ORDER BY client_occurred_at DESC, accepted_at DESC))[1] AS latest_event_name,
+                    COUNT(*) FILTER (WHERE event_category = 'ONBOARDING') AS onboarding_event_count,
+                    COUNT(*) FILTER (WHERE event_category = 'UI') AS ui_action_count,
+                    COUNT(DISTINCT (properties ->> 'early_video_rank')) FILTER (
+                        WHERE event_name = 'EARLY_VIDEO_STARTED'
+                          AND (properties ->> 'early_video_rank') ~ '^(?:[1-9]|1[0-9]|20)$'
+                    ) AS early_video_started_count,
+                    COUNT(DISTINCT (properties ->> 'early_video_rank')) FILTER (
+                        WHERE event_name = 'EARLY_VIDEO_COMPLETED'
+                          AND (properties ->> 'early_video_rank') ~ '^(?:[1-9]|1[0-9]|20)$'
+                    ) AS early_video_completed_count,
+                    COUNT(*) FILTER (WHERE event_name = 'AD_SHOWN') AS ad_shown_count,
+                    COUNT(*) FILTER (WHERE event_name = 'AD_CLICKED') AS ad_clicked_count,
+                    COUNT(*) FILTER (WHERE event_name IN ('AD_LOAD_FAILED', 'AD_UNAVAILABLE')) AS ad_unavailable_count,
+                    COUNT(*) FILTER (WHERE event_name = 'AD_REWARD_VERIFIED') AS ad_reward_verified_count
+                FROM user_behavior_events
+                {where_events}
+                GROUP BY user_id
+                ORDER BY last_event_at DESC, user_id ASC
+                LIMIT %s OFFSET %s
+                """,
+                tuple(event_params + [actual_limit, actual_offset]),
+            )
             rows = self._all(
                 connection,
                 f"""
@@ -1766,6 +1828,7 @@ class RewardsService:
                 "user_id": normalized_user_id,
                 "event_category": normalized_category,
                 "event_name": normalized_event,
+                "app_version": normalized_app_version,
             },
             "breakdown": [
                 {
@@ -1775,6 +1838,42 @@ class RewardsService:
                     "user_count": int(item["user_count"]),
                 }
                 for item in breakdown
+            ],
+            "version_breakdown": [
+                {
+                    "app_version": item["app_version"],
+                    "event_count": int(item["event_count"]),
+                    "user_count": int(item["user_count"]),
+                    "session_count": int(item["session_count"]),
+                    "ui_action_count": int(item["ui_action_count"]),
+                    "ad_event_count": int(item["ad_event_count"]),
+                    "first_event_at": item["first_event_at"].isoformat(),
+                    "last_event_at": item["last_event_at"].isoformat(),
+                }
+                for item in version_breakdown
+            ],
+            "user_total": int(user_total["count"]),
+            "user_page": actual_page,
+            "user_page_size": actual_limit,
+            "user_rows": [
+                {
+                    "user_id": item["user_id"],
+                    "event_count": int(item["event_count"]),
+                    "session_count": int(item["session_count"]),
+                    "first_event_at": item["first_event_at"].isoformat(),
+                    "last_event_at": item["last_event_at"].isoformat(),
+                    "latest_app_version": item["latest_app_version"],
+                    "latest_event_name": item["latest_event_name"],
+                    "onboarding_event_count": int(item["onboarding_event_count"]),
+                    "ui_action_count": int(item["ui_action_count"]),
+                    "early_video_started_count": int(item["early_video_started_count"]),
+                    "early_video_completed_count": int(item["early_video_completed_count"]),
+                    "ad_shown_count": int(item["ad_shown_count"]),
+                    "ad_clicked_count": int(item["ad_clicked_count"]),
+                    "ad_unavailable_count": int(item["ad_unavailable_count"]),
+                    "ad_reward_verified_count": int(item["ad_reward_verified_count"]),
+                }
+                for item in user_rows
             ],
             "early_videos": early_rows,
             "rows": [

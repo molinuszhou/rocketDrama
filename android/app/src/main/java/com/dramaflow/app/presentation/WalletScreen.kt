@@ -66,7 +66,17 @@ import java.util.Locale
 import java.util.UUID
 import kotlin.random.Random
 
+/** A short-lived in-app navigation target; durable process-death recovery remains separate. */
+internal data class WalletPlayerReturnState(
+    val drama: LocalDrama,
+    val episodeIndex: Int,
+    val positionSeconds: Int,
+)
+
 internal fun DramaAppActivity.showWithdrawalPage(wallet: RewardsApiClient.Wallet) {
+        if (!withdrawalPageShown) {
+            walletPlayerReturnState = captureWalletPlayerReturnState()
+        }
         withdrawalPageShown = true
         if (playerShown) releasePlayer()
         if (sdkPlayerShown) dismissSdkDramaPlayerIfShown()
@@ -88,6 +98,30 @@ internal fun DramaAppActivity.showWithdrawalPage(wallet: RewardsApiClient.Wallet
         root.removeAllViews()
         root.addView(page, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
     }
+
+private fun DramaAppActivity.captureWalletPlayerReturnState(): WalletPlayerReturnState? {
+    if ((!playerShown && !sdkPlayerShown) || sdkDiscoverPreviewActive) return null
+    val drama = selectedDrama ?: return null
+    val livePositionSeconds = (exoPlayer?.currentPosition?.div(1_000L)?.toInt() ?: 0).coerceAtLeast(0)
+    return WalletPlayerReturnState(
+        drama = drama,
+        episodeIndex = currentEpisodeIndex.coerceIn(0, drama.episodes.lastIndex.coerceAtLeast(0)),
+        positionSeconds = maxOf(playerProgressSeconds, livePositionSeconds).coerceAtLeast(0),
+    )
+}
+
+/** Restores the exact player source only for a wallet page opened from an active player. */
+internal fun DramaAppActivity.returnFromWithdrawalPage() {
+    withdrawalPageShown = false
+    val returnState = walletPlayerReturnState
+    walletPlayerReturnState = null
+    if (returnState == null) {
+        renderActiveTab()
+        return
+    }
+    logStatus("钱包返回：恢复播放器 ${returnState.drama.id} #${returnState.episodeIndex + 1}")
+    showPlayer(returnState.drama, returnState.episodeIndex, returnState.positionSeconds)
+}
 
 internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wallet): View = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
@@ -217,7 +251,12 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
                 setTextColor(COLOR_REWARD_ACTION_TEXT)
                 background = primaryActionDrawable()
                 isClickable = true
-                setOnClickListener { activeTab = MainTab.HOME; renderActiveTab() }
+                setOnClickListener {
+                    withdrawalPageShown = false
+                    walletPlayerReturnState = null
+                    activeTab = MainTab.HOME
+                    renderActiveTab()
+                }
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)).apply { topMargin = dp(14) })
         }, matchParams(bottom = 14))
     }

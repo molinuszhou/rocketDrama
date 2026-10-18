@@ -142,6 +142,7 @@ object AppLanguage {
         "speed" to all("Speed", "Velocidade", "Velocidad", "Vitesse", "Kecepatan", "倍速", "倍速"),
         "resolution" to all("Quality", "Qualidade", "Calidad", "Qualité", "Kualitas", "画质", "畫質"),
         "resolution_short" to all("HD", "HD", "HD", "HD", "HD", "画质", "畫質"),
+        "resolution_auto" to all("Auto", "Automático", "Automático", "Auto", "Otomatis", "自动", "自動"),
         "resolution_data_saver" to all("Data saver", "Economia de dados", "Ahorro de datos", "Économie de données", "Hemat data", "省流", "省流"),
         "resolution_hd" to all("High definition", "Alta definição", "Alta definición", "Haute définition", "Definisi tinggi", "高清", "高清"),
         "resolution_data_saver_set" to all("Data saver enabled", "Economia de dados ativada", "Ahorro de datos activado", "Économie de données activée", "Hemat data aktif", "已切换省流", "已切換省流"),

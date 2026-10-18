@@ -48,7 +48,14 @@ class AdMediationEventReporter(
     private var sending = false
 
     fun recordShown(logicalPlacement: String, toponPlacementId: String, adFormat: String, adInfo: ATAdInfo) {
-        enqueue("SHOWN", logicalPlacement, toponPlacementId, adFormat, adInfo)
+        enqueue(
+            eventType = "SHOWN",
+            logicalPlacement = logicalPlacement,
+            toponPlacementId = toponPlacementId,
+            adFormat = adFormat,
+            adInfo = adInfo,
+            reportingTargets = reportingTargetsFor(adFormat),
+        )
     }
 
     /** Attempts a bounded replay of retained events. Safe to call from Activity.onCreate. */
@@ -60,7 +67,14 @@ class AdMediationEventReporter(
         sendNext()
     }
 
-    private fun enqueue(eventType: String, logicalPlacement: String, toponPlacementId: String, adFormat: String, adInfo: ATAdInfo) {
+    private fun enqueue(
+        eventType: String,
+        logicalPlacement: String,
+        toponPlacementId: String,
+        adFormat: String,
+        adInfo: ATAdInfo,
+        reportingTargets: List<String>,
+    ) {
         val identity = AdNetworkIdentity.from(adInfo)
         val revenue = AdRevenueAuditValues.fromPaidImpression(adInfo.currency, adInfo.ecpm)
         val event = JSONObject()
@@ -77,7 +91,7 @@ class AdMediationEventReporter(
             .put("ad_source_id", identity.sourceId)
             .put("app_version", BuildConfig.VERSION_NAME)
             .put("currency", revenue.currency)
-            .put("reporting_targets", JSONArray(REPORTING_TARGETS))
+            .put("reporting_targets", JSONArray(reportingTargets))
             .put("occurred_at_ms", System.currentTimeMillis())
         revenue.ecpm.toDoubleOrNull()?.let { event.put("ecpm", it) }
         synchronized(lock) {
@@ -219,6 +233,10 @@ class AdMediationEventReporter(
     private fun sha256(raw: String): String = MessageDigest.getInstance("SHA-256")
         .digest(raw.toByteArray(Charsets.UTF_8))
         .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+
+    /** Splash is mirrored only for internal operations reconciliation, never for external targets. */
+    private fun reportingTargetsFor(adFormat: String): List<String> =
+        if (adFormat.equals("splash", ignoreCase = true)) emptyList() else REPORTING_TARGETS
 
     private companion object {
         val JSON = "application/json; charset=utf-8".toMediaType()

@@ -12,7 +12,7 @@ REWARDS_ADMIN_BIND_PORT=18101
 REWARDS_DATABASE_URL=
 ```
 
-空的 `REWARDS_DATABASE_URL` 会继续使用当前 Compose 管理的 `postgres` 容器。随后将 `deploy/nginx/joyedrama-rewards-split.conf.example` 中的三个 location 合并到现有 HTTPS `server` 块。它保留原有 `/joyedrama-rewards/` 的 Android API 地址，并把管理 UI 和管理 API 分流到端口 `18101`。
+空的 `REWARDS_DATABASE_URL` 会继续使用当前 Compose 管理的 `postgres` 容器。随后将 `deploy/nginx/joyedrama-rewards-split.conf.example` 中的 location 合并到现有 HTTPS `server` 块。它保留原有 `/joyedrama-rewards/` 的 Android API 地址，并把管理 UI、`/admin/*` 独立页面和管理 API 分流到端口 `18101`。
 
 验证 Nginx 配置后再 reload：
 

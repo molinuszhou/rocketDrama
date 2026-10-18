@@ -15,7 +15,7 @@ internal enum class InterstitialIncentiveKind {
 internal enum class InterstitialIncentiveStage {
     /** An ID is reserved, but the ad has not been confirmed shown and is never recoverable. */
     PREPARED,
-    /** The creative closed as shown; recordInterstitial must complete before settlement. */
+    /** The SDK confirmed the creative was displayed; recordInterstitial must complete before settlement. */
     SHOWN_NEEDS_RECORD,
     /** The server acknowledged the display record; the original incentive may now settle. */
     RECORDED_NEEDS_SETTLEMENT,

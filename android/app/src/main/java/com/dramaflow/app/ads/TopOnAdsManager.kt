@@ -290,6 +290,7 @@ class TopOnAdsManager(
         logicalPlacement: String = "int_playback_action",
         bypassGlobalFrequencyCap: Boolean = false,
         onWillShow: () -> Unit = {},
+        onShown: () -> Unit = {},
         onAdClicked: () -> Unit = {},
         onResult: (FullscreenResult) -> Unit,
     ) = showInterstitial(
@@ -298,6 +299,7 @@ class TopOnAdsManager(
         logicalPlacement = logicalPlacement,
         bypassGlobalFrequencyCap = bypassGlobalFrequencyCap,
         onWillShow = onWillShow,
+        onShown = onShown,
         onAdClicked = onAdClicked,
         onResult = onResult,
     )
@@ -402,8 +404,10 @@ class TopOnAdsManager(
                             auditAdInfo("SHOWN", "splash", settings.splashPlacementId, "splash", entity, "DISPLAYED")
                             splashPolicy.recordShown()
                             globalFullscreenPolicy.recordShown()
-                            // Splash is intentionally excluded from all external reporting.
-                            // Keep only the local audit record above for on-device troubleshooting.
+                            // Splash stays out of external impression/revenue reporting: no
+                            // analytics.reportTopOnImpression and no TopOnRevenueListener are
+                            // attached. auditAdInfo still mirrors SHOWN to the internal Rewards
+                            // operations ledger for the advertising-operations dashboard.
                         }
 
                         override fun onAdClick(entity: ATAdInfo) = Unit
@@ -446,6 +450,7 @@ class TopOnAdsManager(
         logicalPlacement: String,
         bypassGlobalFrequencyCap: Boolean = false,
         onWillShow: () -> Unit,
+        onShown: () -> Unit = {},
         onAdClicked: () -> Unit = {},
         onResult: (FullscreenResult) -> Unit,
     ) {
@@ -572,6 +577,7 @@ class TopOnAdsManager(
 
                         override fun onInterstitialAdShow(entity: ATAdInfo) {
                             if (delivered) return
+                            if (interstitialShown) return
                             interstitialShown = true
                             mainHandler.removeCallbacks(requestTimeout)
                             Log.i(TAG, "Interstitial shown: logical=$logicalPlacement, network=${entity.adNetworkType}")
@@ -579,6 +585,9 @@ class TopOnAdsManager(
                             policy.recordShown()
                             globalFullscreenPolicy.recordShown()
                             analytics.reportTopOnImpression(logicalPlacement, settings.interstitialPlacementId, entity)
+                            runCatching(onShown).onFailure {
+                                Log.w(TAG, "Interstitial shown callback failed: logical=$logicalPlacement", it)
+                            }
                             mainHandler.postDelayed(closeTimeout, INTERSTITIAL_CLOSE_TIMEOUT_MS)
                         }
 
@@ -853,9 +862,11 @@ class TopOnAdsManager(
             revenue = if (event == "SHOWN") AdRevenueAuditValues.fromPaidImpression(adInfo.currency, adInfo.ecpm) else AdRevenueAuditValues(),
             detail = sourceDetail,
         )
-        if (event == "SHOWN" && adFormat != "splash") {
-            // Splash display events remain in the local audit only; they must not enter the
-            // Rewards operations reconciliation queue or any external analytics pipeline.
+        if (event == "SHOWN") {
+            // This is a durable internal operations/reconciliation record only. It does not call
+            // AppsFlyer, Firebase, PSSDK, Xuanyu, or a paid-impression/revenue reporting API.
+            // Keep splash SHOWN here so the advertising-operations dashboard reconciles all
+            // observed TopOn displays by format and returned network.
             adMediationReporter?.recordShown(logicalPlacement, topOnPlacementId, adFormat, adInfo)
         }
     }

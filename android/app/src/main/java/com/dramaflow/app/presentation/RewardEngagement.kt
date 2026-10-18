@@ -326,17 +326,8 @@ internal fun DramaAppActivity.showEpisodeRewardClaimDialog() {
         val snapshot = rewardsSnapshot ?: return
         val ring = snapshot.ring
         if (!ring.claimable || ring.rewardCoins <= 0) { toast(t("no_pending_cash_reward")); return }
-        recordUiAction("REWARDS_EPISODE_CLAIM_DIALOG_SHOWN")
-        showBrandedChoiceDialog(
-            title = t("claim_episode_rewards"),
-            message = t("claim_episode_rewards_message"),
-            primaryLabel = t("watch_ad_claim"),
-            onPrimary = {
-                recordUiAction("REWARDS_EPISODE_CLAIM_AD_CLICKED")
-                requestRewardedClaimAllEpisodeRewards()
-            },
-            secondaryLabel = t("later"),
-        )
+        recordUiAction("REWARDS_EPISODE_CLAIM_AD_CLICKED")
+        requestRewardedClaimAllEpisodeRewards()
     }
 
 /** Tapping the boost starts the rewarded request immediately; successful settlement removes the control. */
@@ -506,8 +497,7 @@ internal fun DramaAppActivity.showWalletReleaseBoostDialog() {
             toast(t("wallet_boost_already_settled"))
             return
         }
-        recordUiAction("WALLET_RELEASE_BOOST_DIALOG_SHOWN")
-        showBrandedChoiceDialog(t("ad_boost"), t("wallet_boost_description"), t("wallet_boost_action"), { requestWalletReleaseBoost() }, t("not_now"))
+        requestWalletReleaseBoost()
 }
 
 internal fun DramaAppActivity.requestWalletReleaseBoost() {
@@ -681,7 +671,7 @@ internal fun DramaAppActivity.showCrownRewardedUpgradeDialog(crown: RewardsApiCl
             toast(t("crown_daily_limit_reached"))
             return
         }
-        showBrandedChoiceDialog(t("crown_accelerate"), t("crown_accelerate_message", crown.rewardedAdProgressPoints), t("watch_ad_claim"), { requestCrownRewardedUpgrade(crown.code) }, t("not_now"))
+        requestCrownRewardedUpgrade(crown.code)
 }
 
 internal fun DramaAppActivity.requestCrownRewardedUpgrade(code: String) {

@@ -69,19 +69,31 @@ internal fun DramaAppActivity.readPendingInterstitialIncentive(): PendingInterst
 internal fun DramaAppActivity.markPendingInterstitialShown(
     pending: PendingInterstitialIncentive,
 ): PendingInterstitialIncentive? = updatePendingInterstitialIncentive(pending.eventId) {
-    InterstitialIncentiveTransitions.afterShown(it, System.currentTimeMillis())
+    if (it.stage == InterstitialIncentiveStage.PREPARED) {
+        InterstitialIncentiveTransitions.afterShown(it, System.currentTimeMillis())
+    } else {
+        it
+    }
 }
 
 internal fun DramaAppActivity.markPendingInterstitialRecorded(
     pending: PendingInterstitialIncentive,
 ): PendingInterstitialIncentive? = updatePendingInterstitialIncentive(pending.eventId) {
-    InterstitialIncentiveTransitions.afterRecorded(it, System.currentTimeMillis())
+    if (it.stage == InterstitialIncentiveStage.SHOWN_NEEDS_RECORD) {
+        InterstitialIncentiveTransitions.afterRecorded(it, System.currentTimeMillis())
+    } else {
+        it
+    }
 }
 
 internal fun DramaAppActivity.markPendingInterstitialSettled(
     pending: PendingInterstitialIncentive,
 ): PendingInterstitialIncentive? = updatePendingInterstitialIncentive(pending.eventId) {
-    InterstitialIncentiveTransitions.afterSettled(it, System.currentTimeMillis())
+    if (it.stage == InterstitialIncentiveStage.RECORDED_NEEDS_SETTLEMENT) {
+        InterstitialIncentiveTransitions.afterSettled(it, System.currentTimeMillis())
+    } else {
+        it
+    }
 }
 
 internal fun DramaAppActivity.clearPreparedInterstitialIncentive(eventId: String) {

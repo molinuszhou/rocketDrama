@@ -95,6 +95,8 @@ class DramaAppActivity : FragmentActivity() {
     internal var selectedCatalogGenre: String? = null
     internal var activeTab: MainTab = MainTab.HOME
     internal var withdrawalPageShown = false
+    /** In-memory return target when the wallet was opened from an active playback surface. */
+    internal var walletPlayerReturnState: WalletPlayerReturnState? = null
     /** Profile history/favorites expands into a normal in-app secondary page. */
     internal var profileCollectionPageShown = false
     /** Distinguishes the two Profile secondary pages when restoring an external-ad return. */
@@ -176,7 +178,13 @@ class DramaAppActivity : FragmentActivity() {
     internal var selectedDrama: LocalDrama? = null
     internal var currentEpisodeIndex = 0
     internal var pendingUnlockIndex = -1
-    internal var episodeStatusView: TextView? = null
+    /** Current/total episode pill displayed only while player controls are hidden. */
+    internal var playerEpisodeCounterView: TextView? = null
+    /** Episodes control uses the same current/total value while the player dock is expanded. */
+    internal var playerEpisodePickerButton: TextView? = null
+    /** Set only after PSSDK accepted the user's persisted or newly selected quality preference. */
+    internal var playerResolutionMode: String? = null
+    internal var playerResolutionButton: TextView? = null
     internal var playerProgressSeekBar: SeekBar? = null
     internal var playerProgressText: TextView? = null
     internal var speedButton: TextView? = null
@@ -354,6 +362,7 @@ class DramaAppActivity : FragmentActivity() {
         if (BuildConfig.SCREENSHOT_PROTECTION_ENABLED) {
             window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
         }
+        val freshLauncherStart = intent.getBooleanExtra(EXTRA_FRESH_LAUNCH, false)
         val externalAdReturnCheckpoint = readExternalAdReturnCheckpoint()
         if (externalAdReturnCheckpoint != null) {
             restoreExternalAdReturnSurface(externalAdReturnCheckpoint)
@@ -389,7 +398,15 @@ class DramaAppActivity : FragmentActivity() {
         } else {
             val savedStateCheckpoint = savedInstanceState?.let(::checkpointFromSavedInstanceState)
             val checkpoint = savedStateCheckpoint?.takeIf { it.isFresh(System.currentTimeMillis()) }
-                ?: readBackgroundReturnCheckpoint()
+                ?: if (freshLauncherStart) {
+                    // Swiping a task away and launching from the icon is a new session, not a
+                    // background return. Do not let a persisted onStop checkpoint suppress the
+                    // normal app-open flow for up to its 24-hour retention window.
+                    clearBackgroundReturnCheckpoint()
+                    null
+                } else {
+                    readBackgroundReturnCheckpoint()
+                }
             checkpoint?.let {
                 restoreBackgroundReturnSurface(it)
                 restoringBackgroundReturn = true
@@ -403,8 +420,7 @@ class DramaAppActivity : FragmentActivity() {
             override fun handleOnBackPressed() {
                 when {
                     withdrawalPageShown -> {
-                        withdrawalPageShown = false
-                        renderActiveTab()
+                        returnFromWithdrawalPage()
                     }
                     profileCollectionPageShown -> {
                         profileCollectionPageShown = false
@@ -861,7 +877,7 @@ class DramaAppActivity : FragmentActivity() {
         val nowFavorite = !favorites.getBoolean(key, false)
         favorites.edit().putBoolean(key, nowFavorite).apply()
         if (nowFavorite) saveDramaLibrarySnapshot(drama)
-        favoriteButton?.text = if (nowFavorite) "♥" else "♡"
+        updatePlayerFavoriteButton(nowFavorite)
         toast(if (nowFavorite) t("favorite_added") else t("favorite_removed"))
     }
 
@@ -1475,6 +1491,10 @@ class DramaAppActivity : FragmentActivity() {
         playerTopChrome = null
         playerControlsPanel = null
         playerControlsRevealButton = null
+        playerEpisodeCounterView = null
+        playerEpisodePickerButton = null
+        playerResolutionMode = null
+        playerResolutionButton = null
         exoPlayer?.release()
         exoPlayer = null
     }
@@ -1556,10 +1576,15 @@ class DramaAppActivity : FragmentActivity() {
     companion object {
         /**
          * LauncherActivity is recreated by some external destinations (including Google Play).
-         * Route that return to the live player instead of pushing a second startup Activity.
+         * Route that return to the live player instead of pushing a second startup Activity. The
+         * fresh-launch marker lets a newly created Activity distinguish an icon launch from an
+         * Android task/state restore; an external-ad checkpoint still takes precedence in onCreate.
          */
         fun intent(context: Context): Intent = Intent(context, DramaAppActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            putExtra(EXTRA_FRESH_LAUNCH, true)
         }
+
+        private const val EXTRA_FRESH_LAUNCH = "com.dramaflow.app.extra.FRESH_LAUNCH"
     }
 }

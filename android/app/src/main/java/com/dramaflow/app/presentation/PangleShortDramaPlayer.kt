@@ -24,6 +24,9 @@ import com.dramaflow.app.content.ShortDramaSdkManager
 import com.dramaflow.app.local.LocalDrama
 
 private const val SDK_PLAYER_FRAGMENT_TAG = "joyedrama.pssdk.player"
+private const val PLAYER_RESOLUTION_PREFERENCE_KEY = "player_resolution_mode"
+private const val PLAYER_RESOLUTION_STANDARD = "standard"
+private const val PLAYER_RESOLUTION_HIGH = "high"
 
 /**
  * Hosts Pangle/PSSDK's provider-owned media player.
@@ -103,6 +106,7 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
     playerControlsVisible = false
     playerControlsPinnedByUser = false
     playerSpeed = 1.0f
+    playerResolutionMode = null
     resetMidrollInterstitialSession()
     // This is a real JoyeDrama playback surface even though PSSDK owns the media engine.
     // Keeping the shared player flag true prevents a reward snapshot from rebuilding the
@@ -147,6 +151,7 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
         if (sdkPlayerShown && supportFragmentManager.findFragmentByTag(SDK_PLAYER_FRAGMENT_TAG) === fragment) {
             releaseSettledRewardedTargetIfPossible()
             releasePendingInterstitialIncentiveTargetIfPossible()
+            applySavedSdkResolution(fragment)
         }
     }
     // The provider view can restore system navigation during its own asynchronous initialization.
@@ -205,6 +210,8 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
         controlsReveal.visibility = View.VISIBLE
         playerControlsRevealButton = controlsReveal
         val rewardWheel = createFloatingRewardWheel(compact = true)
+        val episodeCounter = createPlayerEpisodeCounter()
+        playerEpisodeCounterView = episodeCounter
         root.addView(topBar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(132), Gravity.TOP))
         root.addView(controlDock, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(106), Gravity.BOTTOM).apply {
             marginStart = dp(12)
@@ -217,6 +224,10 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
             marginEnd = dp(14)
             bottomMargin = dp(16)
         })
+        root.addView(episodeCounter, FrameLayout.LayoutParams(dp(86), dp(38), Gravity.START or Gravity.BOTTOM).apply {
+            marginStart = dp(14)
+            bottomMargin = dp(16)
+        })
         root.addView(rewardWheel, FrameLayout.LayoutParams(dp(112), dp(96), Gravity.END or Gravity.BOTTOM).apply {
             marginEnd = 0
             bottomMargin = dp(166)
@@ -225,10 +236,12 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
             topBar.bringToFront()
             controlDock.bringToFront()
             controlsReveal.bringToFront()
+            episodeCounter.bringToFront()
             rewardWheel.bringToFront()
             ViewCompat.requestApplyInsets(topBar)
             root.invalidate()
         }
+        updateEpisodeStatus()
     }
     showGestureCoachmarkIfNeeded(previewOnly)
 }
@@ -355,6 +368,7 @@ private fun DramaAppActivity.onSdkItemSelected(episodeIndex: Int) {
 
 private fun DramaAppActivity.onSdkPlaybackStateChanged(episodeIndex: Int, state: Int) {
     currentEpisodeIndex = episodeIndex.coerceIn(0, selectedDrama?.episodes?.lastIndex ?: 0)
+    updateEpisodeStatus()
     val playing = state == PSSDK.PLAYBACK_STATE_PLAY
     sdkPlaybackActive = playing
     playerIsPaused = !playing
@@ -368,13 +382,69 @@ internal fun DramaAppActivity.showSdkResolutionPicker() {
     // keeps the compiler checking this integration rather than silently failing through reflection.
     showBrandedOptionsDialog(
         title = t("resolution"),
-        items = listOf(t("resolution_data_saver"), t("resolution_hd")),
+        items = listOf(
+            resolutionPickerItem(PLAYER_RESOLUTION_STANDARD),
+            resolutionPickerItem(PLAYER_RESOLUTION_HIGH),
+        ),
     ) { which ->
-        val selected = if (which == 0) Resolution.Standard else Resolution.High
-        recordUiAction("PLAYER_RESOLUTION_SELECTED", mapOf("resolution" to if (which == 0) "standard" else "high"))
+        val mode = if (which == 0) PLAYER_RESOLUTION_STANDARD else PLAYER_RESOLUTION_HIGH
+        val selected = if (mode == PLAYER_RESOLUTION_STANDARD) Resolution.Standard else Resolution.High
+        recordUiAction("PLAYER_RESOLUTION_SELECTED", mapOf("resolution" to mode))
         runCatching { fragment.setResolution(selected) }
-            .onSuccess { toast(if (which == 0) t("resolution_data_saver_set") else t("resolution_hd_set")) }
+            .onSuccess {
+                saveAppliedResolutionMode(mode)
+                toast(if (mode == PLAYER_RESOLUTION_STANDARD) t("resolution_data_saver_set") else t("resolution_hd_set"))
+            }
             .onFailure { toast(t("resolution_unavailable")) }
+    }
+}
+
+/** PSSDK exposes a setter but no public getter; render only modes it accepted in this host. */
+internal fun DramaAppActivity.resolutionControlLabel(): String = "${t("resolution")}\n${resolutionModeLabel(playerResolutionMode)}"
+
+private fun DramaAppActivity.resolutionPickerItem(mode: String): String {
+    val selected = playerResolutionMode == mode
+    return "${if (selected) "✓ " else ""}${resolutionModeLabel(mode)}"
+}
+
+private fun DramaAppActivity.resolutionModeLabel(mode: String?): String = when (mode) {
+    PLAYER_RESOLUTION_STANDARD -> t("resolution_data_saver")
+    PLAYER_RESOLUTION_HIGH -> t("resolution_hd")
+    else -> t("resolution_auto")
+}
+
+private fun DramaAppActivity.saveAppliedResolutionMode(mode: String) {
+    playerResolutionMode = mode
+    getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit()
+        .putString(PLAYER_RESOLUTION_PREFERENCE_KEY, mode)
+        .apply()
+    updatePlayerResolutionControl()
+}
+
+private fun DramaAppActivity.applySavedSdkResolution(fragment: ShortPlayFragment) {
+    val savedMode = getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+        .getString(PLAYER_RESOLUTION_PREFERENCE_KEY, null)
+        ?.takeIf { it == PLAYER_RESOLUTION_STANDARD || it == PLAYER_RESOLUTION_HIGH }
+    if (savedMode == null) {
+        playerResolutionMode = null
+        updatePlayerResolutionControl()
+        return
+    }
+    val savedResolution = if (savedMode == PLAYER_RESOLUTION_STANDARD) Resolution.Standard else Resolution.High
+    runCatching { fragment.setResolution(savedResolution) }
+        .onSuccess { saveAppliedResolutionMode(savedMode) }
+        .onFailure {
+            // Leave the provider's own adaptive default untouched when this title lacks the saved mode.
+            playerResolutionMode = null
+            updatePlayerResolutionControl()
+            logStatus("PSSDK 未能应用已保存画质：$savedMode")
+        }
+}
+
+internal fun DramaAppActivity.updatePlayerResolutionControl() {
+    playerResolutionButton?.apply {
+        text = resolutionControlLabel()
+        contentDescription = "${t("resolution")} · ${resolutionModeLabel(playerResolutionMode)}"
     }
 }
 

@@ -370,26 +370,12 @@ internal fun DramaAppActivity.showWelcomeRewardDialog(snapshot: RewardsApiClient
                 claimWelcomeBonus { onFinished() }
             }
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)))
-        content.addView(TextView(this@showWelcomeRewardDialog).apply {
-            text = t("later")
-            textSize = 14f
-            gravity = Gravity.CENTER
-            setTextColor(COLOR_TEXT_MUTED)
-            setPadding(0, dp(16), 0, 0)
-            isClickable = true
-            setOnClickListener {
-                userBehaviorReporter.record("ONBOARDING", "ONBOARDING_WELCOME_LATER_CLICKED")
-                dialog.dismiss()
-                onFinished()
-            }
-        })
         page.addView(content, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
         dialog.setContentView(page)
+        // Welcome reward is a required onboarding action. Do not allow Back or outside-touch
+        // dismissal to bypass its sole CTA and leave the user in a partially completed flow.
+        dialog.setCancelable(false)
         dialog.setCanceledOnTouchOutside(false)
-        dialog.setOnCancelListener {
-            userBehaviorReporter.record("ONBOARDING", "ONBOARDING_WELCOME_DISMISSED")
-            onFinished()
-        }
         dialog.show()
         userBehaviorReporter.record("ONBOARDING", "ONBOARDING_WELCOME_SHOWN")
         dialog.window?.apply {
@@ -516,19 +502,21 @@ internal fun DramaAppActivity.showCheckinRewardDialog(
         }
         content.addView(primary, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)))
 
-        content.addView(TextView(this).apply {
-            text = t("later")
-            textSize = 13f
-            gravity = Gravity.CENTER
-            setTextColor(COLOR_TEXT_MUTED)
-            setPadding(dp(12), dp(14), dp(12), dp(4))
-            setOnClickListener {
-                if (onboarding) userBehaviorReporter.record("ONBOARDING", "ONBOARDING_CHECKIN_LATER_CLICKED")
-                dialog.dismiss()
-            }
-            isClickable = true
-        })
+        if (!onboarding) {
+            content.addView(TextView(this).apply {
+                text = t("later")
+                textSize = 13f
+                gravity = Gravity.CENTER
+                setTextColor(COLOR_TEXT_MUTED)
+                setPadding(dp(12), dp(14), dp(12), dp(4))
+                setOnClickListener { dialog.dismiss() }
+                isClickable = true
+            })
+        }
         dialog.setView(content)
+        // During onboarding, the primary CTA is the only way to advance. The ordinary
+        // Reward Center check-in dialog remains dismissible and keeps its Later action.
+        dialog.setCancelable(!onboarding)
         dialog.setCanceledOnTouchOutside(false)
         dialog.show()
         if (onboarding) userBehaviorReporter.record("ONBOARDING", "ONBOARDING_CHECKIN_SHOWN")

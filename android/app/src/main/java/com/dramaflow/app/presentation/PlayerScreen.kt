@@ -314,12 +314,6 @@ internal fun DramaAppActivity.createPlayerChrome(): View {
         }
         playerDescriptionContainer = descriptionScroll
         controls.addView(descriptionScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(144)))
-        episodeStatusView = TextView(this).apply {
-            textSize = 12f
-            setTextColor(Color.rgb(208, 195, 216))
-            setPadding(0, dp(4), 0, 0)
-        }
-        controls.addView(episodeStatusView)
         controls.addView(createPlayerProgressControls())
         controls.addView(createPlayerActionRow(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)).apply { topMargin = dp(4) })
         chrome.addView(controls, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
@@ -341,6 +335,11 @@ internal fun DramaAppActivity.createPlayerChrome(): View {
         chrome.addView(playerControlsRevealButton, FrameLayout.LayoutParams(dp(74), dp(38), Gravity.BOTTOM or Gravity.END).apply {
             bottomMargin = dp(14)
             marginEnd = dp(14)
+        })
+        playerEpisodeCounterView = createPlayerEpisodeCounter()
+        chrome.addView(requireNotNull(playerEpisodeCounterView), FrameLayout.LayoutParams(dp(74), dp(38), Gravity.BOTTOM or Gravity.START).apply {
+            bottomMargin = dp(14)
+            marginStart = dp(14)
         })
         updateEpisodeStatus()
         updatePlayerProgress(0, 0)
@@ -570,11 +569,11 @@ internal fun DramaAppActivity.createPlayerActionRow(): View = LinearLayout(this)
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
         val actions = listOf(
-            Triple(t("episodes"), t("episodes")) { toggleEpisodePicker() },
+            Triple("${t("episodes")}\n${episodeCounterLabel()}", t("episodes")) { toggleEpisodePicker() },
             Triple("1x", t("speed")) { showPlaybackSpeedPicker() },
-            Triple(t("resolution_short"), t("resolution")) { showSdkResolutionPicker() },
+            Triple(resolutionControlLabel(), t("resolution")) { showSdkResolutionPicker() },
             Triple(t("more"), t("more")) { showPlaybackMoreControls() },
-            Triple(if (isFavorite()) "♥" else "♡", t("favorite")) { toggleFavorite() },
+            Triple("♥", t("favorite")) { toggleFavorite() },
             Triple(t("hide"), t("hide")) { hidePlayerControlsFromUser() },
         )
         actions.forEachIndexed { index, action ->
@@ -584,7 +583,22 @@ internal fun DramaAppActivity.createPlayerActionRow(): View = LinearLayout(this)
                 transparentPlayerIcon(action.first, action.second, action.third)
             }
             if (action.first == "1x") speedButton = button
-            if (action.second == t("favorite")) favoriteButton = button
+            if (action.second == t("favorite")) {
+                favoriteButton = button
+                updatePlayerFavoriteButton(isFavorite())
+            }
+            if (index == 0) {
+                playerEpisodePickerButton = button
+                button.textSize = 10f
+                button.setLines(2)
+                button.includeFontPadding = false
+            }
+            if (action.second == t("resolution")) {
+                playerResolutionButton = button
+                button.textSize = 10f
+                button.setLines(2)
+                button.includeFontPadding = false
+            }
             addView(button, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply {
                 if (index > 0) marginStart = dp(2)
             })
@@ -608,6 +622,17 @@ internal fun DramaAppActivity.transparentPlayerTextButton(label: String, descrip
         isClickable = true
     }
 
+/** Compact read-only episode progress, shown opposite Controls while the dock is hidden. */
+internal fun DramaAppActivity.createPlayerEpisodeCounter(): TextView = TextView(this).apply {
+        text = episodeCounterLabel()
+        textSize = 12f
+        gravity = Gravity.CENTER
+        setTextColor(Color.WHITE)
+        background = roundedDrawable(0x26000000, 14)
+        contentDescription = t("episode_progress", currentEpisodeIndex + 1, selectedDrama?.total?.coerceAtLeast(1) ?: 1, "")
+        isClickable = false
+    }
+
 internal fun DramaAppActivity.setPlayerControlsVisible(visible: Boolean) {
         // A normal pause exposes controls temporarily. A user tap on “show controls” pins them
         // until the matching explicit “hide” action, so PSSDK's next PLAY callback cannot flash
@@ -616,6 +641,7 @@ internal fun DramaAppActivity.setPlayerControlsVisible(visible: Boolean) {
         playerControlsVisible = shouldShow
         playerControlsPanel?.visibility = if (shouldShow) View.VISIBLE else View.GONE
         playerControlsRevealButton?.visibility = if (shouldShow) View.GONE else View.VISIBLE
+        playerEpisodeCounterView?.visibility = if (shouldShow) View.GONE else View.VISIBLE
     }
 
 internal fun DramaAppActivity.showPlayerControlsFromUser() {
@@ -701,6 +727,22 @@ internal fun DramaAppActivity.transparentPlayerIcon(label: String, description: 
         contentDescription = description
         setOnClickListener { onClick() }
         isClickable = true
+    }
+
+/** Uses same-size vector hearts so state changes do not shift the control. */
+internal fun DramaAppActivity.updatePlayerFavoriteButton(favorite: Boolean) {
+        favoriteButton?.apply {
+            alpha = 1f
+            text = ""
+            setTextColor(Color.WHITE)
+            setCompoundDrawablesWithIntrinsicBounds(
+                if (favorite) R.drawable.ic_player_favorite_filled else R.drawable.ic_player_favorite_outline,
+                0,
+                0,
+                0,
+            )
+            compoundDrawablePadding = 0
+        }
     }
 
 internal fun DramaAppActivity.showPlaybackSpeedPicker() {

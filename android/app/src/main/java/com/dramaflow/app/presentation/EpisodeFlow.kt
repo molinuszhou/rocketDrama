@@ -363,8 +363,26 @@ internal fun DramaAppActivity.needsUnlock(index: Int): Boolean {
 
 internal fun DramaAppActivity.episodeKey(index: Int): String = "${selectedDrama?.id ?: 0}:${index + 1}"
 
+/** A locale-neutral compact value that remains readable beside the player controls. */
+internal fun DramaAppActivity.episodeCounterLabel(): String {
+        val drama = selectedDrama ?: return "—/—"
+        val total = drama.total.coerceAtLeast(1)
+        val current = (currentEpisodeIndex + 1).coerceIn(1, total)
+        return "$current/$total"
+}
+
 internal fun DramaAppActivity.updateEpisodeStatus() {
         val drama = selectedDrama ?: return
-        val lockText = if (needsUnlock(currentEpisodeIndex)) " · ${t("unlock_with_ad")}" else " · ${t("watchable")}"
-        episodeStatusView?.text = t("episode_progress", currentEpisodeIndex + 1, drama.total.coerceAtLeast(1), lockText)
+        val total = drama.total.coerceAtLeast(1)
+        val current = (currentEpisodeIndex + 1).coerceIn(1, total)
+        val counter = episodeCounterLabel()
+        val accessibilityLabel = t("episode_progress", current, total, "")
+        playerEpisodeCounterView?.apply {
+            text = counter
+            contentDescription = accessibilityLabel
+        }
+        playerEpisodePickerButton?.apply {
+            text = "${t("episodes")}\n$counter"
+            contentDescription = "${t("episodes")} · $accessibilityLabel"
+        }
     }
