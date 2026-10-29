@@ -144,10 +144,10 @@ android {
         applicationId = formalApplicationId
         minSdk = 26
         targetSdk = 36
-        // 1.7.4.0 contains the current retention, settlement and session recovery fixes.
+        // 1.7.5.0 contains the current retention, settlement and session recovery fixes.
         // Keep the monotonically increasing versionCode for Android package upgrades.
-        versionCode = 99
-        versionName = "1.7.4.0"
+        versionCode = 100
+        versionName = "1.7.5.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
