@@ -83,6 +83,14 @@ const context = vm.createContext({
           latest_event_name: 'TAB_CHANGED', last_event_at: '2026-10-15T08:00:00+00:00',
         }],
       };
+    } else if (url.includes('/v2/admin/operations/reporting-delivery-versioned')) {
+      data = {
+        start_date: '2026-10-29', end_date: '2026-10-29', page: 1, page_size: 100, total: 1,
+        totals: { success_count: 1, failure_count: 0, retrying_count: 0 },
+        version_options: [{ app_version: '1.7.5.0', event_count: 1 }], unknown_version_count: 0,
+        disclaimer: 'fixture association caveat',
+        rows: [{ client_occurred_at: '2026-10-29T08:14:26+00:00', user_uid: 'user-demo', app_version: '1.7.5.0', provider: 'AppsFlyer', event_name: 'ad_revenue', status: 'SUCCESS', logical_placement: 'rv_release_boost', ad_unit_id: 'n6a8693bbc29bb', currency: 'USD', ecpm: '5.2', value: '0.0052', error_code: '' }],
+      };
     } else if (url.includes('/v2/admin/users?')) {
       data = { total: 54, limit: 50, rows: [] };
     }
@@ -107,6 +115,10 @@ const context = vm.createContext({
   assert.equal(node('usersRegistrationTotal').textContent, '54', 'selected registration cohort must remain separately visible');
   assert.match(node('userDailyRows').innerHTML, /<td>41<\/td><td>3<\/td>/, 'legacy Rewards activity and new behavior activity must be separate columns');
   assert.ok(requests.some(({ url }) => url.includes('/v2/admin/users/metrics')), 'user metrics request must be made');
+await vm.runInContext('loadReporting()', context);
+  assert.ok(requests.some(({ url }) => url.includes('/v2/admin/operations/reporting-delivery-versioned')), 'reporting page must use the Admin-only versioned endpoint');
+  assert.match(node('reportingRows').innerHTML, /1\.7\.5\.0/, 'reporting page must render the associated client version');
+  assert.match(node('reportingVersion').innerHTML, /1\.7\.5\.0/, 'reporting page must offer the associated version as a filter');
   await vm.runInContext('loadBehavior()', context);
   assert.match(node('behaviorVersionRows').innerHTML, /1\.7\.4\.beta/, 'behavior page must render client-version coverage');
   assert.match(node('behaviorRows').innerHTML, /user-demo/, 'behavior page must render per-user summaries instead of the global event timeline');
