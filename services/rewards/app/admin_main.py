@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
 from fastapi import Header
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, Response, StreamingResponse
 
 from app.admin_auth import csv_safe_cell
 from app.admin_dashboard import USER_TIMELINE_HTML
@@ -324,9 +325,9 @@ def _admin_first_day_ad_scene_ipu_metrics(
     actual_end = end_date or datetime.now(UTC).date()
     actual_start = start_date or actual_end - timedelta(days=6)
     if actual_start > actual_end:
-        raise ServiceError(2330, "首日场景 IPU 开始日期不能晚于结束日期", 422)
+        raise ServiceError(2330, "新用户首日场景 IPU 开始日期不能晚于结束日期", 422)
     if actual_end - actual_start > timedelta(days=90):
-        raise ServiceError(2331, "首日场景 IPU 最大查询范围为 90 天", 422)
+        raise ServiceError(2331, "新用户首日场景 IPU 最大查询范围为 90 天", 422)
 
     normalized_placement = logical_placement.strip()[:80]
     normalized_format = ad_format.strip().lower()[:32]
@@ -466,15 +467,342 @@ def _admin_first_day_ad_scene_ipu_metrics(
             "attribution_surface": normalized_surface,
         },
         "definition": (
-            "首日按用户注册所在 UTC+0 自然日计算：仅计入注册后发生的 AD_SHOWN，"
-            "以 ad_interaction_id 去重；场景 IPU 贡献 = 场景展示 ÷ 注册 cohort，"
-            "各行可相加得到本 cohort 的首日总 IPU。"
+            "日期代表注册 cohort 的 UTC+0 注册日。首日总 IPU = Σ去重 AD_SHOWN"
+            "（用户注册后至该 UTC 日结束）÷ 所选注册 cohort 用户数；"
+            "场景 IPU 贡献 = 该场景去重展示 ÷ 同一注册 cohort 用户数，各行可相加得到首日总 IPU。"
         ),
         "coverage": (
             "数据来自用户行为埋点，不含仅存在于 TopOn 原始收入回调中的无用户标识记录；"
             "适用于已上报 AD_SHOWN 的客户端版本，原始广告源与收入请继续在广告源日统计中核对。"
         ),
     }
+
+
+def _admin_period_ad_scene_ipu_metrics(
+    authorization: str | None,
+    *,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    logical_placement: str = "",
+    ad_format: str = "",
+    app_version: str = "",
+    attribution_surface: str = "",
+) -> dict[str, Any]:
+    """Read UTC-period AD_SHOWN IPU against users active in the same period.
+
+    This is intentionally distinct from the registration-cohort metric above:
+    period IPU answers operational load in a selected period, while first-day IPU
+    answers onboarding pressure for a selected registration cohort.
+    """
+
+    service._verify_admin_token(authorization)
+    actual_end = end_date or datetime.now(UTC).date()
+    actual_start = start_date or actual_end - timedelta(days=6)
+    if actual_start > actual_end:
+        raise ServiceError(2333, "周期场景 IPU 开始日期不能晚于结束日期", 422)
+    if actual_end - actual_start > timedelta(days=90):
+        raise ServiceError(2334, "周期场景 IPU 最大查询范围为 90 天", 422)
+
+    normalized_placement = logical_placement.strip()[:80]
+    normalized_format = ad_format.strip().lower()[:32]
+    normalized_version = app_version.strip()[:64]
+    normalized_surface = attribution_surface.strip().upper()
+    if normalized_surface and normalized_surface not in {"A", "B", "PENDING", "UNKNOWN"}:
+        raise ServiceError(2335, "广告场景归因面仅支持 A、B、PENDING 或 UNKNOWN", 422)
+
+    period_start = service._utc_start_of_day(actual_start)
+    period_end = service._utc_start_of_day(actual_end + timedelta(days=1))
+    base_filters = ["b.client_occurred_at >= %s", "b.client_occurred_at < %s"]
+    base_params: list[Any] = [period_start, period_end]
+    if normalized_surface:
+        base_filters.append(f"({_SCENE_SURFACE_SQL}) = %s")
+        base_params.append(normalized_surface)
+    if normalized_version:
+        base_filters.append("b.app_version = %s")
+        base_params.append(normalized_version)
+    base_where = " WHERE " + " AND ".join(base_filters)
+
+    shown_filters = ["event_category = 'AD'", "event_name = 'AD_SHOWN'"]
+    shown_params: list[Any] = []
+    if normalized_placement:
+        shown_filters.append("COALESCE(properties ->> 'placement_id', '') = %s")
+        shown_params.append(normalized_placement)
+    if normalized_format:
+        shown_filters.append("COALESCE(properties ->> 'ad_format', '') = %s")
+        shown_params.append(normalized_format)
+    shown_where = " WHERE " + " AND ".join(shown_filters)
+    scene_cte = f"""
+        WITH base_events AS (
+            SELECT
+                b.user_id,
+                b.event_id,
+                b.event_category,
+                b.event_name,
+                b.properties,
+                {_SCENE_SURFACE_SQL} AS attribution_segment
+            FROM user_behavior_events AS b
+            JOIN users AS u ON u.user_id = b.user_id
+            {base_where}
+        ), shown AS (
+            SELECT
+                user_id,
+                COALESCE(NULLIF(BTRIM(properties ->> 'placement_id'), ''), 'unknown') AS logical_placement,
+                COALESCE(NULLIF(BTRIM(properties ->> 'ad_format'), ''), 'unknown') AS ad_format,
+                attribution_segment,
+                COALESCE(NULLIF(BTRIM(properties ->> 'ad_interaction_id'), ''), event_id) AS impression_key
+            FROM base_events
+            {shown_where}
+        )
+    """
+
+    with service._transaction() as connection:
+        totals = service._one(
+            connection,
+            f"""
+            {scene_cte}
+            SELECT
+                (SELECT COUNT(DISTINCT user_id) FROM base_events) AS active_users,
+                COUNT(DISTINCT impression_key) AS shown_count,
+                COUNT(DISTINCT user_id) AS reached_users
+            FROM shown
+            """,
+            tuple(base_params + shown_params),
+        ) or {}
+        rows = service._all(
+            connection,
+            f"""
+            {scene_cte}
+            SELECT
+                logical_placement,
+                ad_format,
+                attribution_segment,
+                COUNT(DISTINCT impression_key) AS shown_count,
+                COUNT(DISTINCT user_id) AS reached_users
+            FROM shown
+            GROUP BY logical_placement, ad_format, attribution_segment
+            ORDER BY shown_count DESC, logical_placement ASC, ad_format ASC, attribution_segment ASC
+            """,
+            tuple(base_params + shown_params),
+        )
+
+    active_users = int(totals.get("active_users", 0))
+    shown_count = int(totals.get("shown_count", 0))
+    reached_users = int(totals.get("reached_users", 0))
+    surface_labels = {
+        "A": "A 面（已确认）",
+        "B": "B 面（已确认）",
+        "PENDING": "待归因（客户端默认 A）",
+        "UNKNOWN": "归因面未标记",
+    }
+
+    def ratio(numerator: int, denominator: int) -> float:
+        return round(numerator / denominator, 6) if denominator else 0.0
+
+    scene_rows = []
+    for row in rows:
+        scene_shown = int(row.get("shown_count", 0))
+        scene_reached = int(row.get("reached_users", 0))
+        segment = str(row.get("attribution_segment") or "UNKNOWN")
+        scene_rows.append({
+            "logical_placement": str(row.get("logical_placement") or "unknown"),
+            "ad_format": str(row.get("ad_format") or "unknown"),
+            "attribution_segment": segment,
+            "attribution_segment_label": surface_labels.get(segment, surface_labels["UNKNOWN"]),
+            "shown_count": scene_shown,
+            "reached_users": scene_reached,
+            "period_ipu_contribution": ratio(scene_shown, active_users),
+            "active_user_reach_rate": ratio(scene_reached, active_users),
+            "reached_user_ipu": ratio(scene_shown, scene_reached),
+        })
+    return {
+        "start_date": actual_start.isoformat(),
+        "end_date": actual_end.isoformat(),
+        "active_users": active_users,
+        "shown_count": shown_count,
+        "reached_users": reached_users,
+        "period_ipu": ratio(shown_count, active_users),
+        "active_user_reach_rate": ratio(reached_users, active_users),
+        "rows": scene_rows,
+        "filters": {
+            "logical_placement": normalized_placement,
+            "ad_format": normalized_format,
+            "app_version": normalized_version,
+            "attribution_surface": normalized_surface,
+        },
+        "definition": (
+            "日期代表行为发生 UTC+0 自然日。周期总 IPU = Σ去重 AD_SHOWN ÷ "
+            "所选周期内至少有一条用户行为的去重活跃用户数；"
+            "场景 IPU 贡献 = 该场景去重展示 ÷ 同一周期行为活跃用户数，各行可相加得到周期总 IPU。"
+        ),
+        "coverage": (
+            "活跃用户与广告展示均来自用户行为埋点；行为记录保留最近 90 天。"
+            "该指标用于运营期广告压力分析，不等同于广告源收入或财务结算。"
+        ),
+    }
+
+
+@app.get("/v2/admin/operations/period-ad-scene-ipu")
+def admin_period_ad_scene_ipu(
+    authorization: str | None = Header(default=None),
+    start_date: date | None = None,
+    end_date: date | None = None,
+    logical_placement: str = "",
+    ad_format: str = "",
+    app_version: str = "",
+    attribution_surface: str = "",
+) -> dict[str, Any]:
+    return {
+        "code": 0,
+        "data": _admin_period_ad_scene_ipu_metrics(
+            authorization,
+            start_date=start_date,
+            end_date=end_date,
+            logical_placement=logical_placement,
+            ad_format=ad_format,
+            app_version=app_version,
+            attribution_surface=attribution_surface,
+        ),
+    }
+
+
+def _admin_behavior_flow_streaming_csv(
+    authorization: str | None,
+    *,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    user_id: str = "",
+    event_category: str = "",
+    event_name: str = "",
+    app_version: str = "",
+) -> StreamingResponse:
+    """Export filtered behavior rows in bounded database batches.
+
+    The legacy shared API export intentionally protects its in-memory response
+    with a 10,000-row cap. The Admin process can instead stream CSV chunks so a
+    normal high-volume operational day remains exportable without restarting or
+    expanding the mobile API service.
+    """
+
+    service._verify_admin_token(authorization)
+    actual_end = end_date or datetime.now(UTC).date()
+    actual_start = start_date or actual_end - timedelta(days=6)
+    if actual_start > actual_end:
+        raise ServiceError(2336, "行为记录开始日期不能晚于结束日期", 422)
+    if actual_end - actual_start > timedelta(days=90):
+        raise ServiceError(2337, "行为记录最大查询范围为 90 天", 422)
+
+    normalized_category = event_category.strip().upper()
+    supported_categories = {"APP", "SDK", "ONBOARDING", "PLAYBACK", "AD", "NETWORK", "REWARDS", "UI"}
+    if normalized_category and normalized_category not in supported_categories:
+        raise ServiceError(2338, "行为类别不受支持", 422)
+    normalized_event = event_name.strip().upper()
+    if normalized_event and (len(normalized_event) > 80 or not normalized_event.replace("_", "").isalnum()):
+        raise ServiceError(2339, "行为事件名称格式无效", 422)
+
+    normalized_user_id = user_id.strip()[:128]
+    normalized_version = app_version.strip()[:64]
+    date_window_start = service._utc_start_of_day(actual_start)
+    date_window_until = min(
+        service._utc_start_of_day(actual_end + timedelta(days=1)),
+        datetime.now(UTC),
+    )
+    base_filters = ["client_occurred_at >= %s", "client_occurred_at < %s"]
+    base_params: list[Any] = [date_window_start, date_window_until]
+    if normalized_user_id:
+        base_filters.append("user_id = %s")
+        base_params.append(normalized_user_id)
+    if normalized_version:
+        base_filters.append("app_version = %s")
+        base_params.append(normalized_version)
+    if normalized_category:
+        base_filters.append("event_category = %s")
+        base_params.append(normalized_category)
+    if normalized_event:
+        base_filters.append("event_name = %s")
+        base_params.append(normalized_event)
+    base_where = " WHERE " + " AND ".join(base_filters)
+    header = [
+        "客户端发生时间 UTC", "服务端接收时间 UTC", "匿名用户 ID", "会话 ID",
+        "类别", "事件", "客户端版本", "最小化属性 JSON",
+    ]
+
+    def csv_chunk(rows: list[dict[str, Any]], include_header: bool = False) -> bytes:
+        output = io.StringIO(newline="")
+        writer = csv.writer(output)
+        if include_header:
+            writer.writerow([csv_safe_cell(value) for value in header])
+        for item in rows:
+            writer.writerow([
+                csv_safe_cell(item.get("client_occurred_at", "")),
+                csv_safe_cell(item.get("accepted_at", "")),
+                csv_safe_cell(item.get("user_id", "")),
+                csv_safe_cell(item.get("session_id", "")),
+                csv_safe_cell(item.get("event_category", "")),
+                csv_safe_cell(item.get("event_name", "")),
+                csv_safe_cell(item.get("app_version", "")),
+                csv_safe_cell(json.dumps(item.get("properties") or {}, ensure_ascii=False, separators=(",", ":"))),
+            ])
+        return output.getvalue().encode("utf-8")
+
+    def stream() -> Any:
+        # Excel recognizes the UTF-8 BOM; later batches have no duplicate header.
+        yield b"\xef\xbb\xbf" + csv_chunk([], include_header=True)
+        last_occurred_at: Any = None
+        last_event_id: Any = None
+        batch_size = 5_000
+        while True:
+            keyset_where = ""
+            keyset_params: list[Any] = []
+            if last_occurred_at is not None:
+                keyset_where = " AND (client_occurred_at, event_id) > (%s, %s)"
+                keyset_params = [last_occurred_at, last_event_id]
+            with service._transaction() as connection:
+                rows = service._all(
+                    connection,
+                    f"""
+                    SELECT event_id, client_occurred_at, accepted_at, user_id, session_id,
+                           event_category, event_name, app_version, properties
+                    FROM user_behavior_events
+                    {base_where}{keyset_where}
+                    ORDER BY client_occurred_at ASC, event_id ASC
+                    LIMIT %s
+                    """,
+                    tuple(base_params + keyset_params + [batch_size]),
+                )
+            if not rows:
+                return
+            yield csv_chunk(rows)
+            last_occurred_at = rows[-1].get("client_occurred_at")
+            last_event_id = rows[-1].get("event_id")
+            if len(rows) < batch_size:
+                return
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="joyedrama-user-behavior-events.csv"'},
+    )
+
+
+@app.get("/v2/admin/analytics/behavior-flow/export-all")
+def admin_behavior_flow_export_all(
+    authorization: str | None = Header(default=None),
+    start_date: date | None = None,
+    end_date: date | None = None,
+    user_id: str = "",
+    event_category: str = "",
+    event_name: str = "",
+    app_version: str = "",
+) -> StreamingResponse:
+    return _admin_behavior_flow_streaming_csv(
+        authorization,
+        start_date=start_date,
+        end_date=end_date,
+        user_id=user_id,
+        event_category=event_category,
+        event_name=event_name,
+        app_version=app_version,
+    )
 
 
 @app.get("/v2/admin/operations/first-day-ad-scene-ipu")

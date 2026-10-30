@@ -95,6 +95,18 @@ const context = vm.createContext({
           reach_rate: 0.444444, reached_user_ipu: 1.833333,
         }],
       };
+    } else if (url.includes('/v2/admin/operations/period-ad-scene-ipu')) {
+      data = {
+        start_date: '2026-10-15', end_date: '2026-10-15', active_users: 80,
+        shown_count: 220, reached_users: 57, period_ipu: 2.75, active_user_reach_rate: 0.7125,
+        definition: 'fixture period definition', coverage: 'fixture period coverage',
+        rows: [{
+          logical_placement: 'rv_checkin_complete', ad_format: 'rewarded',
+          attribution_segment: 'B', attribution_segment_label: 'B 面（已确认）',
+          shown_count: 70, reached_users: 35, period_ipu_contribution: 0.875,
+          active_user_reach_rate: 0.4375, reached_user_ipu: 2,
+        }],
+      };
     } else if (url.includes('/v2/admin/operations/reporting-delivery-versioned')) {
       data = {
         start_date: '2026-10-29', end_date: '2026-10-29', page: 1, page_size: 100, total: 1,
@@ -137,6 +149,16 @@ const context = vm.createContext({
   assert.match(node('operationsSceneRows').innerHTML, /rv_welcome_bonus/, 'scene table must render the logical placement');
   assert.match(node('operationsSceneRows').innerHTML, /新人欢迎奖励/, 'scene table must render the operator-facing placement label');
   assert.match(node('operationsSceneRows').innerHTML, /待归因（客户端默认 A）/, 'scene table must distinguish pending attribution from confirmed A');
+	await vm.runInContext('loadOperationsPeriod()', context);
+  assert.ok(requests.some(({ url }) => url.includes('/v2/admin/operations/period-ad-scene-ipu')), 'operations page must request Admin-only period scene IPU');
+  assert.equal(node('operationsPeriodActive').textContent, '80', 'period IPU must show behavior-active users as its denominator');
+  assert.equal(node('operationsPeriodIpu').textContent, '2.75', 'period IPU headline must render the period-level IPU');
+  assert.match(node('operationsPeriodRows').innerHTML, /每日签到奖励/, 'period table must render the operator-facing placement label');
+  assert.match(html, /新用户首日场景 IPU/, 'dashboard must name the registration-cohort metric explicitly');
+  assert.match(html, /首日总 IPU = Σ去重 AD_SHOWN/, 'dashboard must display the first-day calculation formula');
+  assert.match(html, /周期总 IPU = Σ去重 AD_SHOWN/, 'dashboard must display the period calculation formula');
+  assert.match(html, /behavior-flow\/export-all/, 'behavior CSV export must use the Admin-only streaming endpoint');
+  assert.match(html, /不受 10,000 条硬上限限制/, 'behavior page must explain that full CSV export is not capped at 10,000 rows');
   await vm.runInContext('loadBehavior()', context);
   assert.match(node('behaviorVersionRows').innerHTML, /1\.7\.4\.beta/, 'behavior page must render client-version coverage');
   assert.match(node('behaviorRows').innerHTML, /user-demo/, 'behavior page must render per-user summaries instead of the global event timeline');
