@@ -83,6 +83,18 @@ const context = vm.createContext({
           latest_event_name: 'TAB_CHANGED', last_event_at: '2026-10-15T08:00:00+00:00',
         }],
       };
+    } else if (url.includes('/v2/admin/operations/first-day-ad-scene-ipu')) {
+      data = {
+        start_date: '2026-10-15', end_date: '2026-10-15', cohort_users: 54,
+        shown_count: 110, reached_users: 37, first_day_ipu: 2.037037, reach_rate: 0.685185,
+        definition: 'fixture first-day definition', coverage: 'fixture behavior coverage',
+        rows: [{
+          logical_placement: 'rv_welcome_bonus', ad_format: 'rewarded',
+          attribution_segment: 'PENDING', attribution_segment_label: '待归因（客户端默认 A）',
+          shown_count: 44, reached_users: 24, cohort_ipu_contribution: 0.814815,
+          reach_rate: 0.444444, reached_user_ipu: 1.833333,
+        }],
+      };
     } else if (url.includes('/v2/admin/operations/reporting-delivery-versioned')) {
       data = {
         start_date: '2026-10-29', end_date: '2026-10-29', page: 1, page_size: 100, total: 1,
@@ -115,10 +127,15 @@ const context = vm.createContext({
   assert.equal(node('usersRegistrationTotal').textContent, '54', 'selected registration cohort must remain separately visible');
   assert.match(node('userDailyRows').innerHTML, /<td>41<\/td><td>3<\/td>/, 'legacy Rewards activity and new behavior activity must be separate columns');
   assert.ok(requests.some(({ url }) => url.includes('/v2/admin/users/metrics')), 'user metrics request must be made');
-await vm.runInContext('loadReporting()', context);
+	await vm.runInContext('loadReporting()', context);
   assert.ok(requests.some(({ url }) => url.includes('/v2/admin/operations/reporting-delivery-versioned')), 'reporting page must use the Admin-only versioned endpoint');
   assert.match(node('reportingRows').innerHTML, /1\.7\.5\.0/, 'reporting page must render the associated client version');
   assert.match(node('reportingVersion').innerHTML, /1\.7\.5\.0/, 'reporting page must offer the associated version as a filter');
+	await vm.runInContext('loadOperationsScene()', context);
+  assert.ok(requests.some(({ url }) => url.includes('/v2/admin/operations/first-day-ad-scene-ipu')), 'operations page must request Admin-only first-day scene IPU');
+  assert.equal(node('operationsSceneIpu').textContent, '2.037', 'scene IPU headline must render the cohort-level IPU');
+  assert.match(node('operationsSceneRows').innerHTML, /rv_welcome_bonus/, 'scene table must render the logical placement');
+  assert.match(node('operationsSceneRows').innerHTML, /待归因（客户端默认 A）/, 'scene table must distinguish pending attribution from confirmed A');
   await vm.runInContext('loadBehavior()', context);
   assert.match(node('behaviorVersionRows').innerHTML, /1\.7\.4\.beta/, 'behavior page must render client-version coverage');
   assert.match(node('behaviorRows').innerHTML, /user-demo/, 'behavior page must render per-user summaries instead of the global event timeline');

@@ -293,6 +293,214 @@ def admin_reporting_delivery_versioned_export(
     )
 
 
+_SCENE_SURFACE_SQL = """
+CASE
+    WHEN COALESCE(BTRIM(u.attribution_status), '') = '' THEN 'PENDING'
+    WHEN u.attribution_surface IN ('A', 'B') THEN u.attribution_surface
+    ELSE 'UNKNOWN'
+END
+"""
+
+
+def _admin_first_day_ad_scene_ipu_metrics(
+    authorization: str | None,
+    *,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    logical_placement: str = "",
+    ad_format: str = "",
+    app_version: str = "",
+    attribution_surface: str = "",
+) -> dict[str, Any]:
+    """Read first-registration-day AD_SHOWN telemetry by product entry point.
+
+    ``ad_mediation_events`` deliberately does not retain a user identifier, so it
+    remains the source for network/revenue reconciliation only. This Admin-only
+    analysis instead uses the privacy-minimised ``AD_SHOWN`` behavior trail, which
+    is keyed by the anonymous Rewards user and can safely support cohort IPU.
+    """
+
+    service._verify_admin_token(authorization)
+    actual_end = end_date or datetime.now(UTC).date()
+    actual_start = start_date or actual_end - timedelta(days=6)
+    if actual_start > actual_end:
+        raise ServiceError(2330, "首日场景 IPU 开始日期不能晚于结束日期", 422)
+    if actual_end - actual_start > timedelta(days=90):
+        raise ServiceError(2331, "首日场景 IPU 最大查询范围为 90 天", 422)
+
+    normalized_placement = logical_placement.strip()[:80]
+    normalized_format = ad_format.strip().lower()[:32]
+    normalized_version = app_version.strip()[:64]
+    normalized_surface = attribution_surface.strip().upper()
+    if normalized_surface and normalized_surface not in {"A", "B", "PENDING", "UNKNOWN"}:
+        raise ServiceError(2332, "广告场景归因面仅支持 A、B、PENDING 或 UNKNOWN", 422)
+
+    registration_start = service._utc_start_of_day(actual_start)
+    registration_end = service._utc_start_of_day(actual_end + timedelta(days=1))
+    cohort_filters = ["u.created_at >= %s", "u.created_at < %s"]
+    cohort_params: list[Any] = [registration_start, registration_end]
+    if normalized_surface:
+        cohort_filters.append(f"({_SCENE_SURFACE_SQL}) = %s")
+        cohort_params.append(normalized_surface)
+    cohort_where = " WHERE " + " AND ".join(cohort_filters)
+    cohort_cte = f"""
+        WITH cohort AS (
+            SELECT
+                u.user_id,
+                u.created_at,
+                {_SCENE_SURFACE_SQL} AS attribution_segment
+            FROM users AS u
+            {cohort_where}
+        )
+    """
+
+    shown_filters = [
+        "b.event_category = 'AD'",
+        "b.event_name = 'AD_SHOWN'",
+        "b.client_occurred_at >= %s",
+        "b.client_occurred_at < %s",
+        "b.client_occurred_at >= c.created_at",
+        "b.client_occurred_at < (((c.created_at AT TIME ZONE 'UTC')::date + 1)::timestamp AT TIME ZONE 'UTC')",
+    ]
+    shown_params: list[Any] = [registration_start, registration_end]
+    if normalized_placement:
+        shown_filters.append("COALESCE(b.properties ->> 'placement_id', '') = %s")
+        shown_params.append(normalized_placement)
+    if normalized_format:
+        shown_filters.append("COALESCE(b.properties ->> 'ad_format', '') = %s")
+        shown_params.append(normalized_format)
+    if normalized_version:
+        shown_filters.append("b.app_version = %s")
+        shown_params.append(normalized_version)
+    shown_where = " WHERE " + " AND ".join(shown_filters)
+    shown_cte = f"""
+        {cohort_cte}, shown AS (
+            SELECT
+                b.user_id,
+                COALESCE(NULLIF(BTRIM(b.properties ->> 'placement_id'), ''), 'unknown') AS logical_placement,
+                COALESCE(NULLIF(BTRIM(b.properties ->> 'ad_format'), ''), 'unknown') AS ad_format,
+                c.attribution_segment,
+                COALESCE(NULLIF(BTRIM(b.properties ->> 'ad_interaction_id'), ''), b.event_id) AS impression_key
+            FROM user_behavior_events AS b
+            JOIN cohort AS c ON c.user_id = b.user_id
+            {shown_where}
+        )
+    """
+
+    with service._transaction() as connection:
+        cohort_total = service._one(
+            connection,
+            f"{cohort_cte} SELECT COUNT(*) AS cohort_users FROM cohort",
+            tuple(cohort_params),
+        ) or {}
+        totals = service._one(
+            connection,
+            f"""
+            {shown_cte}
+            SELECT
+                COUNT(DISTINCT impression_key) AS shown_count,
+                COUNT(DISTINCT user_id) AS reached_users
+            FROM shown
+            """,
+            tuple(cohort_params + shown_params),
+        ) or {}
+        rows = service._all(
+            connection,
+            f"""
+            {shown_cte}
+            SELECT
+                logical_placement,
+                ad_format,
+                attribution_segment,
+                COUNT(DISTINCT impression_key) AS shown_count,
+                COUNT(DISTINCT user_id) AS reached_users
+            FROM shown
+            GROUP BY logical_placement, ad_format, attribution_segment
+            ORDER BY shown_count DESC, logical_placement ASC, ad_format ASC, attribution_segment ASC
+            """,
+            tuple(cohort_params + shown_params),
+        )
+
+    cohort_users = int(cohort_total.get("cohort_users", 0))
+    shown_count = int(totals.get("shown_count", 0))
+    reached_users = int(totals.get("reached_users", 0))
+    surface_labels = {
+        "A": "A 面（已确认）",
+        "B": "B 面（已确认）",
+        "PENDING": "待归因（客户端默认 A）",
+        "UNKNOWN": "归因面未标记",
+    }
+
+    def ratio(numerator: int, denominator: int) -> float:
+        return round(numerator / denominator, 6) if denominator else 0.0
+
+    scene_rows = []
+    for row in rows:
+        scene_shown = int(row.get("shown_count", 0))
+        scene_reached = int(row.get("reached_users", 0))
+        segment = str(row.get("attribution_segment") or "UNKNOWN")
+        scene_rows.append({
+            "logical_placement": str(row.get("logical_placement") or "unknown"),
+            "ad_format": str(row.get("ad_format") or "unknown"),
+            "attribution_segment": segment,
+            "attribution_segment_label": surface_labels.get(segment, surface_labels["UNKNOWN"]),
+            "shown_count": scene_shown,
+            "reached_users": scene_reached,
+            "cohort_ipu_contribution": ratio(scene_shown, cohort_users),
+            "reach_rate": ratio(scene_reached, cohort_users),
+            "reached_user_ipu": ratio(scene_shown, scene_reached),
+        })
+    return {
+        "start_date": actual_start.isoformat(),
+        "end_date": actual_end.isoformat(),
+        "cohort_users": cohort_users,
+        "shown_count": shown_count,
+        "reached_users": reached_users,
+        "first_day_ipu": ratio(shown_count, cohort_users),
+        "reach_rate": ratio(reached_users, cohort_users),
+        "rows": scene_rows,
+        "filters": {
+            "logical_placement": normalized_placement,
+            "ad_format": normalized_format,
+            "app_version": normalized_version,
+            "attribution_surface": normalized_surface,
+        },
+        "definition": (
+            "首日按用户注册所在 UTC+0 自然日计算：仅计入注册后发生的 AD_SHOWN，"
+            "以 ad_interaction_id 去重；场景 IPU 贡献 = 场景展示 ÷ 注册 cohort，"
+            "各行可相加得到本 cohort 的首日总 IPU。"
+        ),
+        "coverage": (
+            "数据来自用户行为埋点，不含仅存在于 TopOn 原始收入回调中的无用户标识记录；"
+            "适用于已上报 AD_SHOWN 的客户端版本，原始广告源与收入请继续在广告源日统计中核对。"
+        ),
+    }
+
+
+@app.get("/v2/admin/operations/first-day-ad-scene-ipu")
+def admin_first_day_ad_scene_ipu(
+    authorization: str | None = Header(default=None),
+    start_date: date | None = None,
+    end_date: date | None = None,
+    logical_placement: str = "",
+    ad_format: str = "",
+    app_version: str = "",
+    attribution_surface: str = "",
+) -> dict[str, Any]:
+    return {
+        "code": 0,
+        "data": _admin_first_day_ad_scene_ipu_metrics(
+            authorization,
+            start_date=start_date,
+            end_date=end_date,
+            logical_placement=logical_placement,
+            ad_format=ad_format,
+            app_version=app_version,
+            attribution_surface=attribution_surface,
+        ),
+    }
+
+
 @app.get("/admin/timeline", response_class=HTMLResponse, include_in_schema=False)
 def admin_user_behavior_timeline_page() -> HTMLResponse:
     """Admin-only focused page; data is fetched through the existing admin analytics API."""
