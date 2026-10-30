@@ -135,6 +135,7 @@ const context = vm.createContext({
   assert.ok(requests.some(({ url }) => url.includes('/v2/admin/operations/first-day-ad-scene-ipu')), 'operations page must request Admin-only first-day scene IPU');
   assert.equal(node('operationsSceneIpu').textContent, '2.037', 'scene IPU headline must render the cohort-level IPU');
   assert.match(node('operationsSceneRows').innerHTML, /rv_welcome_bonus/, 'scene table must render the logical placement');
+  assert.match(node('operationsSceneRows').innerHTML, /新人欢迎奖励/, 'scene table must render the operator-facing placement label');
   assert.match(node('operationsSceneRows').innerHTML, /待归因（客户端默认 A）/, 'scene table must distinguish pending attribution from confirmed A');
   await vm.runInContext('loadBehavior()', context);
   assert.match(node('behaviorVersionRows').innerHTML, /1\.7\.4\.beta/, 'behavior page must render client-version coverage');
