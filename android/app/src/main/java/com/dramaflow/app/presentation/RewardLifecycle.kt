@@ -535,6 +535,7 @@ internal fun DramaAppActivity.showCheckinRewardDialog(
      * 奖励数据只提供“连续天数”和“今日是否已签”；具体奖励列表来自服务端动态规则，且按七日周期循环。
      */
 internal fun DramaAppActivity.createCheckinTierStrip(snapshot: RewardsApiClient.Snapshot?, lightSurface: Boolean = false): View {
+    if (lightSurface) return createRocketLightCheckinStrip(snapshot)
     val serverTiers = snapshot?.checkinRewardTiers?.take(7).orEmpty()
     val tiers = if (serverTiers.isEmpty()) List(7) { 0 } else serverTiers + List(7 - serverTiers.size) { serverTiers.last() }
     val completedDays = snapshot?.checkinStreak ?: 0

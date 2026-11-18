@@ -283,7 +283,7 @@ internal fun DramaAppActivity.createPlayerChrome(): View {
         val controls = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(14), dp(10), dp(14), dp(12))
-            background = topRoundedDrawable(0xCC092D32.toInt(), 22)
+            background = topRoundedDrawable(0xCC15171C.toInt(), 22)
             isClickable = true
         }
         controls.visibility = View.GONE
@@ -352,7 +352,7 @@ internal fun DramaAppActivity.createPlayerTopBar(): View {
             setImageResource(R.drawable.ic_arrow_back)
             imageTintList = ColorStateList.valueOf(Color.WHITE)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            background = roundedDrawable(0x72092D32, 20)
+            background = roundedDrawable(0x7215171C, 20)
             contentDescription = t("back")
             isClickable = true
             setOnClickListener {
@@ -613,7 +613,7 @@ internal fun DramaAppActivity.transparentPlayerTextButton(label: String, descrip
         textSize = 12f
         gravity = Gravity.CENTER
         setTextColor(Color.WHITE)
-        background = roundedDrawable(0x66092D32, 20)
+        background = roundedDrawable(0x6615171C, 20)
         contentDescription = description
         setOnClickListener { onClick() }
         isClickable = true
@@ -625,7 +625,7 @@ internal fun DramaAppActivity.createPlayerEpisodeCounter(): TextView = TextView(
         textSize = 12f
         gravity = Gravity.CENTER
         setTextColor(Color.WHITE)
-        background = roundedDrawable(0x66092D32, 20)
+        background = roundedDrawable(0x6615171C, 20)
         contentDescription = t("episode_progress", currentEpisodeIndex + 1, selectedDrama?.total?.coerceAtLeast(1) ?: 1, "")
         isClickable = false
     }
@@ -720,7 +720,7 @@ internal fun DramaAppActivity.transparentPlayerIcon(label: String, description: 
         textSize = if (label.length > 1) 12f else 21f
         gravity = Gravity.CENTER
         setTextColor(Color.WHITE)
-        background = roundedDrawable(0x66092D32, 20)
+        background = roundedDrawable(0x6615171C, 20)
         contentDescription = description
         setOnClickListener { onClick() }
         isClickable = true

@@ -151,15 +151,12 @@ internal fun DramaAppActivity.createPersistentAssetHeader(): View {
     return shell
 }
 
-/** Keeps Home discovery controls reachable beneath the persistent wallet while the catalogue scrolls. */
+/** Home uses its own toolbar search icon; categories occupy one predictable 48dp row. */
 internal fun DramaAppActivity.createHomeBrowseControls(): View = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
-        setPadding(dp(16), dp(4), dp(16), dp(8))
+        setPadding(dp(16), 0, dp(16), 0)
         background = pageCanvasDrawable()
-        addView(createSearchPrompt(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)))
-        addView(createCategoryTabs(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply {
-            topMargin = dp(8)
-        })
+        addView(createCategoryTabs(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
     }
 
 internal fun DramaAppActivity.createAssetPill(icon: Int, label: String, value: String, isGem: Boolean, onClick: () -> Unit): View = LinearLayout(this).apply {
@@ -214,7 +211,7 @@ internal fun DramaAppActivity.createCashoutExplainer(wallet: RewardsApiClient.Wa
         steps.forEachIndexed { index, step ->
             addView(LinearLayout(this@createCashoutExplainer).apply {
                 gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(8), 0, dp(8))
-                addView(TextView(this@createCashoutExplainer).apply { text = "${index + 1}"; textSize = 13f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE); background = roundedDrawable(if (index == 0) COLOR_CORAL else COLOR_AQUA, 14) }, LinearLayout.LayoutParams(dp(28), dp(28)))
+                addView(TextView(this@createCashoutExplainer).apply { text = "${index + 1}"; textSize = 13f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_INK); background = roundedDrawable(if (index == 0) COLOR_CORAL else COLOR_AQUA, 14) }, LinearLayout.LayoutParams(dp(28), dp(28)))
                 addView(LinearLayout(this@createCashoutExplainer).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(11), 0, 0, 0)
                     addView(TextView(this@createCashoutExplainer).apply { text = step.first; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
                     addView(TextView(this@createCashoutExplainer).apply { text = step.second; textSize = 12f; setTextColor(COLOR_TEXT_MUTED); setPadding(0, dp(2), 0, 0) })
@@ -292,7 +289,7 @@ internal fun DramaAppActivity.animateClaimedCash(previous: String, current: Stri
             alpha = 0f; setPadding(dp(18), dp(8), dp(18), dp(8))
         }
         val halo = View(this).apply {
-            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0x224BEF9A); setStroke(dp(2), COLOR_REWARD_GAIN) }; alpha = 0f
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0x22D7F75B); setStroke(dp(2), COLOR_REWARD_GAIN) }; alpha = 0f
         }
         val celebrationHeight = (root.height * 0.54f).toInt().coerceAtLeast(dp(260))
         root.addView(celebration, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, celebrationHeight, Gravity.CENTER))
@@ -345,7 +342,7 @@ internal fun DramaAppActivity.createPlayerAssetStrip(): View = LinearLayout(this
     val walletChip = LinearLayout(this@createPlayerAssetStrip).apply {
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(8), dp(4), dp(8), dp(4))
-        background = roundedDrawable(0xCC092D32.toInt(), 22)
+        background = roundedDrawable(0xCC15171C.toInt(), 22)
         isClickable = true; contentDescription = t("wallet")
         setOnClickListener { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) }
     }
@@ -396,8 +393,13 @@ internal fun DramaAppActivity.createTopSafePlayerAssetStrip(): View {
 internal fun DramaAppActivity.formatGems(value: Long): String = String.format(Locale.US, "%,d", value)
 
 internal fun DramaAppActivity.createBottomNavigation(): View = LinearLayout(this).apply {
+        val lightSurface = activeTab == MainTab.TASKS && !withdrawalPageShown
+        val mutedColor = if (lightSurface) COLOR_REWARD_MUTED else COLOR_TEXT_MUTED
+        val activeColor = if (lightSurface) COLOR_REWARD_ICON else COLOR_TAB_ACTIVE
         // A taller dock gives every tab a reliable touch target rather than a narrow text/icon strip.
-        gravity = Gravity.CENTER; setPadding(dp(12), dp(8), dp(12), dp(11)); background = topRoundedDrawable(COLOR_BACKGROUND, 0); elevation = dp(10).toFloat()
+        gravity = Gravity.CENTER; setPadding(dp(12), dp(8), dp(12), dp(11))
+        background = topRoundedDrawable(if (lightSurface) COLOR_REWARD_PAGE else COLOR_BACKGROUND, 0)
+        elevation = dp(2).toFloat()
         MainTab.entries.forEach { tab ->
             val active = activeTab == tab
             addView(LinearLayout(this@createBottomNavigation).apply {
@@ -422,11 +424,20 @@ internal fun DramaAppActivity.createBottomNavigation(): View = LinearLayout(this
                 }
                 val icon = ImageView(this@createBottomNavigation).apply {
                     setImageResource(tab.iconRes)
-            imageTintList = ColorStateList.valueOf(if (active) COLOR_TAB_ACTIVE else COLOR_TEXT_MUTED)
+                    imageTintList = ColorStateList.valueOf(if (active) activeColor else mutedColor)
                     scaleType = ImageView.ScaleType.CENTER_INSIDE
                 }
                 addView(icon, LinearLayout.LayoutParams(dp(26), dp(26)))
-            addView(TextView(this@createBottomNavigation).apply { text = t(tab.languageKey); textSize = 11f; maxLines = 2; gravity = Gravity.CENTER; typeface = if (active) Typeface.DEFAULT_BOLD else Typeface.DEFAULT; setTextColor(if (active) COLOR_TAB_ACTIVE else COLOR_TEXT_MUTED); setPadding(0, dp(2), 0, 0) })
+                addView(TextView(this@createBottomNavigation).apply {
+                    text = t(tab.languageKey)
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                    includeFontPadding = false
+                    gravity = Gravity.CENTER
+                    typeface = if (active) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+                    setTextColor(if (active) activeColor else mutedColor)
+                    setAutoSizeTextTypeUniformWithConfiguration(9, 11, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
+                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(26)))
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         }
     }

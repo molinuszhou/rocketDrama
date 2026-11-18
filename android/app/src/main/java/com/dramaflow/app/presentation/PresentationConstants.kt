@@ -72,37 +72,37 @@ internal const val PENDING_INTERSTITIAL_INCENTIVE_STAGE = "pending_interstitial_
 internal const val PENDING_INTERSTITIAL_INCENTIVE_SAVED_AT_MILLIS = "pending_interstitial_incentive_saved_at_millis"
 internal const val PENDING_INTERSTITIAL_INCENTIVE_MAX_AGE_MILLIS = 3 * 24 * 60 * 60 * 1_000L
 internal const val TAG = "JoyeDramaPlayer"
-// rocketdrama: approved deep-petrol / lime system. Legacy names stay as aliases
+// rocketdrama: approved neutral charcoal / lime system. Legacy names stay as aliases
 // so visual changes cannot affect preferences, event IDs, or reward policy constants.
-internal const val COLOR_BACKGROUND = 0xFF092D32.toInt()
-internal const val COLOR_CARD = 0xFF123E43.toInt()
-internal const val COLOR_SURFACE = 0xFF1A4B50.toInt()
+internal const val COLOR_BACKGROUND = 0xFF15171C.toInt()
+internal const val COLOR_CARD = 0xFF23262D.toInt()
+internal const val COLOR_SURFACE = 0xFF30343D.toInt()
 internal const val COLOR_ACCENT = 0xFFD7F75B.toInt()
 internal const val COLOR_PURPLE = COLOR_ACCENT
 internal const val COLOR_TAB_ACTIVE = COLOR_ACCENT
-internal const val COLOR_INK = 0xFF092D32.toInt()
-internal const val COLOR_PLUM = 0xFF10383D.toInt()
+internal const val COLOR_INK = COLOR_BACKGROUND
+internal const val COLOR_PLUM = COLOR_CARD
 internal const val COLOR_CORAL = COLOR_ACCENT
-internal const val COLOR_SUNSET = 0xFFF2B544.toInt()
+internal const val COLOR_SUNSET = COLOR_ACCENT
 internal const val COLOR_REWARD_GAIN = COLOR_ACCENT
 internal const val COLOR_REWARD_ACTION_START = COLOR_ACCENT
 internal const val COLOR_REWARD_ACTION_END = COLOR_ACCENT
 internal const val COLOR_REWARD_ACTION_TEXT = COLOR_INK
 internal const val COLOR_FLOATING_GOLD = COLOR_ACCENT
-internal const val COLOR_CROWN_CURRENT_SURFACE = 0xFFF9EBC7.toInt()
-internal const val COLOR_CROWN_CASH = 0xFF805818.toInt()
+internal const val COLOR_CROWN_CURRENT_SURFACE = 0xFFF1F8D8.toInt()
+internal const val COLOR_CROWN_CASH = 0xFF526A19.toInt()
 internal const val COLOR_CHECKIN_TODAY_SURFACE = COLOR_SUNSET
 internal const val COLOR_HOME_EPISODE_GOLD = COLOR_ACCENT
-internal const val COLOR_AQUA = 0xFF89C6BA.toInt()
+internal const val COLOR_AQUA = COLOR_ACCENT
 internal const val COLOR_MIST_BLUE = COLOR_CARD
-internal const val COLOR_WARM_PEACH = 0xFF334638.toInt()
-internal const val COLOR_TEXT_PRIMARY = 0xFFF5F4EC.toInt()
-internal const val COLOR_TEXT_MUTED = 0xFFAFC2BF.toInt()
+internal const val COLOR_WARM_PEACH = COLOR_SURFACE
+internal const val COLOR_TEXT_PRIMARY = 0xFFF5F7FB.toInt()
+internal const val COLOR_TEXT_MUTED = 0xFFA6ADB9.toInt()
 // Light rewards surfaces have their own contrast-safe tokens. Never switch global
 // text colours depending on navigation state: player and ad callbacks stay stable.
-internal const val COLOR_REWARD_PAGE = 0xFFF5F4EC.toInt()
+internal const val COLOR_REWARD_PAGE = 0xFFFFFFFF.toInt()
 internal const val COLOR_REWARD_CARD = 0xFFFFFFFF.toInt()
-internal const val COLOR_REWARD_SURFACE = 0xFFE9EDE3.toInt()
-internal const val COLOR_REWARD_MUTED = 0xFF55706E.toInt()
-internal const val COLOR_REWARD_ICON = 0xFF16484A.toInt()
-internal const val COLOR_REWARD_OUTLINE = 0xFFDEE6DD.toInt()
+internal const val COLOR_REWARD_SURFACE = 0xFFF6F7F9.toInt()
+internal const val COLOR_REWARD_MUTED = 0xFF68707C.toInt()
+internal const val COLOR_REWARD_ICON = 0xFF526A19.toInt()
+internal const val COLOR_REWARD_OUTLINE = 0xFFE5E7EB.toInt()

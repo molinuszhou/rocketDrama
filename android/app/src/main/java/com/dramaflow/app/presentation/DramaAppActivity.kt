@@ -289,6 +289,8 @@ class DramaAppActivity : FragmentActivity() {
     /** Reward Center hero remains visible while its later-created sticky header is still hidden. */
     internal var rewardHeroCashBalanceLabel: TextView? = null
     internal var rewardHeroAvailableBalanceLabel: TextView? = null
+    /** Local presentation state only; tab changes never alter reward eligibility. */
+    internal var rocketRewardsShowProgress = false
     internal var lastConfirmedGemBalance: Long? = null
     internal var lastConfirmedCashBalance: String? = null
     internal var gemFlightInProgress = false
@@ -814,7 +816,7 @@ class DramaAppActivity : FragmentActivity() {
         withdrawalPageShown = false
         profileCollectionPageShown = false
         playerShown = false
-        configureCatalogWindow()
+        configureCatalogWindow(lightSurface = activeTab == MainTab.TASKS)
         gemBalanceAnchor = null
         gemBalanceLabel = null
         cashBalanceAnchor = null
@@ -830,31 +832,31 @@ class DramaAppActivity : FragmentActivity() {
         catalogPage = page
         root.removeAllViews()
         root.addView(page, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        // 常规页始终显示资产栏；奖励中心仅在 hero 已离开视口时淡入同款吸顶栏。
+        // Home reserves 64dp brand toolbar + 48dp categories, matching scrollPage.
+        // The rewards page owns its white header; never overlay the old dark asset bar.
         rewardsStickyAssetHeader = null
-        if (activeTab != MainTab.TASKS) {
+        if (activeTab == MainTab.HOME) {
+            root.addView(createRocketHomeHeader(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(64), Gravity.TOP))
+        } else if (activeTab != MainTab.TASKS) {
             root.addView(createPersistentAssetHeader(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(120), Gravity.TOP))
-        } else {
-            createPersistentAssetHeader().also { header ->
-                header.visibility = View.INVISIBLE
-                header.alpha = 0f
-                rewardsStickyAssetHeader = header
-                root.addView(header, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(120), Gravity.TOP))
-            }
         }
         if (activeTab == MainTab.HOME) {
             root.addView(
                 createHomeBrowseControls(),
-                FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(112), Gravity.TOP).apply {
-                    topMargin = dp(120)
+                FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48), Gravity.TOP).apply {
+                    topMargin = dp(64)
                 },
             )
         }
         root.addView(createBottomNavigation(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(BOTTOM_NAV_HEIGHT_DP), Gravity.BOTTOM))
-        root.addView(createFloatingRewardWheel(), FrameLayout.LayoutParams(dp(130), dp(112), Gravity.END or Gravity.BOTTOM).apply {
-            marginEnd = 0
-            bottomMargin = dp(BOTTOM_NAV_HEIGHT_DP + 12)
-        })
+        // Explicit entry points on Home / Rewards replace the floating jar, so it
+        // cannot obscure poster actions, two-column task cards, or bottom tabs.
+        if (activeTab != MainTab.HOME && activeTab != MainTab.TASKS) {
+            root.addView(createFloatingRewardWheel(), FrameLayout.LayoutParams(dp(130), dp(112), Gravity.END or Gravity.BOTTOM).apply {
+                marginEnd = 0
+                bottomMargin = dp(BOTTOM_NAV_HEIGHT_DP + 12)
+            })
+        }
     }
 
     internal fun showAdPrivacySettings() {
@@ -952,14 +954,15 @@ class DramaAppActivity : FragmentActivity() {
     }
 
     /** One window policy for all catalogue surfaces; prevents a player/ad window state leaking into pages. */
-    internal fun configureCatalogWindow() {
+    internal fun configureCatalogWindow(lightSurface: Boolean = false) {
         WindowCompat.setDecorFitsSystemWindows(window, true)
         topOnAds.setHostEdgeToEdge(this, false)
-        window.statusBarColor = COLOR_BACKGROUND
-        window.navigationBarColor = COLOR_BACKGROUND
+        val systemBarColor = if (lightSurface) COLOR_REWARD_PAGE else COLOR_BACKGROUND
+        window.statusBarColor = systemBarColor
+        window.navigationBarColor = systemBarColor
         WindowInsetsControllerCompat(window, root).apply {
-            isAppearanceLightStatusBars = false
-            isAppearanceLightNavigationBars = false
+            isAppearanceLightStatusBars = lightSurface
+            isAppearanceLightNavigationBars = lightSurface
             show(WindowInsetsCompat.Type.systemBars())
         }
     }

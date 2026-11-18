@@ -519,7 +519,7 @@ private fun DramaAppActivity.finishGestureCoachmark(view: View, preferenceKey: S
 private fun DramaAppActivity.createSdkPlayerControlDock(): View = LinearLayout(this).apply {
     orientation = LinearLayout.VERTICAL
     setPadding(dp(10), dp(4), dp(10), dp(6))
-    background = roundedDrawable(0xCC092D32.toInt(), 20)
+    background = roundedDrawable(0xCC15171C.toInt(), 20)
     addView(createPlayerProgressControls(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
     addView(createPlayerActionRow(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 }

@@ -86,7 +86,7 @@ internal fun DramaAppActivity.createFloatingRewardWheel(compact: Boolean = false
         }
         val label = TextView(this).apply {
             gravity = Gravity.CENTER; textSize = if (compact) 11f else 12f; typeface = Typeface.DEFAULT_BOLD
-            setTextColor(COLOR_FLOATING_GOLD); setPadding(dp(4), dp(5), dp(4), dp(5)); background = roundedDrawable(0xC0092D32.toInt(), 16)
+            setTextColor(COLOR_FLOATING_GOLD); setPadding(dp(4), dp(5), dp(4), dp(5)); background = roundedDrawable(0xC015171C.toInt(), 16)
             alpha = 1f
             isClickable = true; setOnClickListener { gem.performClick() }
         }

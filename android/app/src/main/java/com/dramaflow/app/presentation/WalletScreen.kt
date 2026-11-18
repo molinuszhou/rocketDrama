@@ -432,9 +432,9 @@ private fun DramaAppActivity.showWithdrawalProgressDialog(
         )
         steps.forEachIndexed { index, step ->
             val (circleColor, marker, textColor) = when (step.state) {
-                2 -> Triple(COLOR_ACCENT, "✓", COLOR_TEXT_PRIMARY)
-                3 -> Triple(COLOR_SUNSET, "!", COLOR_TEXT_PRIMARY)
-                1 -> Triple(COLOR_SUNSET, "•", COLOR_TEXT_PRIMARY)
+                2 -> Triple(COLOR_ACCENT, "✓", COLOR_INK)
+                3 -> Triple(COLOR_SUNSET, "!", COLOR_INK)
+                1 -> Triple(COLOR_SUNSET, "•", COLOR_INK)
                 else -> Triple(COLOR_SURFACE, "•", COLOR_TEXT_MUTED)
             }
             val row = LinearLayout(this@showWithdrawalProgressDialog).apply {

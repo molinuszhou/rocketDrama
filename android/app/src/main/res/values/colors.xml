@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="rocket_deep_sea">#092D32</color>
+    <color name="rocket_charcoal">#15171C</color>
+    <color name="rocket_deep_sea">@color/rocket_charcoal</color>
     <color name="rocket_lime">#D7F75B</color>
-    <color name="rocket_warm_white">#F5F4EC</color>
-    <color name="rocket_amber">#F2B544</color>
+    <color name="rocket_warm_white">#F5F7FB</color>
+    <color name="rocket_amber">@color/rocket_lime</color>
     <!-- Legacy names remain available to existing XML consumers. -->
     <color name="surface_dark">@color/rocket_deep_sea</color>
     <color name="brand_purple">@color/rocket_lime</color>

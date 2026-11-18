@@ -56,11 +56,13 @@ object AppLanguage {
     )
 
     private val dictionary = mapOf(
+        "rocket_rewards_today" to all("Today", "Hoje", "Hoy", "Aujourd’hui", "Hari ini", "今日", "今日"),
+        "rocket_rewards_progress" to all("Progress", "Progresso", "Progreso", "Progression", "Progres", "进度", "進度"),
         "watch_ad_short" to all("Watch ad", "Ver anúncio", "Ver anuncio", "Voir la pub", "Tonton iklan", "观看广告", "觀看廣告"),
         "brand_name" to all("rocketdrama", "rocketdrama", "rocketdrama", "rocketdrama", "rocketdrama", "rocketdrama", "rocketdrama"),
         "wallet_total_label" to all("Total balance", "Saldo total", "Saldo total", "Solde total", "Total saldo", "总余额", "總餘額"),
         "wallet_available_inline" to all("Available: %s", "Disponível: %s", "Disponible: %s", "Disponible : %s", "Tersedia: %s", "可提现：%s", "可提現：%s"),
-        "wallet_open" to all("Open wallet", "Abrir carteira", "Abrir billetera", "Ouvrir le portefeuille", "Buka dompet", "打开钱包", "開啟錢包"),
+        "wallet_open" to all("View wallet", "Ver carteira", "Ver billetera", "Voir le portefeuille", "Lihat dompet", "查看钱包", "查看錢包"),
         "wallet_bonus_hint" to all("Ads unlock random bonus rewards.", "Anúncios liberam bônus aleatórios.", "Los anuncios desbloquean bonos aleatorios.", "Les pubs débloquent des bonus aléatoires.", "Iklan membuka bonus acak.", "观看广告，领取随机奖励。", "觀看廣告，領取隨機獎勵。"),
         "player_hide_controls" to all("Hide controls", "Ocultar controles", "Ocultar controles", "Masquer les contrôles", "Sembunyikan kontrol", "隐藏控制", "隱藏控制"),
         "reward_piggy_title" to all("Savings jar", "Cofrinho", "Alcancía", "Tirelire", "Celengan", "存钱罐", "存錢罐"),
