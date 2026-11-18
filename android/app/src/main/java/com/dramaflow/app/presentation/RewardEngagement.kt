@@ -69,11 +69,10 @@ import kotlin.random.Random
 internal fun DramaAppActivity.createFloatingRewardWheel(compact: Boolean = false): View {
         val gemSize = if (compact) dp(52) else dp(58)
         val gem = ImageView(this).apply {
-            // A polished 3D cash stack gives the collection entry tangible depth without using
-            // the flat stacked-notes placeholder that previously appeared on the loading screen.
-            setImageResource(R.drawable.reward_cash_stack_3d)
+            // A single vector piggy-bank mark replaces the mixed 3D cash artwork.
+            setImageResource(R.drawable.ic_rocket_piggy)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            alpha = 0.74f
+            alpha = 1f
             contentDescription = t("claim_all")
             isClickable = true
             setOnClickListener {
@@ -87,8 +86,8 @@ internal fun DramaAppActivity.createFloatingRewardWheel(compact: Boolean = false
         }
         val label = TextView(this).apply {
             gravity = Gravity.CENTER; textSize = if (compact) 11f else 12f; typeface = Typeface.DEFAULT_BOLD
-            setTextColor(COLOR_FLOATING_GOLD); setPadding(dp(4), dp(5), dp(4), dp(5)); background = null
-            alpha = 0.78f
+            setTextColor(COLOR_FLOATING_GOLD); setPadding(dp(4), dp(5), dp(4), dp(5)); background = roundedDrawable(0xC0092D32.toInt(), 16)
+            alpha = 1f
             isClickable = true; setOnClickListener { gem.performClick() }
         }
         floatingWheelLabels.add(label); updateFloatingRewardWheel(label)
@@ -155,9 +154,9 @@ internal fun DramaAppActivity.updateCrownSummaryChargeButton(button: TextView) {
         val next = rewardsSnapshot?.crownProgress?.sortedBy { it.levelRank }?.firstOrNull { !it.earned }
         val cooldown = crownChargeCooldownRemainingSeconds()
         val available = next != null && cooldown <= 0
-        button.text = if (cooldown > 0) t("cooling") else t("crown_accelerate")
-        button.setTextColor(if (available) COLOR_REWARD_ACTION_TEXT else COLOR_TEXT_MUTED)
-        button.background = if (available) rewardActionDrawable() else roundedDrawable(COLOR_SURFACE, 13)
+        button.text = if (cooldown > 0) t("cooling") else t("watch_ad_short")
+        button.setTextColor(if (available) COLOR_REWARD_ACTION_TEXT else COLOR_REWARD_MUTED)
+        button.background = if (available) rewardActionDrawable() else roundedDrawable(COLOR_REWARD_SURFACE, 24)
         button.alpha = if (available) 1f else 0.65f
         button.isClickable = available
         button.setOnClickListener { next?.takeIf { crownChargeCooldownRemainingSeconds() <= 0 }?.let(::showCrownRewardedUpgradeDialog) }
@@ -186,10 +185,10 @@ internal fun DramaAppActivity.updatePlayerWalletBoostButton(button: TextView) {
         // rapidly changing seconds counter.
         button.text = t("bonus_cash")
         button.textSize = 14f
-        setBonusCashChest(button, sizeDp = 30)
+        setBonusCashChest(button, sizeDp = 22)
         button.compoundDrawablePadding = dp(4)
-        button.setTextColor(Color.WHITE)
-        button.background = null
+        button.setTextColor(COLOR_INK)
+        button.background = primaryActionDrawable()
         button.alpha = if (available) 1f else 0.72f
         button.isClickable = available
         button.setOnClickListener { if (available) showWalletReleaseBoostDialog() }
@@ -202,20 +201,20 @@ internal fun DramaAppActivity.updateWalletHeaderBoostButton(button: TextView) {
         button.visibility = if (wallet == null) View.GONE else View.VISIBLE
         button.text = t("bonus_cash")
         button.textSize = 14f
-        // Home and Profile have more vertical room than the in-player top bar, so the chest is
-        // intentionally one size larger there while preserving the player's existing size.
-        setBonusCashChest(button, sizeDp = 38)
+        // Use the same compact play mark on every explicit ad-reward entry.
+        setBonusCashChest(button, sizeDp = 22)
         button.compoundDrawablePadding = dp(4)
-        button.setTextColor(Color.WHITE)
-        button.background = null
+        button.setTextColor(COLOR_INK)
+        button.background = primaryActionDrawable()
         button.alpha = if (available) 1f else 0.72f
         button.isClickable = available
         button.setOnClickListener { if (available) showWalletReleaseBoostDialog() }
     }
 
 private fun DramaAppActivity.setBonusCashChest(button: TextView, sizeDp: Int) {
-    val chest = getDrawable(R.drawable.reward_cash_stack_3d)?.mutate() ?: return
+    val chest = getDrawable(R.drawable.ic_rocket_play)?.mutate() ?: return
     val size = dp(sizeDp)
+    chest.setTint(COLOR_INK)
     chest.setBounds(0, 0, size, size)
     button.setCompoundDrawables(chest, null, null, null)
 }
@@ -400,11 +399,11 @@ internal fun DramaAppActivity.createCheckinCard(): View {
 internal fun DramaAppActivity.createWelcomeRewardCard(snapshot: RewardsApiClient.Snapshot): View = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         setPadding(dp(18), dp(16), dp(18), dp(16))
-        background = gradientDrawable(intArrayOf(COLOR_CARD, 0xFF192820.toInt()), 20)
-        addView(TextView(this@createWelcomeRewardCard).apply { text = t("newcomer_reward"); textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY) })
+        background = rocketRewardCardDrawable(20)
+        addView(TextView(this@createWelcomeRewardCard).apply { text = t("newcomer_reward"); textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_INK) })
         addView(TextView(this@createWelcomeRewardCard).apply {
             text = formatWelcomeRewardCashValue(snapshot) ?: "—"
-            textSize = 28f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_REWARD_GAIN); setPadding(0, dp(6), 0, dp(13))
+            textSize = 28f; typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_REWARD_ICON); setPadding(0, dp(6), 0, dp(13))
         })
         addView(TextView(this@createWelcomeRewardCard).apply {
             text = t("watch_ad_claim")
@@ -528,7 +527,7 @@ internal fun DramaAppActivity.showCashRewardReceipt(amount: String, onConfirmed:
         setTextColor(COLOR_TEXT_PRIMARY)
     })
     val rewardIcon = ImageView(this).apply {
-        setImageResource(R.drawable.wallet_money)
+        setImageResource(R.drawable.ic_rocket_wallet)
         scaleType = ImageView.ScaleType.CENTER_INSIDE
         alpha = 0f
         scaleX = 0.55f

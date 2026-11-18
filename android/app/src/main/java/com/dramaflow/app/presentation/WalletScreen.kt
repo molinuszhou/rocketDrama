@@ -145,7 +145,7 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
         }, matchParams(bottom = 16))
         addView(LinearLayout(this@createWithdrawalPage).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(22), dp(20), dp(22), dp(20))
-            background = gradientDrawable(intArrayOf(COLOR_INK, COLOR_PLUM, 0xFF24304A.toInt()), 24)
+            background = gradientDrawable(intArrayOf(COLOR_BACKGROUND, COLOR_CARD, COLOR_BACKGROUND), 24)
             val balanceRow = LinearLayout(this@createWithdrawalPage).apply { gravity = Gravity.CENTER_VERTICAL }
             balanceRow.addView(LinearLayout(this@createWithdrawalPage).apply {
                 orientation = LinearLayout.VERTICAL
@@ -167,7 +167,7 @@ internal fun DramaAppActivity.createWithdrawalPage(wallet: RewardsApiClient.Wall
                 }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)))
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             balanceRow.addView(ImageView(this@createWithdrawalPage).apply {
-                setImageResource(R.drawable.wallet_money); scaleType = ImageView.ScaleType.CENTER_INSIDE; contentDescription = t("wallet")
+                setImageResource(R.drawable.ic_rocket_wallet); scaleType = ImageView.ScaleType.CENTER_INSIDE; contentDescription = t("wallet")
             }, LinearLayout.LayoutParams(dp(76), dp(76)))
             addView(balanceRow, matchParams(bottom = 16))
             val extraCashButton = TextView(this@createWithdrawalPage).apply {

@@ -127,6 +127,10 @@ internal fun DramaAppActivity.applyRewardsSnapshot(snapshot: RewardsApiClient.Sn
         // The task card contains the completed-episode and pending-reward counts, so refresh it
         // whenever server-confirmed task progress or claim state changes.
         val rewardCenterTasksChanged = rewardsSnapshot?.tasks != snapshot.tasks
+        val rewardCenterRewardStateChanged = rewardsSnapshot?.ring != snapshot.ring ||
+            rewardsSnapshot?.checkinSignedToday != snapshot.checkinSignedToday ||
+            rewardsSnapshot?.checkinTodayIndex != snapshot.checkinTodayIndex ||
+            rewardsSnapshot?.checkinStreak != snapshot.checkinStreak
         rewardsSnapshot = snapshot
         val elapsedNow = android.os.SystemClock.elapsedRealtime()
         val crownCooldown = snapshot.crownProgress.maxOfOrNull { it.chargeCooldownRemainingSeconds } ?: 0
@@ -148,6 +152,7 @@ internal fun DramaAppActivity.applyRewardsSnapshot(snapshot: RewardsApiClient.Sn
         val formattedWalletTotal = formatWalletTotal(snapshot.wallet, includeUsdReference = false)
         cashBalanceLabel?.text = formattedWalletTotal
         rewardHeroCashBalanceLabel?.text = formattedWalletTotal
+        rewardHeroAvailableBalanceLabel?.text = t("wallet_available_inline", formatCurrencyAmount(snapshot.wallet, snapshot.wallet.availableBalance, snapshot.wallet.availableBalanceUsdReference, includeUsdReference = false))
         refreshFloatingRewardWheels()
         // PSSDK is still an active JoyeDrama player surface. Re-rendering a tab after its
         // reward callback removes the provider Fragment and incorrectly sends the user to a
@@ -155,7 +160,7 @@ internal fun DramaAppActivity.applyRewardsSnapshot(snapshot: RewardsApiClient.Sn
         if (startupContentInitializationStarted && !playerShown && !sdkPlayerShown) {
             if (withdrawalPageShown) {
                 showWithdrawalPage(snapshot.wallet)
-            } else if (activeTab == MainTab.TASKS && (rewardCenterWelcomeStateChanged || rewardCenterTasksChanged)) {
+            } else if (activeTab == MainTab.TASKS && (rewardCenterWelcomeStateChanged || rewardCenterTasksChanged || rewardCenterRewardStateChanged)) {
                 // Rebuild so the claimed welcome card disappears and the task counts / action
                 // reflect the confirmed snapshot. renderActiveTab restores the saved scroll offset.
                 renderActiveTab()
@@ -325,7 +330,7 @@ internal fun DramaAppActivity.showWelcomeRewardDialog(snapshot: RewardsApiClient
             setPadding(dp(30), dp(18), dp(30), dp(18))
         }
         val rewardIcon = ImageView(this@showWelcomeRewardDialog).apply {
-            setImageResource(R.drawable.reward_cash_stack_3d)
+            setImageResource(R.drawable.ic_rocket_gift)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
         }
         content.addView(rewardIcon, LinearLayout.LayoutParams(dp(112), dp(112)))
@@ -529,7 +534,7 @@ internal fun DramaAppActivity.showCheckinRewardDialog(
     /**
      * 奖励数据只提供“连续天数”和“今日是否已签”；具体奖励列表来自服务端动态规则，且按七日周期循环。
      */
-internal fun DramaAppActivity.createCheckinTierStrip(snapshot: RewardsApiClient.Snapshot?): View {
+internal fun DramaAppActivity.createCheckinTierStrip(snapshot: RewardsApiClient.Snapshot?, lightSurface: Boolean = false): View {
     val serverTiers = snapshot?.checkinRewardTiers?.take(7).orEmpty()
     val tiers = if (serverTiers.isEmpty()) List(7) { 0 } else serverTiers + List(7 - serverTiers.size) { serverTiers.last() }
     val completedDays = snapshot?.checkinStreak ?: 0
@@ -550,7 +555,7 @@ internal fun DramaAppActivity.createCheckinTierStrip(snapshot: RewardsApiClient.
                     when {
                         isToday -> COLOR_CHECKIN_TODAY_SURFACE
                         isDone -> 0xFF2E473F.toInt()
-                        else -> COLOR_SURFACE
+                        else -> if (lightSurface) COLOR_REWARD_SURFACE else COLOR_SURFACE
                     },
                     17,
                 )
@@ -565,7 +570,7 @@ internal fun DramaAppActivity.createCheckinTierStrip(snapshot: RewardsApiClient.
                     gravity = Gravity.CENTER
                     maxLines = 1
                     ellipsize = android.text.TextUtils.TruncateAt.END
-                    setTextColor(if (isToday) COLOR_REWARD_ACTION_TEXT else if (isDone) Color.WHITE else COLOR_TEXT_MUTED)
+                    setTextColor(if (isToday) COLOR_REWARD_ACTION_TEXT else if (isDone) Color.WHITE else if (lightSurface) COLOR_REWARD_MUTED else COLOR_TEXT_MUTED)
                 })
                 addView(TextView(this@createCheckinTierStrip).apply {
                     text = if (snapshot == null) t("syncing") else formatRewardUnitsAsCash(snapshot, tiers[index].toLong())
@@ -574,7 +579,7 @@ internal fun DramaAppActivity.createCheckinTierStrip(snapshot: RewardsApiClient.
                     gravity = Gravity.CENTER
                     maxLines = 1
                     ellipsize = android.text.TextUtils.TruncateAt.END
-                    setTextColor(if (isToday) COLOR_REWARD_ACTION_TEXT else if (isDone) COLOR_SUNSET else COLOR_TEXT_PRIMARY)
+                    setTextColor(if (isToday) COLOR_REWARD_ACTION_TEXT else if (isDone) COLOR_SUNSET else if (lightSurface) COLOR_INK else COLOR_TEXT_PRIMARY)
                     setPadding(0, dp(4), 0, 0)
                 })
             }, LinearLayout.LayoutParams(dp(102), dp(82)).apply { if (index > 0) marginStart = dp(8) })

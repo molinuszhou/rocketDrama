@@ -3,6 +3,7 @@
     <style name="Theme.DramaFlow" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowBackground">@color/rocket_deep_sea</item>
         <item name="android:statusBarColor">@color/cloud_white</item>
         <item name="android:navigationBarColor">@color/cloud_white</item>
         <item name="android:windowLightNavigationBar">false</item>

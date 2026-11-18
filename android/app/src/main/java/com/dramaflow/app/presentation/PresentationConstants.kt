@@ -72,36 +72,37 @@ internal const val PENDING_INTERSTITIAL_INCENTIVE_STAGE = "pending_interstitial_
 internal const val PENDING_INTERSTITIAL_INCENTIVE_SAVED_AT_MILLIS = "pending_interstitial_incentive_saved_at_millis"
 internal const val PENDING_INTERSTITIAL_INCENTIVE_MAX_AGE_MILLIS = 3 * 24 * 60 * 60 * 1_000L
 internal const val TAG = "JoyeDramaPlayer"
-internal const val COLOR_BACKGROUND = 0xFF000000.toInt()
-internal const val COLOR_CARD = 0xFF131316.toInt()
-internal const val COLOR_SURFACE = 0xFF1D1D22.toInt()
-// Positive text uses the vivid neon green from the approved reference rather than muted mint variants.
-internal const val COLOR_ACCENT = 0xFF00F035.toInt()
-internal const val COLOR_PURPLE = 0xFF00F035.toInt()
-// The only intentional warm-yellow accent is the selected item in the bottom tab bar.
-internal const val COLOR_TAB_ACTIVE = 0xFFFFC947.toInt()
-internal const val COLOR_INK = 0xFF0D0D0F.toInt()
-internal const val COLOR_PLUM = 0xFF231A2C.toInt()
-internal const val COLOR_CORAL = 0xFF00F035.toInt()
-internal const val COLOR_SUNSET = 0xFF00F035.toInt()
-// Positive cash received/available amounts use the same vivid green as the reference amount text.
-internal const val COLOR_REWARD_GAIN = 0xFF00F035.toInt()
-// Reward Centre actions intentionally transition from vivid cyan-green to lime, echoing the reference's
-// high-energy claim controls while keeping warm yellow out of the surrounding UI.
-internal const val COLOR_REWARD_ACTION_START = 0xFF00F035.toInt()
-internal const val COLOR_REWARD_ACTION_END = 0xFFD4FF3F.toInt()
-internal const val COLOR_REWARD_ACTION_TEXT = 0xFF092719.toInt()
-// Shared with the floating cash wheel so wallet and bonus-cash labels use the same clear green.
-internal const val COLOR_FLOATING_GOLD = 0xFF00F035.toInt()
-// Crown Road uses the ordinary dark card family with only a restrained warm-yellow bias.
-internal const val COLOR_CROWN_CURRENT_SURFACE = 0xFF25231C.toInt()
-internal const val COLOR_CROWN_CASH = 0xFFD6A34A.toInt()
-// Today in the check-in strip uses the midpoint between the Reward Centre's green and yellow-green action gradient.
-internal const val COLOR_CHECKIN_TODAY_SURFACE = 0xFF6AF83A.toInt()
-// Home drama metadata is deliberately quiet so posters, rather than coloured labels, lead the page.
-internal const val COLOR_HOME_EPISODE_GOLD = 0xFF31363B.toInt()
-internal const val COLOR_AQUA = 0xFF56CEC1.toInt()
-internal const val COLOR_MIST_BLUE = 0xFF10151B.toInt()
-internal const val COLOR_WARM_PEACH = 0xFF211815.toInt()
-internal const val COLOR_TEXT_PRIMARY = 0xFFF6F6F8.toInt()
-internal const val COLOR_TEXT_MUTED = 0xFFA8A8B2.toInt()
+// rocketdrama: approved deep-petrol / lime system. Legacy names stay as aliases
+// so visual changes cannot affect preferences, event IDs, or reward policy constants.
+internal const val COLOR_BACKGROUND = 0xFF092D32.toInt()
+internal const val COLOR_CARD = 0xFF123E43.toInt()
+internal const val COLOR_SURFACE = 0xFF1A4B50.toInt()
+internal const val COLOR_ACCENT = 0xFFD7F75B.toInt()
+internal const val COLOR_PURPLE = COLOR_ACCENT
+internal const val COLOR_TAB_ACTIVE = COLOR_ACCENT
+internal const val COLOR_INK = 0xFF092D32.toInt()
+internal const val COLOR_PLUM = 0xFF10383D.toInt()
+internal const val COLOR_CORAL = COLOR_ACCENT
+internal const val COLOR_SUNSET = 0xFFF2B544.toInt()
+internal const val COLOR_REWARD_GAIN = COLOR_ACCENT
+internal const val COLOR_REWARD_ACTION_START = COLOR_ACCENT
+internal const val COLOR_REWARD_ACTION_END = COLOR_ACCENT
+internal const val COLOR_REWARD_ACTION_TEXT = COLOR_INK
+internal const val COLOR_FLOATING_GOLD = COLOR_ACCENT
+internal const val COLOR_CROWN_CURRENT_SURFACE = 0xFFF9EBC7.toInt()
+internal const val COLOR_CROWN_CASH = 0xFF805818.toInt()
+internal const val COLOR_CHECKIN_TODAY_SURFACE = COLOR_SUNSET
+internal const val COLOR_HOME_EPISODE_GOLD = COLOR_ACCENT
+internal const val COLOR_AQUA = 0xFF89C6BA.toInt()
+internal const val COLOR_MIST_BLUE = COLOR_CARD
+internal const val COLOR_WARM_PEACH = 0xFF334638.toInt()
+internal const val COLOR_TEXT_PRIMARY = 0xFFF5F4EC.toInt()
+internal const val COLOR_TEXT_MUTED = 0xFFAFC2BF.toInt()
+// Light rewards surfaces have their own contrast-safe tokens. Never switch global
+// text colours depending on navigation state: player and ad callbacks stay stable.
+internal const val COLOR_REWARD_PAGE = 0xFFF5F4EC.toInt()
+internal const val COLOR_REWARD_CARD = 0xFFFFFFFF.toInt()
+internal const val COLOR_REWARD_SURFACE = 0xFFE9EDE3.toInt()
+internal const val COLOR_REWARD_MUTED = 0xFF55706E.toInt()
+internal const val COLOR_REWARD_ICON = 0xFF16484A.toInt()
+internal const val COLOR_REWARD_OUTLINE = 0xFFDEE6DD.toInt()

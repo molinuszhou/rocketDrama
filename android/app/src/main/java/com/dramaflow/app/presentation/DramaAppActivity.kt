@@ -288,6 +288,7 @@ class DramaAppActivity : FragmentActivity() {
     internal var cashBalanceLabel: TextView? = null
     /** Reward Center hero remains visible while its later-created sticky header is still hidden. */
     internal var rewardHeroCashBalanceLabel: TextView? = null
+    internal var rewardHeroAvailableBalanceLabel: TextView? = null
     internal var lastConfirmedGemBalance: Long? = null
     internal var lastConfirmedCashBalance: String? = null
     internal var gemFlightInProgress = false
@@ -819,6 +820,7 @@ class DramaAppActivity : FragmentActivity() {
         cashBalanceAnchor = null
         cashBalanceLabel = null
         rewardHeroCashBalanceLabel = null
+        rewardHeroAvailableBalanceLabel = null
         val page = when (activeTab) {
             MainTab.HOME -> createHomePage()
             MainTab.DISCOVER -> createDiscoverPage()
@@ -917,10 +919,10 @@ class DramaAppActivity : FragmentActivity() {
             setPadding(dp(44), dp(28), dp(44), dp(28))
         }
         column.addView(ImageView(this).apply {
-            setImageResource(R.drawable.joyedrama_startup_icon)
+            setImageResource(R.drawable.ic_rocket_brand)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            contentDescription = "JoyeDrama"
-        }, LinearLayout.LayoutParams(dp(198), dp(198)).apply { bottomMargin = dp(18) })
+            contentDescription = t("brand_name")
+        }, LinearLayout.LayoutParams(dp(112), dp(112)).apply { bottomMargin = dp(18) })
         startupProgressLabel = TextView(this).apply {
             text = t("startup_loading")
             textSize = 18f
@@ -1525,7 +1527,7 @@ class DramaAppActivity : FragmentActivity() {
             GradientDrawable.Orientation.LEFT_RIGHT,
             intArrayOf(COLOR_REWARD_ACTION_START, COLOR_REWARD_ACTION_END),
         ).apply {
-            cornerRadius = dp(13).toFloat()
+            cornerRadius = dp(24).toFloat()
         }
 
     internal fun roundedDrawable(color: Int, radiusDp: Int): GradientDrawable = GradientDrawable().apply {
@@ -1544,9 +1546,14 @@ class DramaAppActivity : FragmentActivity() {
         setColor(color)
     }
 
+    /** Deliberately separate from dark player surfaces and consent dialogs. */
+    internal fun rocketRewardCardDrawable(radiusDp: Int = 20): GradientDrawable = roundedDrawable(COLOR_REWARD_CARD, radiusDp).apply {
+        setStroke(dp(1), COLOR_REWARD_OUTLINE)
+    }
+
     internal fun posterFallbackDrawable(): GradientDrawable = GradientDrawable(
         GradientDrawable.Orientation.TL_BR,
-        intArrayOf(0xFF383A3E.toInt(), 0xFF26282C.toInt(), 0xFF151619.toInt())
+        intArrayOf(COLOR_SURFACE, COLOR_CARD, COLOR_BACKGROUND)
     ).apply { cornerRadius = dp(10).toFloat() }
 
     internal fun showLanguageSettings() {

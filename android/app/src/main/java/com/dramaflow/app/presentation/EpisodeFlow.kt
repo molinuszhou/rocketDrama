@@ -382,7 +382,7 @@ internal fun DramaAppActivity.updateEpisodeStatus() {
             contentDescription = accessibilityLabel
         }
         playerEpisodePickerButton?.apply {
-            text = "${t("episodes")}\n$counter"
+            text = "${t("episodes")} $counter"
             contentDescription = "${t("episodes")} · $accessibilityLabel"
         }
     }

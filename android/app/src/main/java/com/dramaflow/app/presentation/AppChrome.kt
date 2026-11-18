@@ -77,46 +77,79 @@ internal fun DramaAppActivity.createInlineNotice(message: String): View = TextVi
     /** Non-reward pages expose one simple, direct-cash wallet. */
     /** 固定资产栏使用系统状态栏/挖孔 inset；真实设备上不会再被顶部传感器或状态栏遮挡。 */
 internal fun DramaAppActivity.createPersistentAssetHeader(): View {
-        val shell = FrameLayout(this).apply { background = pageCanvasDrawable() }
-        val row = LinearLayout(this).apply {
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(16), 0, dp(16), 0)
-            val wallet = rewardsSnapshot?.wallet
-            val balanceBar = LinearLayout(this@createPersistentAssetHeader).apply {
-                // Wallet glyph starts 13dp inside the bar (5dp container + 8dp pill padding).
-                // Mirror that inset at the trailing edge so Bonus Cash does not feel pushed right.
-                gravity = Gravity.CENTER_VERTICAL; background = roundedDrawable(COLOR_CARD, 20); setPadding(dp(5), dp(4), dp(13), dp(4)); clipToOutline = true
-                addView(createAssetPill(icon = R.drawable.wallet_money, label = t("wallet_balance"), value = wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—", isGem = false) { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) }, LinearLayout.LayoutParams(0, dp(72), 1f))
-                val charge = TextView(this@createPersistentAssetHeader).apply {
-                    textSize = 14f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER_VERTICAL; maxLines = 1
-                    setPadding(0, dp(5), 0, dp(5)); contentDescription = t("bonus_cash")
-                }
-                walletHeaderBoostButtons.add(charge)
-                updateWalletHeaderBoostButton(charge)
-                val chargeSlot = LinearLayout(this@createPersistentAssetHeader).apply {
-                    gravity = Gravity.CENTER_VERTICAL
-                    addView(charge, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(46)))
-                    val cooldown = ChargeCooldownRingView(this@createPersistentAssetHeader)
-                    walletChargeCooldownRings.add(cooldown); updateWalletChargeCooldownRing(cooldown)
-                    addView(cooldown, LinearLayout.LayoutParams(dp(28), dp(28)).apply { marginStart = dp(4) })
-                }
-                // About 20 physical pixels at xxhdpi: aligns the Bonus Cash group with the
-                // visual edge of the wallet mark rather than the rounded card's outer edge.
-                addView(chargeSlot, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(60)).apply { marginStart = dp(4); marginEnd = dp(8) })
-            }
-            addView(balanceBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(76)))
-        }
-        shell.addView(row, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(76), Gravity.TOP).apply { topMargin = dp(30) })
-        ViewCompat.setOnApplyWindowInsetsListener(shell) { _, insets ->
-            val safeTop = insets.getInsets(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()).top
-            val params = row.layoutParams as FrameLayout.LayoutParams
-            val margin = maxOf(safeTop, dp(18)) + dp(14)
-            if (params.topMargin != margin) { params.topMargin = margin; row.layoutParams = params }
-            insets
-        }
-        ViewCompat.requestApplyInsets(shell)
-        return shell
+    val wallet = rewardsSnapshot?.wallet
+    val shell = FrameLayout(this).apply { background = pageCanvasDrawable() }
+    val column = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(16), 0, dp(16), dp(6))
     }
+    val brandRow = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+    brandRow.addView(ImageView(this).apply {
+        setImageResource(R.drawable.ic_rocket_brand)
+        scaleType = ImageView.ScaleType.CENTER_INSIDE
+        contentDescription = t("brand_name")
+    }, LinearLayout.LayoutParams(dp(32), dp(32)))
+    brandRow.addView(TextView(this).apply {
+        text = t("brand_name"); textSize = 22f; typeface = Typeface.DEFAULT_BOLD
+        setTextColor(COLOR_TEXT_PRIMARY); includeFontPadding = false; maxLines = 1
+        setAutoSizeTextTypeUniformWithConfiguration(16, 22, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
+    }, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginStart = dp(8); marginEnd = dp(8) })
+    val walletChip = LinearLayout(this).apply {
+        gravity = Gravity.CENTER_VERTICAL
+        background = roundedDrawable(COLOR_CARD, 24)
+        setPadding(dp(10), 0, dp(10), 0)
+        isClickable = true
+        contentDescription = t("wallet")
+        setOnClickListener { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) }
+    }
+    val icon = ImageView(this).apply {
+        setImageResource(R.drawable.ic_rocket_wallet)
+        imageTintList = ColorStateList.valueOf(COLOR_ACCENT)
+        scaleType = ImageView.ScaleType.CENTER_INSIDE
+    }
+    cashBalanceAnchor = icon
+    walletChip.addView(icon, LinearLayout.LayoutParams(dp(22), dp(22)))
+    val amount = TextView(this).apply {
+        text = wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—"
+        typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY); maxLines = 1
+        includeFontPadding = false
+        setAutoSizeTextTypeUniformWithConfiguration(11, 15, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
+    }
+    cashBalanceLabel = amount
+    walletChip.addView(amount, LinearLayout.LayoutParams(dp(92), dp(42)).apply { marginStart = dp(6) })
+    brandRow.addView(walletChip, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(44)))
+    column.addView(brandRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
+    val bonusRow = LinearLayout(this).apply {
+        gravity = Gravity.CENTER_VERTICAL
+        background = roundedDrawable(COLOR_CARD, 16)
+        setPadding(dp(12), 0, dp(8), 0)
+    }
+    bonusRow.addView(TextView(this).apply {
+        text = t("wallet_bonus_hint"); textSize = 12f; maxLines = 2
+        setTextColor(COLOR_TEXT_MUTED)
+    }, LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginEnd = dp(8) })
+    val bonus = TextView(this).apply {
+        typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
+        setPadding(dp(12), dp(4), dp(12), dp(4)); contentDescription = t("bonus_cash")
+    }
+    walletHeaderBoostButtons.add(bonus)
+    updateWalletHeaderBoostButton(bonus)
+    bonusRow.addView(bonus, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42)))
+    val cooldown = ChargeCooldownRingView(this)
+    walletChargeCooldownRings.add(cooldown); updateWalletChargeCooldownRing(cooldown)
+    bonusRow.addView(cooldown, LinearLayout.LayoutParams(dp(26), dp(26)).apply { marginStart = dp(4) })
+    column.addView(bonusRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(4) })
+    shell.addView(column, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(108), Gravity.TOP).apply { topMargin = dp(8) })
+    // Catalog already fits system windows. Do not count the status inset twice.
+    ViewCompat.setOnApplyWindowInsetsListener(shell) { _, insets ->
+        val top = maxOf(dp(8), insets.getInsets(WindowInsetsCompat.Type.displayCutout()).top)
+        (column.layoutParams as FrameLayout.LayoutParams).let { params ->
+            if (params.topMargin != top) { params.topMargin = top; column.layoutParams = params }
+        }
+        insets
+    }
+    return shell
+}
 
 /** Keeps Home discovery controls reachable beneath the persistent wallet while the catalogue scrolls. */
 internal fun DramaAppActivity.createHomeBrowseControls(): View = LinearLayout(this).apply {
@@ -152,9 +185,9 @@ internal fun DramaAppActivity.createCashoutSummary(wallet: RewardsApiClient.Wall
         gravity = Gravity.CENTER
         setPadding(dp(8), dp(14), dp(8), dp(14)); background = roundedDrawable(COLOR_CARD, 22)
         val items = listOf(
-            Triple(R.drawable.wallet_money, t("available_balance"), formatCurrencyAmount(wallet, wallet.availableBalance, wallet.availableBalanceUsdReference, includeUsdReference = false)),
-            Triple(R.drawable.wallet_money, t("tomorrow_transfer"), formatCurrencyAmount(wallet, wallet.release.expectedTomorrowTransfer, wallet.release.expectedTomorrowTransferUsdReference, includeUsdReference = false)),
-            Triple(R.drawable.wallet_money, t("ad_boost"), t("random_cash_reward")),
+            Triple(R.drawable.ic_rocket_wallet, t("available_balance"), formatCurrencyAmount(wallet, wallet.availableBalance, wallet.availableBalanceUsdReference, includeUsdReference = false)),
+            Triple(R.drawable.ic_rocket_wallet, t("tomorrow_transfer"), formatCurrencyAmount(wallet, wallet.release.expectedTomorrowTransfer, wallet.release.expectedTomorrowTransferUsdReference, includeUsdReference = false)),
+            Triple(R.drawable.ic_rocket_wallet, t("ad_boost"), t("random_cash_reward")),
         )
         items.forEachIndexed { index, item ->
             addView(LinearLayout(this@createCashoutSummary).apply {
@@ -201,7 +234,7 @@ internal fun DramaAppActivity.animateClaimedGems(previous: Long, current: Long) 
         root.getLocationOnScreen(rootLocation)
         target.getLocationOnScreen(targetLocation)
         val fly = ImageView(this).apply {
-            setImageResource(R.drawable.wallet_money)
+            setImageResource(R.drawable.ic_rocket_wallet)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             alpha = 0f
         }
@@ -253,7 +286,7 @@ internal fun DramaAppActivity.animateClaimedCash(previous: String, current: Stri
             background = android.graphics.drawable.ColorDrawable(Color.TRANSPARENT)
         }
         val size = dp(112)
-        val fly = ImageView(this).apply { setImageResource(R.drawable.wallet_money); scaleType = ImageView.ScaleType.CENTER_INSIDE; alpha = 0f }
+        val fly = ImageView(this).apply { setImageResource(R.drawable.ic_rocket_wallet); scaleType = ImageView.ScaleType.CENTER_INSIDE; alpha = 0f }
         val rewardBadge = TextView(this).apply {
             text = rewardText; textSize = 36f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(COLOR_SUNSET)
             alpha = 0f; setPadding(dp(18), dp(8), dp(18), dp(8))
@@ -266,7 +299,7 @@ internal fun DramaAppActivity.animateClaimedCash(previous: String, current: Stri
         celebration.addView(fly, FrameLayout.LayoutParams(size, size, Gravity.CENTER).apply { topMargin = dp(16) })
         celebration.addView(rewardBadge, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER).apply { topMargin = dp(136) })
         repeat(6) { index ->
-            val coin = ImageView(this).apply { setImageResource(R.drawable.wallet_money); scaleType = ImageView.ScaleType.CENTER_INSIDE; alpha = 0f; tag = "cash-coin-$index" }
+            val coin = ImageView(this).apply { setImageResource(R.drawable.ic_rocket_wallet); scaleType = ImageView.ScaleType.CENTER_INSIDE; alpha = 0f; tag = "cash-coin-$index" }
             val angle = Math.toRadians((index * 60.0) - 90.0)
             coin.translationX = kotlin.math.cos(angle).toFloat() * dp(28)
             coin.translationY = kotlin.math.sin(angle).toFloat() * dp(28)
@@ -305,41 +338,44 @@ internal fun DramaAppActivity.animateClaimedCash(previous: String, current: Stri
         }
 }
 
-internal fun DramaAppActivity.createPlayerAssetStrip(): View = FrameLayout(this).apply {
-        clipChildren = false
-        clipToPadding = false
-        val wallet = rewardsSnapshot?.wallet
-        val walletChip = LinearLayout(this@createPlayerAssetStrip).apply {
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(8), dp(6), dp(10), dp(6))
-            background = roundedDrawable(0xA6000000.toInt(), 22)
-            alpha = 0.84f
-        }
-        val walletIcon = ImageView(this@createPlayerAssetStrip).apply { setImageResource(R.drawable.wallet_money); scaleType = ImageView.ScaleType.CENTER_INSIDE; isClickable = true; contentDescription = t("wallet"); setOnClickListener { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) } }
-        cashBalanceAnchor = walletIcon
-        walletChip.addView(walletIcon, LinearLayout.LayoutParams(dp(38), dp(38)))
-        val cash = TextView(this@createPlayerAssetStrip).apply { text = wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setPadding(dp(5), 0, 0, 0); isClickable = true; setOnClickListener { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) } }
-        cashBalanceLabel = cash
-        walletChip.addView(cash)
-        addView(walletChip, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(50), Gravity.START or Gravity.CENTER_VERTICAL).apply { marginStart = dp(56) })
-        val extraReward = TextView(this@createPlayerAssetStrip).apply {
-            textSize = 14f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER_VERTICAL; maxLines = 1
-            setPadding(0, dp(5), 0, dp(5)); contentDescription = t("bonus_cash")
-        }
-        playerWalletBoostButtons.add(extraReward)
-        updatePlayerWalletBoostButton(extraReward)
-        val extraSlot = LinearLayout(this@createPlayerAssetStrip).apply {
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(10), dp(6), dp(10), dp(6))
-            background = roundedDrawable(0xA6000000.toInt(), 22)
-            alpha = 0.84f
-            addView(extraReward, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34)))
-            val cooldown = ChargeCooldownRingView(this@createPlayerAssetStrip)
-            walletChargeCooldownRings.add(cooldown); updateWalletChargeCooldownRing(cooldown)
-            addView(cooldown, LinearLayout.LayoutParams(dp(26), dp(26)).apply { marginStart = dp(4) })
-        }
-        addView(extraSlot, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(50), Gravity.END or Gravity.CENTER_VERTICAL).apply { marginEnd = dp(16) })
+internal fun DramaAppActivity.createPlayerAssetStrip(): View = LinearLayout(this).apply {
+    gravity = Gravity.CENTER_VERTICAL
+    setPadding(dp(56), 0, dp(12), 0)
+    val wallet = rewardsSnapshot?.wallet
+    val walletChip = LinearLayout(this@createPlayerAssetStrip).apply {
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(8), dp(4), dp(8), dp(4))
+        background = roundedDrawable(0xCC092D32.toInt(), 22)
+        isClickable = true; contentDescription = t("wallet")
+        setOnClickListener { wallet?.let(::showWithdrawalPage) ?: toast(t("wallet_syncing")) }
     }
+    val walletIcon = ImageView(this@createPlayerAssetStrip).apply {
+        setImageResource(R.drawable.ic_rocket_wallet)
+        imageTintList = ColorStateList.valueOf(COLOR_ACCENT)
+        scaleType = ImageView.ScaleType.CENTER_INSIDE
+    }
+    cashBalanceAnchor = walletIcon
+    walletChip.addView(walletIcon, LinearLayout.LayoutParams(dp(24), dp(24)))
+    val cash = TextView(this@createPlayerAssetStrip).apply {
+        text = wallet?.let { formatWalletTotal(it, includeUsdReference = false) } ?: "—"
+        typeface = Typeface.DEFAULT_BOLD; setTextColor(COLOR_TEXT_PRIMARY)
+        maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; includeFontPadding = false
+        setAutoSizeTextTypeUniformWithConfiguration(10, 15, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
+    }
+    cashBalanceLabel = cash
+    walletChip.addView(cash, LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginStart = dp(5) })
+    addView(walletChip, LinearLayout.LayoutParams(0, dp(44), 1f))
+    val extraReward = TextView(this@createPlayerAssetStrip).apply {
+        typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; maxLines = 1
+        setPadding(dp(8), dp(4), dp(8), dp(4)); contentDescription = t("bonus_cash")
+    }
+    playerWalletBoostButtons.add(extraReward)
+    updatePlayerWalletBoostButton(extraReward)
+    addView(extraReward, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(44)).apply { marginStart = dp(6) })
+    val cooldown = ChargeCooldownRingView(this@createPlayerAssetStrip)
+    walletChargeCooldownRings.add(cooldown); updateWalletChargeCooldownRing(cooldown)
+    addView(cooldown, LinearLayout.LayoutParams(dp(24), dp(24)).apply { marginStart = dp(4) })
+}
 
 internal fun DramaAppActivity.createTopSafePlayerAssetStrip(): View {
         val shell = FrameLayout(this)
@@ -361,7 +397,7 @@ internal fun DramaAppActivity.formatGems(value: Long): String = String.format(Lo
 
 internal fun DramaAppActivity.createBottomNavigation(): View = LinearLayout(this).apply {
         // A taller dock gives every tab a reliable touch target rather than a narrow text/icon strip.
-        gravity = Gravity.CENTER; setPadding(dp(12), dp(8), dp(12), dp(11)); background = topRoundedDrawable(COLOR_CARD, 26); elevation = dp(10).toFloat()
+        gravity = Gravity.CENTER; setPadding(dp(12), dp(8), dp(12), dp(11)); background = topRoundedDrawable(COLOR_BACKGROUND, 0); elevation = dp(10).toFloat()
         MainTab.entries.forEach { tab ->
             val active = activeTab == tab
             addView(LinearLayout(this@createBottomNavigation).apply {
@@ -390,7 +426,7 @@ internal fun DramaAppActivity.createBottomNavigation(): View = LinearLayout(this
                     scaleType = ImageView.ScaleType.CENTER_INSIDE
                 }
                 addView(icon, LinearLayout.LayoutParams(dp(26), dp(26)))
-            addView(TextView(this@createBottomNavigation).apply { text = t(tab.languageKey); textSize = 11f; gravity = Gravity.CENTER; typeface = if (active) Typeface.DEFAULT_BOLD else Typeface.DEFAULT; setTextColor(if (active) COLOR_TAB_ACTIVE else COLOR_TEXT_MUTED); setPadding(0, dp(2), 0, 0) })
+            addView(TextView(this@createBottomNavigation).apply { text = t(tab.languageKey); textSize = 11f; maxLines = 2; gravity = Gravity.CENTER; typeface = if (active) Typeface.DEFAULT_BOLD else Typeface.DEFAULT; setTextColor(if (active) COLOR_TAB_ACTIVE else COLOR_TEXT_MUTED); setPadding(0, dp(2), 0, 0) })
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         }
     }

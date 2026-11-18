@@ -213,7 +213,7 @@ internal fun DramaAppActivity.showSdkDramaPlayer(
         val episodeCounter = createPlayerEpisodeCounter()
         playerEpisodeCounterView = episodeCounter
         root.addView(topBar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(132), Gravity.TOP))
-        root.addView(controlDock, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(106), Gravity.BOTTOM).apply {
+        root.addView(controlDock, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM).apply {
             marginStart = dp(12)
             marginEnd = dp(12)
             // GONE while playing. When paused it overlays the media instead of reserving a
@@ -519,9 +519,9 @@ private fun DramaAppActivity.finishGestureCoachmark(view: View, preferenceKey: S
 private fun DramaAppActivity.createSdkPlayerControlDock(): View = LinearLayout(this).apply {
     orientation = LinearLayout.VERTICAL
     setPadding(dp(10), dp(4), dp(10), dp(6))
-    background = roundedDrawable(0xA6000000.toInt(), 18)
+    background = roundedDrawable(0xCC092D32.toInt(), 20)
     addView(createPlayerProgressControls(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
-    addView(createPlayerActionRow(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(38)))
+    addView(createPlayerActionRow(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 }
 
 private fun DramaAppActivity.onSdkEpisodeStarted(episodeIndex: Int, episode: EpisodeData?) {

@@ -283,7 +283,7 @@ internal fun DramaAppActivity.createPlayerChrome(): View {
         val controls = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(14), dp(10), dp(14), dp(12))
-            background = topRoundedDrawable(0x9E0D0B12.toInt(), 22)
+            background = topRoundedDrawable(0xCC092D32.toInt(), 22)
             isClickable = true
         }
         controls.visibility = View.GONE
@@ -315,7 +315,7 @@ internal fun DramaAppActivity.createPlayerChrome(): View {
         playerDescriptionContainer = descriptionScroll
         controls.addView(descriptionScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(144)))
         controls.addView(createPlayerProgressControls())
-        controls.addView(createPlayerActionRow(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)).apply { topMargin = dp(4) })
+        controls.addView(createPlayerActionRow(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4) })
         chrome.addView(controls, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
         ViewCompat.setOnApplyWindowInsetsListener(chrome) { _, insets ->
             val safeBottom = insets.getInsets(WindowInsetsCompat.Type.navigationBars() or WindowInsetsCompat.Type.displayCutout()).bottom
@@ -352,7 +352,7 @@ internal fun DramaAppActivity.createPlayerTopBar(): View {
             setImageResource(R.drawable.ic_arrow_back)
             imageTintList = ColorStateList.valueOf(Color.WHITE)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            background = roundedDrawable(0x720D0B12, 17)
+            background = roundedDrawable(0x72092D32, 20)
             contentDescription = t("back")
             isClickable = true
             setOnClickListener {
@@ -361,10 +361,18 @@ internal fun DramaAppActivity.createPlayerTopBar(): View {
             }
         }
         val assets = createPlayerAssetStrip()
+        val dramaTitle = TextView(this).apply {
+            text = selectedDrama?.title.orEmpty(); textSize = 14f; typeface = Typeface.DEFAULT_BOLD
+            setTextColor(COLOR_TEXT_PRIMARY); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+            setShadowLayer(dp(2).toFloat(), 0f, dp(1).toFloat(), COLOR_INK)
+        }
         // Both controls share the true system safe inset. This avoids the fixed 14dp
         // offset that could overlap a notch/status region on first opening the player.
         shell.addView(back, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.TOP or Gravity.START).apply { topMargin = dp(2); marginStart = dp(8) })
         shell.addView(assets, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50), Gravity.TOP).apply { topMargin = dp(2) })
+        shell.addView(dramaTitle, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(28), Gravity.TOP).apply {
+            topMargin = dp(56); marginStart = dp(16); marginEnd = dp(16)
+        })
         ViewCompat.setOnApplyWindowInsetsListener(shell) { _, insets ->
             val safeTop = insets.getInsets(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()).top
             // Keep the back control inside the cutout-safe area. The wallet / extra-reward strip
@@ -373,6 +381,7 @@ internal fun DramaAppActivity.createPlayerTopBar(): View {
             val assetsTop = (alignedTop - dp(5)).coerceAtLeast(0)
             (back.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = alignedTop; back.layoutParams = params }
             (assets.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = assetsTop; assets.layoutParams = params }
+            (dramaTitle.layoutParams as FrameLayout.LayoutParams).also { params -> params.topMargin = alignedTop + dp(50); dramaTitle.layoutParams = params }
             insets
         }
         ViewCompat.requestApplyInsets(shell)
@@ -546,7 +555,7 @@ internal fun DramaAppActivity.createPlayerProgressControls(): View = LinearLayou
         playerProgressSeekBar = SeekBar(this@createPlayerProgressControls).apply {
             max = 1
             progressTintList = ColorStateList.valueOf(COLOR_ACCENT)
-            thumbTintList = ColorStateList.valueOf(Color.WHITE)
+            thumbTintList = ColorStateList.valueOf(COLOR_ACCENT)
             setPadding(0, 0, 0, 0)
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
@@ -566,44 +575,32 @@ internal fun DramaAppActivity.createPlayerProgressControls(): View = LinearLayou
     }
 
 internal fun DramaAppActivity.createPlayerActionRow(): View = LinearLayout(this).apply {
-        orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.CENTER_VERTICAL
-        val actions = listOf(
-            Triple("${t("episodes")}\n${episodeCounterLabel()}", t("episodes")) { toggleEpisodePicker() },
-            Triple("1x", t("speed")) { showPlaybackSpeedPicker() },
-            Triple(resolutionControlLabel(), t("resolution")) { showSdkResolutionPicker() },
-            Triple(t("more"), t("more")) { showPlaybackMoreControls() },
-            Triple("♥", t("favorite")) { toggleFavorite() },
-            Triple(t("hide"), t("hide")) { hidePlayerControlsFromUser() },
-        )
-        actions.forEachIndexed { index, action ->
-            val button = if (action.second == t("episodes") || action.second == t("more") || action.second == t("hide") || action.second == t("resolution")) {
-                transparentPlayerTextButton(action.first, action.second, action.third)
-            } else {
-                transparentPlayerIcon(action.first, action.second, action.third)
-            }
-            if (action.first == "1x") speedButton = button
-            if (action.second == t("favorite")) {
-                favoriteButton = button
-                updatePlayerFavoriteButton(isFavorite())
-            }
-            if (index == 0) {
-                playerEpisodePickerButton = button
-                button.textSize = 10f
-                button.setLines(2)
-                button.includeFontPadding = false
-            }
-            if (action.second == t("resolution")) {
-                playerResolutionButton = button
-                button.textSize = 10f
-                button.setLines(2)
-                button.includeFontPadding = false
-            }
-            addView(button, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply {
-                if (index > 0) marginStart = dp(2)
-            })
-        }
+    orientation = LinearLayout.VERTICAL
+    val primary = LinearLayout(this@createPlayerActionRow).apply { gravity = Gravity.CENTER_VERTICAL }
+    val episodes = transparentPlayerTextButton("${t("episodes")} ${episodeCounterLabel()}", t("episodes")) { toggleEpisodePicker() }.apply {
+        textSize = 12f; includeFontPadding = false; maxLines = 2
     }
+    playerEpisodePickerButton = episodes
+    primary.addView(episodes, LinearLayout.LayoutParams(0, dp(48), 1.8f))
+    val quality = transparentPlayerTextButton(resolutionControlLabel(), t("resolution")) { showSdkResolutionPicker() }.apply {
+        textSize = 11f; maxLines = 2; includeFontPadding = false
+    }
+    playerResolutionButton = quality
+    primary.addView(quality, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(6) })
+    val speed = transparentPlayerTextButton("1x", t("speed")) { showPlaybackSpeedPicker() }
+    speedButton = speed
+    primary.addView(speed, LinearLayout.LayoutParams(dp(48), dp(48)).apply { marginStart = dp(6) })
+    val favorite = transparentPlayerIcon("", t("favorite")) { toggleFavorite() }
+    favoriteButton = favorite
+    updatePlayerFavoriteButton(isFavorite())
+    primary.addView(favorite, LinearLayout.LayoutParams(dp(48), dp(48)).apply { marginStart = dp(6) })
+    addView(primary)
+    addView(LinearLayout(this@createPlayerActionRow).apply {
+        gravity = Gravity.CENTER_VERTICAL
+        addView(transparentPlayerTextButton(t("more"), t("more")) { showPlaybackMoreControls() }, LinearLayout.LayoutParams(0, dp(44), 1f))
+        addView(transparentPlayerTextButton(t("player_hide_controls"), t("hide")) { hidePlayerControlsFromUser() }, LinearLayout.LayoutParams(0, dp(44), 1.5f).apply { marginStart = dp(8) })
+    }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)).apply { topMargin = dp(6) })
+}
 
 internal fun DramaAppActivity.togglePlayerDescription() {
         playerDescriptionExpanded = !playerDescriptionExpanded
@@ -616,7 +613,7 @@ internal fun DramaAppActivity.transparentPlayerTextButton(label: String, descrip
         textSize = 12f
         gravity = Gravity.CENTER
         setTextColor(Color.WHITE)
-        background = roundedDrawable(0x26000000, 14)
+        background = roundedDrawable(0x66092D32, 20)
         contentDescription = description
         setOnClickListener { onClick() }
         isClickable = true
@@ -628,7 +625,7 @@ internal fun DramaAppActivity.createPlayerEpisodeCounter(): TextView = TextView(
         textSize = 12f
         gravity = Gravity.CENTER
         setTextColor(Color.WHITE)
-        background = roundedDrawable(0x26000000, 14)
+        background = roundedDrawable(0x66092D32, 20)
         contentDescription = t("episode_progress", currentEpisodeIndex + 1, selectedDrama?.total?.coerceAtLeast(1) ?: 1, "")
         isClickable = false
     }
@@ -723,7 +720,7 @@ internal fun DramaAppActivity.transparentPlayerIcon(label: String, description: 
         textSize = if (label.length > 1) 12f else 21f
         gravity = Gravity.CENTER
         setTextColor(Color.WHITE)
-        background = roundedDrawable(0x26000000, 14)
+        background = roundedDrawable(0x66092D32, 20)
         contentDescription = description
         setOnClickListener { onClick() }
         isClickable = true
@@ -742,6 +739,7 @@ internal fun DramaAppActivity.updatePlayerFavoriteButton(favorite: Boolean) {
                 0,
             )
             compoundDrawablePadding = 0
+            setPadding(dp(12), 0, dp(12), 0)
         }
     }
 

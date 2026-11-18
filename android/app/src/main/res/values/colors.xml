@@ -1,10 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="surface_dark">#000000</color>
-    <color name="brand_purple">#FF6D4A</color>
-    <color name="cloud_white">#000000</color>
-    <color name="startup_warm">#000000</color>
-    <color name="mist_blue">#10151B</color>
-    <color name="coral_primary">#FF6D4A</color>
-    <color name="ink_primary">#F6F6F8</color>
+    <color name="rocket_deep_sea">#092D32</color>
+    <color name="rocket_lime">#D7F75B</color>
+    <color name="rocket_warm_white">#F5F4EC</color>
+    <color name="rocket_amber">#F2B544</color>
+    <!-- Legacy names remain available to existing XML consumers. -->
+    <color name="surface_dark">@color/rocket_deep_sea</color>
+    <color name="brand_purple">@color/rocket_lime</color>
+    <color name="cloud_white">@color/rocket_deep_sea</color>
+    <color name="startup_warm">@color/rocket_deep_sea</color>
+    <color name="mist_blue">@color/rocket_deep_sea</color>
+    <color name="coral_primary">@color/rocket_lime</color>
+    <color name="ink_primary">@color/rocket_warm_white</color>
 </resources>
