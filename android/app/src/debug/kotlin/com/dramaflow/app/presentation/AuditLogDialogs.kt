@@ -51,7 +51,7 @@ internal fun DramaAppActivity.showAdNetworkAuditLog() {
     )
 }
 
-/** Debug-only helper for internal AppsFlyer/Firebase/Xuanyu reconciliation. */
+/** Debug-only helper for internal AppsFlyer/Firebase reconciliation. */
 internal fun DramaAppActivity.showReportingAuditLog() {
     val audit = ReportingAuditLog.get(this)
     val summary = audit.summary()

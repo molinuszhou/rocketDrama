@@ -243,6 +243,6 @@ class AdMediationEventReporter(
         const val QUEUE_DIRECTORY = "ad_mediation_events"
         const val QUEUE_FILE_NAME = "pending.ndjson"
         const val MAX_PENDING_EVENTS = 100
-        val REPORTING_TARGETS = listOf("PSSDK", "AppsFlyer", "Firebase", "Xuanyu")
+        val REPORTING_TARGETS = listOf("PSSDK", "AppsFlyer", "Firebase")
     }
 }

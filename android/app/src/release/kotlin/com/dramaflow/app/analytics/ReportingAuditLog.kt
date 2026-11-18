@@ -4,7 +4,7 @@ import android.content.Context
 import com.dramaflow.app.ads.AdRevenueAuditValues
 
 /**
- * Release source set deliberately has no device-local AppsFlyer/Firebase/Xuanyu audit trail.
+ * Release source set deliberately has no device-local AppsFlyer/Firebase audit trail.
  *
  * Third-party reporting remains active in [EngagementAnalytics]. A privacy-minimised delivery
  * outcome can be mirrored to the Rewards server for protected operations review, but this class
@@ -39,7 +39,6 @@ class ReportingAuditLog private constructor(context: Context) {
 internal enum class ReportingProvider(val wireName: String) {
     APPSFLYER("AppsFlyer"),
     FIREBASE("Firebase"),
-    XUANYU("Xuanyu"),
     REWARDS_OPERATIONS("Rewards Operations"),
 }
 

@@ -2,8 +2,6 @@ package com.dramaflow.app.analytics
 
 import android.content.Context
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
 import com.appsflyer.AFAdRevenueData
 import com.appsflyer.AppsFlyerConversionListener
@@ -15,19 +13,10 @@ import com.dramaflow.app.ads.AdNetworkIdentity
 import com.dramaflow.app.ads.AdRevenueAuditValues
 import com.dramaflow.app.analytics.ReportingProvider.APPSFLYER
 import com.dramaflow.app.analytics.ReportingProvider.FIREBASE
-import com.dramaflow.app.analytics.ReportingProvider.XUANYU
 import com.dramaflow.app.rewards.RewardsApiClient
 import com.google.firebase.analytics.FirebaseAnalytics
 import com.secmtp.sdk.core.api.ATAdInfo
-import java.io.IOException
 import java.math.BigDecimal
-import java.util.Locale
-import okhttp3.Call
-import okhttp3.Callback
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.Response
 
 /**
  * 白包统一数据链路。
@@ -36,7 +25,6 @@ import okhttp3.Response
  *   和 ad_impression_001 两个收入自定义事件；不在加载、展示、关闭或奖励回调估算收入。
  * - Firebase：在每个 paid-impression 回调中上报标准 ad_impression；累计达到合作方
  *   阈值后上报自定义 ad_impression_001。奖励完成另行发送完成事件。
- * - 炫羽：严格按《海外事件上报》文档，仅在广告实际展示时请求 /event/w_ad_show。
  *
  * 奖励、解锁和宝石账本仍只由 Rewards API 结算。任何上报失败均不会阻断广告关闭、内容播放
  * 或权益结算。
@@ -52,8 +40,6 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
             .onFailure { Log.w(TAG, "Firebase Analytics is unavailable; Firebase events are skipped", it) }
             .getOrNull()
     }
-    private val httpClient = OkHttpClient()
-    private val mainHandler = Handler(Looper.getMainLooper())
 
     /** 仅保存在内存；进程结束后清零，符合合作方 AppsFlyer 收入事件规范。 */
     private var pendingAppsFlyerRevenueUsd = BigDecimal.ZERO
@@ -74,10 +60,13 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
         if (initialized) return
         initialized = true
         if (!BuildConfig.EXTERNAL_REPORTING_ENABLED) {
+            // Firebase initialises itself through its content provider, so skipping our own
+            // logEvent calls is not enough: opt this build out of automatic collection as well.
+            runCatching { FirebaseAnalytics.getInstance(appContext).setAnalyticsCollectionEnabled(false) }
+                .onFailure { Log.w(TAG, "Firebase Analytics opt-out is unavailable", it) }
             reportingAudit.recordProvider(APPSFLYER, "sdk_initialization", ReportingStatus.SKIPPED_DISABLED)
             reportingAudit.recordProvider(FIREBASE, "sdk_initialization", ReportingStatus.SKIPPED_DISABLED)
-            reportingAudit.recordProvider(XUANYU, "sdk_initialization", ReportingStatus.SKIPPED_DISABLED)
-            Log.i(TAG, "外部数据上报已关闭：AppsFlyer、Firebase 与炫羽事件不会发送")
+            Log.i(TAG, "外部数据上报已关闭：AppsFlyer 与 Firebase 事件不会发送")
             return
         }
         if (BuildConfig.APPSFLYER_DEV_KEY.isBlank()) {
@@ -115,10 +104,9 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
                 }
             })
         }
-        // getInstance() and OkHttp construction prove only that a local client object exists. Neither
-        // SDK exposes a remote initialization acknowledgement here, so do not claim delivery success.
+        // getInstance() proves only that a local client object exists. The SDK exposes no remote
+        // initialization acknowledgement here, so do not claim delivery success.
         reportingAudit.recordProvider(FIREBASE, "sdk_initialization", ReportingStatus.STARTED, detail = "firebase_lazy_unverified; remote_delivery_unconfirmed")
-        reportingAudit.recordProvider(XUANYU, "sdk_initialization", ReportingStatus.STARTED, detail = "http_client_created; awaiting_actual_http_response")
         Log.i(TAG, "AppsFlyer initialization requested")
     }
 
@@ -188,19 +176,6 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
                 detail = "attribution_failure",
             )
         }
-    }
-
-    /** 广告真实展示：炫羽展示上报使用此时机；收入事件等待 paid impression 回调。 */
-    fun reportTopOnImpression(logicalPlacement: String, adUnitId: String, adInfo: ATAdInfo) =
-        safely("report TopOn impression") { reportTopOnImpressionInternal(logicalPlacement, adUnitId, adInfo) }
-
-    private fun reportTopOnImpressionInternal(logicalPlacement: String, adUnitId: String, adInfo: ATAdInfo) {
-        if (!BuildConfig.EXTERNAL_REPORTING_ENABLED) {
-            recordAllDisabled("ad_impression", logicalPlacement, adUnitId)
-            debug("外部上报已关闭：跳过展示事件 $logicalPlacement")
-            return
-        }
-        reportXuanyuAdShow(payloadFor(logicalPlacement, adUnitId, adInfo))
     }
 
     /**
@@ -407,87 +382,6 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
         debug("Firebase $eventName: cumulative_value=${revenueUsd.toPlainString()}")
     }
 
-    private fun reportXuanyuAdShow(payload: AdPayload, uidAttempt: Int = 0, networkAttempt: Int = 0) =
-        safely("report Xuanyu ad show") { reportXuanyuAdShowInternal(payload, uidAttempt, networkAttempt) }
-
-    private fun reportXuanyuAdShowInternal(payload: AdPayload, uidAttempt: Int, networkAttempt: Int) {
-        val revenueAudit = payload.revenueAuditValues()
-        if (!BuildConfig.EXTERNAL_REPORTING_ENABLED) {
-            reportingAudit.recordProvider(XUANYU, "w_ad_show", ReportingStatus.SKIPPED_DISABLED, payload.logicalPlacement, payload.adUnitId, revenue = revenueAudit)
-            return
-        }
-        val baseUrl = BuildConfig.XUANYU_EVENT_BASE_URL.trim().removeSuffix("/").toHttpUrlOrNull()
-        val uid = appsFlyerUid()
-        if (baseUrl == null || baseUrl.host != XUANYU_HOST || baseUrl.scheme != "http") {
-            reportingAudit.recordProvider(XUANYU, "w_ad_show", ReportingStatus.SKIPPED_NOT_CONFIGURED, payload.logicalPlacement, payload.adUnitId, revenue = revenueAudit, detail = "base_url_not_allowlisted")
-            debug("炫羽广告展示上报跳过：地址未通过生产白名单")
-            return
-        }
-        if (!payload.ecpm.isFinite() || payload.ecpm < 0.0) {
-            reportingAudit.recordProvider(XUANYU, "w_ad_show", ReportingStatus.SKIPPED_NOT_CONFIGURED, payload.logicalPlacement, payload.adUnitId, revenue = revenueAudit, detail = "invalid_ecpm")
-            debug("炫羽广告展示上报跳过：eCPM 无效")
-            return
-        }
-        if (uid.isNullOrBlank()) {
-            if (uidAttempt < XUANYU_UID_RETRY_COUNT) {
-                mainHandler.postDelayed({ reportXuanyuAdShow(payload, uidAttempt + 1, networkAttempt) }, XUANYU_UID_RETRY_DELAY_MS)
-            } else {
-                reportingAudit.recordProvider(XUANYU, "w_ad_show", ReportingStatus.FINAL_FAILED, payload.logicalPlacement, payload.adUnitId, revenue = revenueAudit, detail = "appsflyer_uid_not_ready")
-                Log.w(TAG, "炫羽广告展示上报跳过：AppsFlyer uid 未就绪")
-            }
-            return
-        }
-        val url = baseUrl.newBuilder()
-            .addPathSegments("event/w_ad_show")
-            .addQueryParameter("uid", uid)
-            .addQueryParameter("app_ver", BuildConfig.VERSION_NAME)
-            .addQueryParameter("pkg_name", appContext.packageName)
-            .addQueryParameter("ad_type", payload.adType)
-            .addQueryParameter("ad_network", payload.adNetwork)
-            .addQueryParameter("ad_source_id", payload.adSourceId)
-            .addQueryParameter("ecpm", formatDecimal(payload.ecpm.coerceAtLeast(0.0)))
-            .build()
-        reportingAudit.recordProvider(XUANYU, "w_ad_show", ReportingStatus.STARTED, payload.logicalPlacement, payload.adUnitId, revenue = revenueAudit, detail = "http_request_ecpm")
-        httpClient.newCall(Request.Builder().url(url).get().build()).enqueue(object : Callback {
-            override fun onFailure(call: Call, error: IOException) = safely("handle Xuanyu HTTP failure") {
-                if (networkAttempt < XUANYU_NETWORK_RETRY_COUNT) {
-                    val nextAttempt = networkAttempt + 1
-                    reportingAudit.recordProvider(XUANYU, "w_ad_show", ReportingStatus.RETRYING, payload.logicalPlacement, payload.adUnitId, revenue = revenueAudit, detail = "attempt=$nextAttempt")
-                    Log.w(TAG, "炫羽广告展示上报失败（第 ${nextAttempt} 次重试前）：${error.message}")
-                    mainHandler.postDelayed(
-                        { reportXuanyuAdShow(payload, uidAttempt, nextAttempt) },
-                        XUANYU_NETWORK_RETRY_DELAY_MS,
-                    )
-                } else {
-                    reportingAudit.recordProvider(XUANYU, "w_ad_show", ReportingStatus.FINAL_FAILED, payload.logicalPlacement, payload.adUnitId, revenue = revenueAudit, detail = error.message.orEmpty())
-                    Log.w(TAG, "炫羽广告展示上报最终失败：${error.message}")
-                }
-            }
-
-            override fun onResponse(call: Call, response: Response) = safely("handle Xuanyu HTTP response") {
-                response.use {
-                    if (it.isSuccessful) {
-                        reportingAudit.recordProvider(XUANYU, "w_ad_show", ReportingStatus.SUCCESS, payload.logicalPlacement, payload.adUnitId, revenue = revenueAudit, detail = "http_${it.code}; sent_ecpm; derived_value")
-                        debug("炫羽广告展示上报成功：${payload.logicalPlacement}")
-                    } else if (it.code >= 500 && networkAttempt < XUANYU_NETWORK_RETRY_COUNT) {
-                        val nextAttempt = networkAttempt + 1
-                        reportingAudit.recordProvider(XUANYU, "w_ad_show", ReportingStatus.RETRYING, payload.logicalPlacement, payload.adUnitId, errorCode = it.code.toString(), revenue = revenueAudit, detail = "attempt=$nextAttempt")
-                        Log.w(TAG, "炫羽广告展示上报失败：HTTP ${it.code}，将重试")
-                        mainHandler.postDelayed(
-                            { reportXuanyuAdShow(payload, uidAttempt, nextAttempt) },
-                            XUANYU_NETWORK_RETRY_DELAY_MS,
-                        )
-                    } else {
-                        reportingAudit.recordProvider(XUANYU, "w_ad_show", ReportingStatus.FINAL_FAILED, payload.logicalPlacement, payload.adUnitId, errorCode = it.code.toString(), revenue = revenueAudit)
-                        Log.w(TAG, "炫羽广告展示上报最终失败：HTTP ${it.code}")
-                    }
-                }
-            }
-        })
-    }
-
-    private fun formatDecimal(value: Double): String = String.format(Locale.US, "%.6f", value)
-
     private fun AdPayload.revenueAuditValues(): AdRevenueAuditValues =
         AdRevenueAuditValues.fromPaidImpression(currency, ecpm, publisherRevenue)
 
@@ -513,7 +407,6 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
     private fun recordAllDisabled(eventName: String, placement: String, adUnitId: String) {
         reportingAudit.recordProvider(APPSFLYER, eventName, ReportingStatus.SKIPPED_DISABLED, placement, adUnitId)
         reportingAudit.recordProvider(FIREBASE, eventName, ReportingStatus.SKIPPED_DISABLED, placement, adUnitId)
-        reportingAudit.recordProvider(XUANYU, "w_ad_show", ReportingStatus.SKIPPED_DISABLED, placement, adUnitId)
     }
 
     data class AdPayload(
@@ -530,11 +423,6 @@ class EngagementAnalytics private constructor(private val appContext: Context) {
     companion object {
         private const val TAG = "WhiteLabelAnalytics"
         private const val USD = "USD"
-        private const val XUANYU_UID_RETRY_COUNT = 3
-        private const val XUANYU_UID_RETRY_DELAY_MS = 750L
-        private const val XUANYU_NETWORK_RETRY_COUNT = 2
-        private const val XUANYU_NETWORK_RETRY_DELAY_MS = 1_500L
-        private const val XUANYU_HOST = "api.eventtrack.top"
         @Volatile
         private var instance: EngagementAnalytics? = null
 

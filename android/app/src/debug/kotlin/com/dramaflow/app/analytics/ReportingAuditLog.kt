@@ -7,7 +7,7 @@ import java.io.File
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 
-/** Local, shareable audit trail for AppsFlyer, Firebase and Xuanyu reporting. */
+/** Local, shareable audit trail for AppsFlyer and Firebase reporting. */
 class ReportingAuditLog private constructor(context: Context) {
     private val appContext = context.applicationContext
     private val deliveryReporter = ReportingDeliveryEventReporter(appContext)
@@ -114,7 +114,6 @@ class ReportingAuditLog private constructor(context: Context) {
 internal enum class ReportingProvider(val wireName: String) {
     APPSFLYER("AppsFlyer"),
     FIREBASE("Firebase"),
-    XUANYU("Xuanyu"),
     REWARDS_OPERATIONS("Rewards Operations"),
 }
 

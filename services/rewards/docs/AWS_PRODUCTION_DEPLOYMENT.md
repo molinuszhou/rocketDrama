@@ -239,9 +239,9 @@ https://www.joyelleasia.com/joyedrama-rewards/admin
 控制台在这个反向代理子路径下会自动把 API 请求发送至 `/joyedrama-rewards/v2/admin/...`，不会错误请求主站的 `/v2/...`。
 
 - **用户与归因**：查询匿名用户 ID、市场、GeoIP 国家、钱包、观看/广告参与计数，以及最小 AppsFlyer 归因记录和服务端推导的 A/B 面；不提供原始 IP、点击 ID、site ID 或原始归因载荷。
-- **广告运营**：查询 TopOn 回调写入的原始广告运营事件（保留 90 天）和日汇总；支持按时间、逻辑广告位、TopOn 广告位、格式、ADN、事件、关联上报目标、客户端版本和币种筛选，原始记录与日汇总分别分页。一次实际展示只保留一条记录，关联目标清单可显示 PSSDK、AppsFlyer、Firebase、炫羽，不按目标重复写行。
+- **广告运营**：查询 TopOn 回调写入的原始广告运营事件（保留 90 天）和日汇总；支持按时间、逻辑广告位、TopOn 广告位、格式、ADN、事件、关联上报目标、客户端版本和币种筛选，原始记录与日汇总分别分页。一次实际展示只保留一条记录，关联目标清单可显示 PSSDK、AppsFlyer、Firebase，不按目标重复写行。
 - **收入估算**：合并后的 `SHOWN` 记录只要带有 TopOn eCPM 就会计算 `eCPM / 1,000`；`047_v1718_rebuild_recent_ad_mediation_metrics.sql` 会自动回填最近 90 天日汇总。该值仅用于运营核对，TopOn/MAX 后台结算报表才是财务事实来源。
-- **上报记录**：查询 AppsFlyer、Firebase、炫羽的客户端投递状态镜像（保留 90 天）。这是客户端 SDK/HTTP 回调观察结果，不取代三个渠道后台的最终接收或结算数据。
+- **上报记录**：查询 AppsFlyer、Firebase 的客户端投递状态镜像（保留 90 天）。这是客户端 SDK 回调观察结果，不取代渠道后台的最终接收或结算数据。
 
 新增的 `037_v1708_reporting_delivery_events.sql`、`038_v1709_reporting_user_uid.sql` 和 `039_v1710_user_geo_country.sql` 同样由服务启动时自动迁移；更新容器后无需重建数据库。
 

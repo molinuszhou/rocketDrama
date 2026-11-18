@@ -51,14 +51,12 @@ val appsFlyerSingleRevenueEventName = integrationValue("APPSFLYER_SINGLE_REVENUE
 val appsFlyerCumulativeRevenueEventName = integrationValue("APPSFLYER_CUMULATIVE_REVENUE_EVENT_NAME").ifBlank { "ad_impression_001" }
 val firebaseRewardedEventName = integrationValue("FIREBASE_REWARDED_EVENT_NAME").ifBlank { "rewarded_ad_completed" }
 val firebaseCumulativeRevenueEventName = integrationValue("FIREBASE_CUMULATIVE_REVENUE_EVENT_NAME").ifBlank { "ad_impression_001" }
-// 炫羽海外事件服务当前正式接口仍为 HTTP；Android 清单仅对该域名放行明文流量。
-val xuanyuEventBaseUrl = integrationValue("XUANYU_EVENT_BASE_URL").ifBlank { "http://api.eventtrack.top" }
 val shortDramaAppId = integrationValue("SHORT_DRAMA_APP_ID")
 val shortDramaVodAppId = integrationValue("SHORT_DRAMA_VOD_APP_ID")
 val shortDramaLicenseAsset = integrationValue("SHORT_DRAMA_LICENSE_ASSET")
 val shortDramaSecurityKey = integrationValue("SHORT_DRAMA_SECURITY_KEY")
 val analyticsDebug = integrationValue("ANALYTICS_DEBUG").trim().equals("true", ignoreCase = true)
-// 默认关闭 AppsFlyer、Firebase 和炫羽的实际事件上报；由受控构建参数显式开启。
+// 默认关闭 AppsFlyer 与 Firebase 的实际事件上报；由受控构建参数显式开启。
 val externalReportingEnabled = integrationValue("EXTERNAL_REPORTING_ENABLED").trim().equals("true", ignoreCase = true)
 val releaseAbRoutingEnabled = integrationValue("RELEASE_AB_ROUTING_ENABLED").trim().equals("true", ignoreCase = true)
 // Rewards 服务地址由 local.properties、-P 或 CI Secret 注入。不要把生产域名硬编码在客户端；
@@ -102,7 +100,7 @@ if (commercialReleaseRequested) {
         "ADMOB_APP_ID must be the one Android AdMob App ID in ca-app-pub-...~... format, not a ca-app-pub-.../... ad unit ID."
     }
     check(externalReportingEnabled) {
-        "Commercial Release requires EXTERNAL_REPORTING_ENABLED=true so AppsFlyer, Firebase, Xuanyu and the Rewards delivery ledger remain enabled."
+        "Commercial Release requires EXTERNAL_REPORTING_ENABLED=true so AppsFlyer, Firebase and the Rewards delivery ledger remain enabled."
     }
 }
 
@@ -163,7 +161,6 @@ android {
         buildConfigField("String", "APPSFLYER_CUMULATIVE_REVENUE_EVENT_NAME", "\"${escapeBuildConfig(appsFlyerCumulativeRevenueEventName)}\"")
         buildConfigField("String", "FIREBASE_REWARDED_EVENT_NAME", "\"${escapeBuildConfig(firebaseRewardedEventName)}\"")
         buildConfigField("String", "FIREBASE_CUMULATIVE_REVENUE_EVENT_NAME", "\"${escapeBuildConfig(firebaseCumulativeRevenueEventName)}\"")
-        buildConfigField("String", "XUANYU_EVENT_BASE_URL", "\"${escapeBuildConfig(xuanyuEventBaseUrl)}\"")
         // Formal content always comes from Pangle/PSSDK; local Content API builds were removed.
         buildConfigField("boolean", "SHORT_DRAMA_SDK_ENABLED", "true")
         buildConfigField("String", "SHORT_DRAMA_APP_ID", "\"${escapeBuildConfig(shortDramaAppId)}\"")

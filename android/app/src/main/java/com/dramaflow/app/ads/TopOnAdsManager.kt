@@ -39,7 +39,7 @@ import com.secmtp.sdk.splashad.api.ATSplashExListener
  * TopOn 聚合广告唯一调用入口。
  *
  * v8 奖励服务仍只相信服务端激励事件；本类只在 TopOn 奖励回调后把“完整观看”交给
- * 业务层。广告展示时同时触发 AppsFlyer、Firebase 与炫羽测试服务器上报。
+ * 业务层。广告展示时触发 AppsFlyer 与 Firebase 上报。
  */
 class TopOnAdsManager(
     private val applicationContext: Context,
@@ -405,9 +405,9 @@ class TopOnAdsManager(
                             splashPolicy.recordShown()
                             globalFullscreenPolicy.recordShown()
                             // Splash stays out of external impression/revenue reporting: no
-                            // analytics.reportTopOnImpression and no TopOnRevenueListener are
-                            // attached. auditAdInfo still mirrors SHOWN to the internal Rewards
-                            // operations ledger for the advertising-operations dashboard.
+                            // impression analytics and no TopOnRevenueListener are attached.
+                            // auditAdInfo still mirrors SHOWN to the internal Rewards operations
+                            // ledger for the advertising-operations dashboard.
                         }
 
                         override fun onAdClick(entity: ATAdInfo) = Unit
@@ -584,7 +584,6 @@ class TopOnAdsManager(
                             auditAdInfo("SHOWN", logicalPlacement, settings.interstitialPlacementId, "interstitial", entity, "DISPLAYED")
                             policy.recordShown()
                             globalFullscreenPolicy.recordShown()
-                            analytics.reportTopOnImpression(logicalPlacement, settings.interstitialPlacementId, entity)
                             runCatching(onShown).onFailure {
                                 Log.w(TAG, "Interstitial shown callback failed: logical=$logicalPlacement", it)
                             }
@@ -701,7 +700,6 @@ class TopOnAdsManager(
                 auditAdInfo("SHOWN", logicalPlacement, settings.rewardedPlacementId, "rewarded", entity, "DISPLAYED")
                 rewardedPolicy.recordShown()
                 globalFullscreenPolicy.recordShown()
-                analytics.reportTopOnImpression(logicalPlacement, settings.rewardedPlacementId, entity)
             }
 
             override fun onRewardedVideoAdPlayEnd(entity: ATAdInfo) {
@@ -864,7 +862,7 @@ class TopOnAdsManager(
         )
         if (event == "SHOWN") {
             // This is a durable internal operations/reconciliation record only. It does not call
-            // AppsFlyer, Firebase, PSSDK, Xuanyu, or a paid-impression/revenue reporting API.
+            // AppsFlyer, Firebase, PSSDK, or a paid-impression/revenue reporting API.
             // Keep splash SHOWN here so the advertising-operations dashboard reconciles all
             // observed TopOn displays by format and returned network.
             adMediationReporter?.recordShown(logicalPlacement, topOnPlacementId, adFormat, adInfo)

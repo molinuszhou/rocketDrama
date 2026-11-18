@@ -1,8 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- 默认拒绝明文流量；炫羽正式事件接口目前仅支持 HTTP，故只放行其精确域名。 -->
+    <!-- 默认拒绝明文流量。此前仅为炫羽 HTTP 事件接口放行 api.eventtrack.top，该上报已移除。 -->
     <base-config cleartextTrafficPermitted="false" />
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">api.eventtrack.top</domain>
-    </domain-config>
 </network-security-config>

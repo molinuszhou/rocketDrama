@@ -214,7 +214,7 @@ internal fun DramaAppActivity.createProfilePage(): View = scrollPage { content -
         content.addView(createSettingsRow(t("language"), AppLanguage.label(this), "›") { showLanguageSettings() }, matchParams(bottom = 16))
         // This resolves to real CSV audit/export rows in the Debug source set and to a no-op in
         // Release. Keep the invocation in shared UI so test builds can verify returned ADN and
-        // AppsFlyer/Firebase/Xuanyu/Rewards Operations reporting outcomes without exposing them
+        // AppsFlyer/Firebase/Rewards Operations reporting outcomes without exposing them
         // to production users.
         addDebugAuditRows(content)
     }

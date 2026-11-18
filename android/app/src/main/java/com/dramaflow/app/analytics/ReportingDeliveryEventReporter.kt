@@ -96,7 +96,7 @@ internal class ReportingDeliveryEventReporter(context: Context) {
 
     private companion object {
         val JSON = "application/json; charset=utf-8".toMediaType()
-        val REMOTE_PROVIDERS = setOf("AppsFlyer", "Firebase", "Xuanyu")
+        val REMOTE_PROVIDERS = setOf("AppsFlyer", "Firebase")
         val TERMINAL_DELIVERY_STATUSES = setOf("SUCCESS", "FAILED", "FINAL_FAILED")
         const val MAX_EVENT_NAME_LENGTH = 120
         const val MAX_PLACEMENT_LENGTH = 80
